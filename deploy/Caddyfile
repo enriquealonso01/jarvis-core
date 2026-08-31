@@ -1,0 +1,34 @@
+{
+	email alonsorequejoenrique@gmail.com
+}
+
+jarvis.enriquecodes.com {
+	encode gzip zstd
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+
+	handle /api/health {
+		header Content-Type application/json
+		respond `{"ok":true,"service":"jarvis","phase":0}` 200
+	}
+
+	handle /api/* {
+		reverse_proxy jarvis-api:8080
+	}
+
+	handle /webhooks/telnyx {
+		reverse_proxy jarvis-api:8080
+	}
+
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,44 @@
+# Copy to config/site.yaml on the server. Never commit the copy.
+
+domain: jarvis.enriquecodes.com     # public origin (ADR 004)
+timezone: America/New_York
+
+netcup:
+  sku: RS2000G12                    # RS 2000 G12 ip iv
+  location: vienna                  # VIE; Manassas was out of stock
+  os: debian-13
+  ram_gb: 16
+  disk_gb: 512
+  ipv4: 159.195.245.62
+  hostname: v2202608408610510212.bestsrv.de
+
+tailscale:
+  hostname: jarvis-netcup
+
+backup:
+  restic_repository: b2:jarvis-backups:restic
+  # restic password: password manager only
+
+github:
+  personal_owner: enriquealonso01
+  # admin credential: broker after first boot
+
+telephony:
+  quiet_hours_start: "19:30"
+  quiet_hours_end: "08:00"
+  tz: America/New_York
+
+audio:
+  raw_retention_days: 7
+  raw_retention_hard_max_days: 10
+
+whatsapp:
+  jarvis_e164: ""                   # dedicated Jarvis number
+  owner_e164: ""                    # Enrique — can_command
+
+elevenlabs:
+  voice_id: ""                      # refined British male, pinned
+
+telnyx:
+  from_e164: ""
+  to_e164: ""                       # Enrique's phone for outbound

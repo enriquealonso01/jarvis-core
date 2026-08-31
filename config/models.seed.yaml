@@ -1,0 +1,51 @@
+# model seed — initial routes (plan §35)
+
+# Verify IDs on the Netcup box at bootstrap. See docs/INITIAL_MODEL_ROUTING.md.
+# Groq = groq.com, not xAI Grok.
+
+supervisor:
+  primary:
+    profile: groq
+    model: openai/gpt-oss-120b
+  fallbacks:
+    - { profile: nvidia, model: nemotron-class }      # pin exact ID from NVIDIA catalog
+    - { profile: google_ai, model: gemini-flash-class }
+    - { profile: anthropic_personal, model: claude-sonnet-current }
+
+utility:
+  primary:
+    profile: groq
+    model: openai/gpt-oss-20b
+  fallbacks:
+    - { profile: groq, model: qwen3-class }
+    - { profile: nvidia, model: nemotron-lightning-class }
+    - { profile: google_ai, model: gemini-flash-lite-class }
+
+senior_engineer:
+  primary:
+    profile: anthropic_personal
+    model: claude-sonnet-or-opus-current
+  fallbacks:
+    - { profile: openai_codex_personal, model: current-codex }
+    - { profile: cursor_personal, model: current-cursor-agent }
+    - { profile: nvidia, model: deepseek-or-kimi-if-listed }
+
+reviewer:
+  prefer_different_family_from_implementer: true
+
+stt:
+  primary:
+    profile: groq
+    model: whisper-large-v3-turbo
+  fallback:
+    profile: groq
+    model: whisper-large-v3
+
+tts:
+  profile: elevenlabs
+  voice_id: from_site_yaml
+
+embeddings:
+  profile: local
+  model: embeddinggemma-class-gguf
+  when: heavy_lane_idle
