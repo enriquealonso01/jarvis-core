@@ -50,6 +50,55 @@ This document inverts that weighting permanently.
 - Discover a week later that something he said was silently dropped.
 - Read maintenance chatter to find the one thing that needs him.
 
+## 0.5 Where things stand today
+
+Read this before writing a line. A large amount already exists and is good; the
+fastest way to waste a week is to rebuild it. Equally, some of it exists only as
+a row in a table, and treating that as working is how v1 got here.
+
+**Built, working, do not touch**
+- Postgres schema — 37 tables across 9 migrations. It already carries `worktree_path`, `branch`, `head_sha`, `harness`, `external_session_id`. The data model anticipated the executor; only the code was missing.
+- Secret storage: envelope encryption, per-credential DEKs, master key at 0400.
+- The credential broker and its fail-closed isolation checks.
+- Durable inbox with persist-before-model, and the OpenClaw bridge that refuses to let a model answer until Jarvis has stored the event.
+- Task state machine, transitions, checkpoints, leases, the watchdog, cancel.
+- Notification outbox with taxonomy-shaped backoff.
+- Audit trail, health incidents, host metrics.
+- Backups to B2 with restic, and a restore drill that reports where the console can see it.
+- Session auth, origin checks, upload scanning, path-traversal rejection.
+
+**Built and genuinely working — the phone**
+Telnyx webhooks verified, calls answered, caller allowlist enforced, audio
+recorded, Whisper transcription, ElevenLabs rendering, a greeting, and a
+two-tier agent keeping the line responsive. Two hard bugs are already fixed and
+documented in `docs/DEBUG_NOTES.md`. Stage 4 makes this *dependable* and gives it
+the ability to act and to dial out — it does not rebuild it.
+
+**Built but never executed**
+- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns `claude -p`, streams a transcript, heartbeats, honours cancel/silence/timeout. Typechecks. **Has never been run.** S1 and S3 exist to change that, and expect the `stream-json` parsing and the worktree setup to need real fixes on first contact.
+
+**Exists as an endpoint, unreachable by Jarvis**
+- `src/github.ts` — create repo, provision deploy key, open PR, merge PR. All four work, all four are behind `requireUser`, so only a human clicking a button can call them. They are not Supervisor tools and nothing pushes a branch for them to open a PR against. S4 and S6 wire them up.
+
+**Exists as a page, degraded**
+- The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S12–S14 repair it rather than restart it.
+
+**Does not exist at all**
+- Any way for a message to become work (`task_create`) — S2.
+- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S19.
+- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S26.
+- Browser control and scraping — S27.
+- Project onboarding and `AGENTS.md` authoring — S22.
+- Memory retrieval over dumped documents — S25.
+- Any test that asserts Jarvis did a piece of work — S7.
+- Any way to run the engineering loop without a paid subscription and a Linux box — S1.
+
+**Carrying weight for a dead constraint**
+The free-tier model chain. Migration 008 measured it: the nominal primary served
+9 turns of 153 and Gemini served 0. Fireworks is a paid route now. A large part
+of `catalog.ts` exists to survive a constraint that no longer applies — S21
+removes it.
+
 ---
 
 # PART I — THE EXPERIENCE
@@ -101,7 +150,7 @@ takes the turn. He can interrupt at any point and Jarvis yields immediately.
 **The voice.** ElevenLabs, one pinned `voice_id`, an English butler register.
 Sparing "sir" — never twice in a reply. Never sycophantic.
 
-**Two-tier answering** (this is a latency architecture, not a feature):
+**Two-tier answering** — already built; a latency architecture, not a feature:
 - **Tier 1 — the voice.** No tools, reasoning off, one short reply, sub-second. Its only decision is *answer* or *hand over*. Because it has no tools it must never claim anything was done.
 - **Tier 2 — the desk.** The full Supervisor with every tool, running after the caller has already been answered. It does the actual work and reports back on the channel Enrique prefers.
 
