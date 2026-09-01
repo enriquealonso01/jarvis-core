@@ -22,6 +22,8 @@ import { createTask, resolveProject } from "./work.js";
  * is to read a day of verdicts.
  */
 
+const NEWLINE = "\n";
+
 export const CATEGORIES = ["capture", "question", "work", "instruction", "ambiguous"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -31,6 +33,12 @@ export type Segment = {
   project: string | null;
   /** The part of the message this segment covers, in his words. */
   text: string;
+  /**
+   * The short id of an existing open task this segment adds to, rather than
+   * starting. Only ever one of the ids the router was shown; anything else is
+   * ignored, because a hallucinated id would attach his words to a stranger.
+   */
+  task?: string | null;
   /** A title only when the segment is work. */
   title?: string | null;
   /** What done looks like; only when the segment is work. */
@@ -59,8 +67,18 @@ export type RouteDecision = {
 /** The marker the fake model keys on, and a reminder that this prompt is not the Supervisor's. */
 export const ROUTE_CLASSIFIER_MARKER = "ROUTE CLASSIFIER";
 
-function systemPrompt(projects: { slug: string; name: string }[]): string {
+export type OpenTask = { short: string; title: string; state: string; slug: string | null };
+
+function systemPrompt(
+  projects: { slug: string; name: string }[],
+  openTasks: OpenTask[],
+): string {
   const known = projects.map((p) => `- ${p.slug} (${p.name})`).join("\n") || "(none)";
+  const open_ = openTasks.length
+    ? openTasks
+        .map((t) => `- ${t.short} [${t.state}] ${t.title}${t.slug ? " (" + t.slug + ")" : ""}`)
+        .join(NEWLINE)
+    : "(none)";
   return [
     `${ROUTE_CLASSIFIER_MARKER}. You are the router for Enrique's assistant, Jarvis.`,
     "",
@@ -89,7 +107,15 @@ function systemPrompt(projects: { slug: string; name: string }[]): string {
     "",
     "Projects that exist:",
     known,
-  ].join("\n");
+    "",
+    "Tasks already open in this thread:",
+    open_,
+    "",
+    "If a segment ADDS to one of those tasks rather than starting new work - a correction, an extra",
+    "thing to check, a change of mind about work already under way - set its category to work and",
+    "put that task id in a task field. Never put anything there that is not in the list above.",
+    "A segment with a task field needs no title and no project; it inherits both from the task.",
+  ].join(NEWLINE);
 }
 
 /**
@@ -167,6 +193,7 @@ export function parseDecision(
       category,
       project: str(e.project),
       text: str(e.text) ?? fallbackText,
+      task: category === "work" ? str(e.task) : null,
       title: category === "work" ? str(e.title) : null,
       objective: category === "work" ? str(e.objective) : null,
       reason:
@@ -190,11 +217,28 @@ export function parseDecision(
  */
 export async function classifyInbox(
   pool: pg.Pool,
-  args: { inboxId: string; text: string },
+  args: { inboxId: string; text: string; conversationId?: string },
 ): Promise<RouteDecision> {
   const projects = await pool.query<{ slug: string; name: string }>(
     `SELECT slug, name FROM projects
      WHERE archived_at IS NULL AND is_system = false ORDER BY slug`,
+  );
+
+  // What is already under way here. Without this the router cannot tell "also
+  // check the CSV export" from "build me a CSV export" — the first adds to a run
+  // in flight, the second starts a new one, and only the open tasks in the
+  // thread distinguish them.
+  const open = await pool.query<OpenTask>(
+    `SELECT substring(t.id::text for 8) AS short, t.title, t.state, p.slug
+     FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+     WHERE t.state NOT IN ('succeeded', 'failed_terminal', 'cancelled')
+       AND ($1::uuid IS NULL OR t.conversation_id = $1
+            OR t.conversation_id IN (SELECT id FROM conversations
+                                     WHERE project_id = (SELECT project_id FROM conversations WHERE id = $1)
+                                       AND project_id IS NOT NULL))
+     ORDER BY t.created_at DESC
+     LIMIT 10`,
+    [args.conversationId ?? null],
   );
 
   const unavailable = (reason: string, model: string): RouteDecision => ({
@@ -207,7 +251,7 @@ export async function classifyInbox(
 
   let decision: RouteDecision;
   try {
-    const raw = await quickCompletion(pool, systemPrompt(projects.rows), args.text, {
+    const raw = await quickCompletion(pool, systemPrompt(projects.rows, open.rows), args.text, {
       maxTokens: 1200,
     });
     decision = raw
@@ -251,6 +295,8 @@ export type Destination = {
   conversationId: string | null;
   taskId: string | null;
   memoryId: string | null;
+  /** Set when the segment was attached to an existing task rather than starting one. */
+  contextId: string | null;
   /** Set when the segment could not be acted on; becomes the one short question. */
   question: string | null;
   summary: string;
@@ -325,6 +371,7 @@ export async function applyRoute(
     conversationId: null,
     taskId: null,
     memoryId: null,
+    contextId: null,
     question,
     summary,
   });
@@ -338,6 +385,7 @@ export async function applyRoute(
         conversationId: args.sourceConversationId,
         taskId: null,
         memoryId: null,
+        contextId: null,
         question: null,
         summary: "answered here",
       });
@@ -351,6 +399,52 @@ export async function applyRoute(
           `asked about: ${segment.text.slice(0, 60)}`,
         ),
       );
+      continue;
+    }
+
+    // S3c: this adds to work already under way rather than starting new work.
+    //
+    // Nothing is interrupted. The context is written down and the runner picks
+    // it up at its next checkpoint - killing a thirty-minute run to hand it a
+    // sentence throws away the thirty minutes.
+    if (segment.category === "work" && segment.task) {
+      const target = await pool.query<{ id: string; state: string; title: string }>(
+        `SELECT id, state, title FROM tasks WHERE substring(id::text for 8) = $1 LIMIT 1`,
+        [segment.task.trim().toLowerCase()],
+      );
+      const task = target.rows[0];
+      if (!task) {
+        // A task id that does not exist is a hallucination, and attaching his
+        // words to a stranger is worse than asking.
+        destinations.push(
+          unclear(
+            `Which task did you mean? I could not find one called "${segment.task}".`,
+            `unknown task: ${segment.text.slice(0, 60)}`,
+          ),
+        );
+        continue;
+      }
+      const stored = await pool.query<{ id: string }>(
+        `INSERT INTO task_context (task_id, inbox_event_id, conversation_id, body, attached_state)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [task.id, args.inboxId, args.sourceConversationId, segment.text, task.state],
+      );
+      const finished = ["succeeded", "failed_terminal", "cancelled"].includes(task.state);
+      destinations.push({
+        category: "work",
+        projectSlug: null,
+        conversationId: null,
+        taskId: task.id,
+        memoryId: null,
+        contextId: stored.rows[0].id,
+        question: null,
+        summary: finished
+          // The plan's edge case: context that arrives a second after the run
+          // ends must land somewhere retrievable, and must say so rather than
+          // reading as though it were picked up.
+          ? `noted on "${task.title.slice(0, 40)}", which had already finished - it was not acted on`
+          : `added to "${task.title.slice(0, 40)}" (${task.state}); it will be picked up at the next checkpoint`,
+      });
       continue;
     }
 
@@ -380,6 +474,7 @@ export async function applyRoute(
         conversationId: null,
         taskId: null,
         memoryId: stored.rows[0].id,
+        contextId: null,
         question: null,
         summary: `remembered: ${segment.text.slice(0, 60)}`,
       });
@@ -415,6 +510,7 @@ export async function applyRoute(
         conversationId,
         taskId,
         memoryId: null,
+        contextId: null,
         question: null,
         summary: `config task: ${segment.text.slice(0, 60)}`,
       });
@@ -445,6 +541,7 @@ export async function applyRoute(
       conversationId,
       taskId,
       memoryId: null,
+      contextId: null,
       question: null,
       summary: `task in ${slug}: ${(segment.title ?? segment.text).slice(0, 60)}`,
     });

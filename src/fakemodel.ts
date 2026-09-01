@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
+import path from "node:path";
 
 /**
  * A scripted stand-in for the model (plan S1's test environment, used by S2/S3).
@@ -38,9 +39,7 @@ export const FAKE_MODEL = process.env.JARVIS_MODEL === "fake";
 /** Must match ROUTE_CLASSIFIER_MARKER in routing.ts. Duplicated to avoid an import cycle. */
 const CLASSIFIER_MARKER = "route classifier";
 
-function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
-  const path = process.env.JARVIS_FAKE_MODEL_SCRIPT;
-  if (!path) return { supervisor: [], classifier: [] };
+function readScript(path: string): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
   try {
     const parsed = JSON.parse(fs.readFileSync(path, "utf8")) as FakeScript;
     if (Array.isArray(parsed)) return { supervisor: parsed, classifier: [] };
@@ -48,6 +47,32 @@ function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
   } catch {
     return { supervisor: [], classifier: [] };
   }
+}
+
+/**
+ * Where a single test drops fixtures it could not write in advance.
+ *
+ * S3c has to name real task ids, which do not exist until the test creates
+ * them. The first attempt at this recreated the API container with a different
+ * JARVIS_FAKE_MODEL_SCRIPT — and left it that way, so every suite that ran
+ * afterwards was answered from S3c's fixture and failed en masse. An overlay
+ * file on the shared volume needs no restart, contaminates nothing once
+ * deleted, and is removed by dev-seed so a crashed run heals itself.
+ */
+const OVERLAY = path.join(process.env.JARVIS_ROOT ?? "/var/lib/jarvis", "fake-overlay.json");
+
+function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
+  const base = process.env.JARVIS_FAKE_MODEL_SCRIPT
+    ? readScript(process.env.JARVIS_FAKE_MODEL_SCRIPT)
+    : { supervisor: [], classifier: [] };
+  if (!fs.existsSync(OVERLAY)) return base;
+  const extra = readScript(OVERLAY);
+  // Overlay first: a test that needs a specific answer must win over the
+  // general fixture, not race it.
+  return {
+    supervisor: [...extra.supervisor, ...base.supervisor],
+    classifier: [...extra.classifier, ...base.classifier],
+  };
 }
 
 type Msg = { role: string; content?: unknown; name?: string };

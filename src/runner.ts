@@ -24,6 +24,8 @@ import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths
  * cancel flag all work across both without a second protocol.
  */
 
+const NEWLINE = "\n";
+
 const RUNNER_ID = process.env.RUNNER_ID ?? "heavy-1";
 const ROOT = JARVIS_ROOT;
 const ARTIFACTS = ARTIFACTS_DIR;
@@ -341,6 +343,64 @@ async function runHarness(args: {
   return { code, sessionId, result, events, escape };
 }
 
+
+/**
+ * Hand the harness anything Enrique said since the run started (plan S3c).
+ *
+ * Pulled, never pushed. A push to a process that is mid-harness-call has
+ * nowhere to land, so the runner looks for pending context on every heartbeat
+ * and writes it into the worktree, where the harness can read it like any other
+ * file. The run is not restarted, not signalled and not interrupted; it simply
+ * finds more to work with than it had a minute ago.
+ *
+ * Marked delivered only after the file exists. A row marked delivered whose
+ * file was never written would be his words, lost, with a timestamp claiming
+ * otherwise.
+ */
+async function deliverPendingContext(
+  pool: pg.Pool,
+  taskId: string,
+  worktree: string,
+  attempt: number,
+): Promise<number> {
+  const pending = await pool.query<{ id: string; body: string; created_at: Date }>(
+    `SELECT id, body, created_at FROM task_context
+     WHERE task_id = $1 AND delivered_at IS NULL
+     ORDER BY created_at`,
+    [taskId],
+  );
+  if (!pending.rows.length) return 0;
+
+  const dir = path.join(worktree, ".jarvis", "context");
+  await fs.mkdir(dir, { recursive: true });
+  let written = 0;
+  for (const row of pending.rows) {
+    const file = path.join(dir, `${row.id}.md`);
+    try {
+      await fs.writeFile(
+        file,
+        [
+          "# Additional context from Enrique",
+          "",
+          `Sent at ${new Date(row.created_at).toISOString()}, while this task was already running.`,
+          "",
+          row.body,
+          "",
+        ].join(NEWLINE),
+      );
+    } catch {
+      // Leave it pending. The next heartbeat tries again.
+      continue;
+    }
+    await pool.query(
+      `UPDATE task_context SET delivered_at = now(), delivered_attempt = $2 WHERE id = $1`,
+      [row.id, attempt],
+    );
+    written += 1;
+  }
+  return written;
+}
+
 async function registerArtifact(
   pool: pg.Pool,
   projectId: string | null,
@@ -479,6 +539,20 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
             stopReason = "cancelled";
             controller.abort();
             return;
+          }
+          // The checkpoint boundary S3c talks about. The heartbeat is already
+          // the runner's periodic look at the outside world, so it is where new
+          // context is noticed too — no second timer, no signal handler, and
+          // nothing that has to reach a process mid-call.
+          if (workspace && !stopReason) {
+            const delivered = await deliverPendingContext(pool, taskId, workspace.dir, n);
+            if (delivered) {
+              await writeCheckpoint(pool, taskId, {
+                attempt: n,
+                outcome: "context_delivered",
+                context_files: delivered,
+              }).catch(() => undefined);
+            }
           }
           if (Date.now() - lastEventAt > SILENCE_LIMIT_MS && !stopReason) {
             stopReason = "silent";

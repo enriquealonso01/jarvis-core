@@ -105,6 +105,10 @@ async function main(): Promise<void> {
     await fs.mkdir(path.join(JARVIS_ROOT, dir), { recursive: true });
   }
 
+  // A test that dropped a fake-model overlay and then died would otherwise
+  // answer every later suite from its own fixture. Reset means reset.
+  await fs.rm(path.join(JARVIS_ROOT, "fake-overlay.json"), { force: true }).catch(() => undefined);
+
   const keyPath = process.env.MASTER_KEY_PATH ?? path.join(JARVIS_ROOT, "keys", "master.key");
   if (!(await fs.stat(keyPath).then(() => true, () => false))) {
     await fs.writeFile(keyPath, crypto.randomBytes(32), { mode: 0o400 });

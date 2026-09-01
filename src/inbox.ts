@@ -138,7 +138,11 @@ export async function ingestUserMessage(
   // down. classifyInbox never throws - the message is already durable and a
   // router that could take the turn down with it would be a new way to lose
   // input. An unusable verdict is recorded as `ambiguous`, not guessed at.
-  const decision = await classifyInbox(pool, { inboxId, text });
+  const decision = await classifyInbox(pool, {
+    inboxId,
+    text,
+    conversationId: args.conversationId,
+  });
 
   // S3b: act on the decision. One message can reach several destinations, and
   // each of them points back at this inbox event.

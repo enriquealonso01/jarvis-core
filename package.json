@@ -17,7 +17,9 @@
     "dev:test": "bash scripts/s1-harness-test.sh",
     "dev:test:s2": "bash scripts/s2-task-create-test.sh",
     "dev:test:s3": "bash scripts/s3-routing-test.sh",
-    "dev:test:s3b": "bash scripts/s3b-split-test.sh"
+    "dev:test:s3b": "bash scripts/s3b-split-test.sh",
+    "dev:rebuild": "bash scripts/dev-rebuild.sh",
+    "dev:test:s3c": "bash scripts/s3c-context-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
