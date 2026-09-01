@@ -290,6 +290,22 @@ The rule that keeps it true: **no vendor name appears outside the adapter that
 owns it.** A `claude`-specific branch in the queue, the console, or the broker is
 the abstraction failing quietly.
 
+## II.2c Do not rebuild what OpenClaw already does
+
+A principle discovered late in planning and worth stating plainly: **do not build
+a parallel replacement for capabilities OpenClaw already implements reliably.**
+
+OpenClaw owns the WhatsApp session, device pairing, and transport-level retry.
+Jarvis owns the product brain — inbox, projects, queue, issues, broker, console.
+The temptation, every time OpenClaw does something slightly differently from how
+we would, is to reimplement it. Resist it: a second implementation of session
+handling is a second thing to debug at 2am, and the one we did not write is the
+one that has been tested by other people.
+
+The line: **if it is transport, OpenClaw owns it. If it is a decision, Jarvis
+owns it.** Where that line is unclear, write it down in an ADR rather than
+building both sides.
+
 ## II.3 The task lifecycle — the spine
 
 ```
@@ -1661,6 +1677,12 @@ on Linux — which is why v1's never was.
 **CI runs unit and integration on every push.** Acceptance runs against a live
 stack. Manual is checklisted per stage and its evidence goes in the commit.
 
+## The gates
+
+Each gate is a set of tests with **numbers in them**. A gate written as a feeling
+("capture works under load") passes whenever someone wants it to. The quantities
+below come from the planning conversation and are the point of the exercise.
+
 ## Gate 1 — It acts *(blocks everything else)*
 - **N1** the fix, end to end — console first, then voice note at S36
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
@@ -1668,47 +1690,65 @@ stack. Manual is checklisted per stage and its evidence goes in the commit.
 - **S1's five harness variants** each producing the right taxonomy class
 
 ## Gate 2 — It loses nothing
+- **Ingestion at volume**: send **20 messages across 5 projects, rapidly, while a coding job is running.** All 20 persist, and all 20 are eventually routed to the correct project. Not 19.
 - **L1** capture while busy, including a 10-second API kill mid-send
-- **L2** queue survives process restart and a full reboot, order preserved
-- **L3** killed harness recovers from its checkpoint, same worktree
-- **N3** two things at once, two threads, two tasks, neither lost
+- **Duplicate delivery**: deliver the same webhook **5 times** → exactly one logical inbox event and one task (IV.7)
+- **L2** restart the entire server with queued *and* running work → queued state survives in order; running work is reconciled or recovered
+- **L3** kill the heavy worker mid-task → recovery resumes **without losing the user instructions attached to it**
+- **N3** one input, several projects — the five-minute memo (S3)
 - Five distinct mid-run failures (S11) each resumable
 
 ## Gate 3 — It stays inside its lines
+- **Isolation**: a worker on project A attempts project B's secret → technical denial, not a policy note. Files, browser dir, connection name and model profile too (L9)
 - **L6** two repos, distinct deploy-key fingerprints
-- **L9** cross-project probe denied and audited
 - **L11** auth-profile isolation, denied before any HTTP leaves the box
 - **L8** always-confirm blocked
+- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
 - **N6** production deploy refused without a live approval
-- All eight grant-invalidation conditions (S10) verified individually
+- Search scoped to project A never returns project B (S18)
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
 - **L17** the six mobile journeys
 - **S13** the console leads with work, not health
 - **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
+- An output can be rejected with a note, revised, and the versions compared, without leaving the console (S17)
 
 ## Gate 5 — The phone is dependable
-- Ten consecutive calls, three with a forced provider failure, all ending cleanly with a stored transcript
+- **Ten consecutive calls**, three with a forced provider failure, all ending cleanly with a stored transcript
 - The two historical bugs — self-transcription and the runaway recording loop — covered by permanent regression tests
 - Barge-in stops playback within a beat, at any point in a reply
 - A call produces a real task and a real PR (S21)
-- **L13** outbound refused at 20:00 and allowed Saturday 10:00; the four calling reasons trigger, and nothing else does
+- **L13** outbound refused at 20:00, allowed Saturday 10:00; a security incident at 02:00 rings and a production outage at 02:00 does not; the six calling reasons trigger and nothing else does
 - **L12** raw call audio gone at 7 days, transcript retained
 
 ## Gate 6 — It survives
-- **L15** restore drill, **and** a restore onto a second machine that boots
-- **L4** model failover with no metered enablement
+- **Provider exhaustion across an entire role**: force rate limiting on *every* model in one role → approved fallbacks take over, then Jarvis asks for help. It does not silently stop and it does not enable billing to rescue itself
+- **L4** model failover with conversational continuity — same conversation id, no metered enablement
+- **Backup**: destroy a disposable test installation entirely and restore from backup → projects, conversations, schedules, credentials, queue metadata and configuration all return. **Destroy, not simulate** (L15)
 - **L14** schedules: no duplicate fires across a restart
 - **N7** self-repair at 03:00 without waking him
-- **N2** a question answered weeks later with a citation, across a reboot
+- **N2** a question answered weeks later with a citation, across a restore
 - **N8** the weekly report arrives and activates nothing on its own
+
+## The V1 completeness list
+
+Every one of these must have been *demonstrated*, not merely implemented:
+durable capture · project routing · simultaneous requests without loss · queue
+processing · engineering execution · PR creation · scheduling · WhatsApp · voice
+notes · phone calling · Control Center · authentication · secrets · connections ·
+model failover · watchdog recovery · crash recovery · approval enforcement ·
+backups · restore test · monitoring · artifact tracking · project isolation ·
+error management.
+
+**V1 is not complete because Jarvis can answer messages.**
 
 ## The standing rules
 
 1. **No test passes by asserting a database row where it should assert an effect.** If it does not prove something changed in the world, it does not count.
 2. **Every test must have been seen to fail once.** Break the thing deliberately, watch it go red, then fix it. An assertion that cannot fail is decoration.
 3. **A gate closes only with evidence attached** — a transcript, a task id, a log excerpt, a screenshot. "I checked" is not evidence.
+4. **A test with a number in it beats a test with an adjective in it.** Twenty messages across five projects is falsifiable; "handles load" is not.
 
 ---
 
