@@ -20,7 +20,8 @@
     "dev:test:s3b": "bash scripts/s3b-split-test.sh",
     "dev:rebuild": "bash scripts/dev-rebuild.sh",
     "dev:test:s3c": "bash scripts/s3c-context-test.sh",
-    "dev:test:s4": "bash scripts/s4-recovery-test.sh"
+    "dev:test:s4": "bash scripts/s4-recovery-test.sh",
+    "dev:test:s4drain": "bash scripts/s4-drain-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
