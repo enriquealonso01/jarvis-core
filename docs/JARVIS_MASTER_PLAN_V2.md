@@ -491,6 +491,8 @@ Runs against the fake harness in CI, against the real harness on demand.
 Run it. Then deliberately break the runner and confirm the test goes **red** — a
 test that cannot fail is not a test.
 
+**Debug** If the test passes on a run where the harness plainly did nothing, it is asserting the task row rather than the diff. Assert on the PR's changed files and on the seeded test going from red to green — nothing else proves it.
+
 **Done when:** it is in `scripts/acceptance-runner.py` and green — **before** any
 autonomous loop is ever pointed at the suite again.
 
@@ -553,6 +555,8 @@ autonomous loop is ever pointed at the suite again.
 
 **Test** With a heavy task running, the first screenful on a phone is that task. With nothing running, Home reads calm rather than broken.
 
+**Debug** If Home still feels like a status page, count what is above the fold on a 375px viewport. The running task and the queue must be there before anything about disk or memory. When there is no running task, check the empty state on a real device — a calm empty state and a broken one look identical in a desktop browser.
+
 **Done when:** disk percentage is no longer the first thing on the page.
 
 ## S13 — Live work detail
@@ -573,6 +577,8 @@ autonomous loop is ever pointed at the suite again.
 
 **Test** L17's six journeys on a real phone: check health, add context to a running task, resolve an API-key issue, approve something, reprioritise the queue, open an artifact. Then every page against a project with **zero** data and one with a great deal — empty states and overflow are where consoles actually break.
 
+**Debug** A page that renders in dev and breaks in production is almost always a field the API stopped returning; compare the live JSON against what the component destructures. If a number looks wrong rather than missing, find its source query before touching the component — v1's console under-reported for days because the count was capped upstream.
+
 **Done when:** all six journeys work on a phone and no page shows an invented number.
 
 ## S15 — The credential loop
@@ -581,6 +587,8 @@ autonomous loop is ever pointed at the suite again.
 **Build** Jarvis needs a key → ticket + one link → action page with a masked field and a plain statement of purpose and cost → submitted to the broker → connection tested → ticket closed → parked task resumes.
 
 **Test** N4 end to end with no terminal. Expired link → refused. Replayed link → 409. Wrong key → connection test fails, ticket stays open with a useful message rather than a stack trace.
+
+**Debug** If the parked task does not resume, the ticket closed but nothing requeued it — check the transition, not the form. A key that submits and then fails its connection test is usually being written to the wrong auth profile; confirm which profile id the broker actually stored.
 
 **Done when:** a dead credential is repaired from a phone and the parked task resumes by itself.
 
@@ -691,6 +699,8 @@ It must **act**.
 
 **Test** Make a call, then find it in the console and read what was said and what it caused. Ask in a later call "what did I ask you about Alpha yesterday?" and get it right. Confirm the raw audio is gone at day 7 and the transcript remains (L12).
 
+**Debug** If a call has no transcript afterwards, the artifact was written but never registered, or registered against the wrong project. Check `artifacts` by path. If retention deletes too early, the `retain_until` was computed at ingest from the wrong clock — verify against a call made just before a day boundary.
+
 **Done when:** a call is as reviewable as a chat thread, and audio retention holds.
 
 ---
@@ -704,6 +714,8 @@ It must **act**.
 
 **Test** `/api/models` shows two healthy supervisor routes and no `discovered` row pretending to be routable. Kill the primary → failover, same conversation id, no metered enablement (L4). Add a second model on an existing provider → **no** new key requested.
 
+**Debug** A route that looks healthy but never serves is usually failing its probe silently and being left `degraded` rather than dropped. Read `model_registry.last_error`. If a supposedly deleted provider still appears, something is re-seeding it on boot — grep the migrations and the catalog seeder before editing rows by hand.
+
 **Done when:** every registered route has passed a real tool-enabled call.
 
 ## S22 — Project onboarding and `AGENTS.md`
@@ -714,6 +726,8 @@ It must **act**.
 On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.md` and versions it in `project_instructions_versions`.
 
 **Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
+
+**Debug** If `AGENTS.md` lands with template placeholders still in it, finalize ran before every answer was collected — the onboarding session must refuse to finalize on a missing required field rather than substituting a default. If the committed file and the database disagree, decide which is canonical now and enforce it; two sources of project policy is a bug that gets worse with time.
 
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
@@ -781,6 +795,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Test** N2: dump a long thread and three PDFs, ask a specific question three weeks later (clock-shifted), get a cited answer. Survive a reboot. Ask about project A and confirm project B's documents are not in the answer.
 
+**Debug** Wrong or missing answers are usually retrieval, not the model: log what chunks were retrieved before blaming the reply. If chunks from another project appear, that is an isolation bug and stops other work. If recall is poor across a reboot, check the index survived — an in-memory index that silently rebuilds empty answers confidently and wrongly.
+
 **Done when:** N2 passes across a restart with correct citations and no cross-project leakage.
 
 ## S26 — Composio and MCP
@@ -790,6 +806,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Test** A project-scoped Composio connection used by a heavy task; the same connection denied to a second project. An MCP server attached to one project and invisible to another. A deliberately hostile MCP server cannot escape its container or read another project.
 
+**Debug** A Composio call that works for one project and fails for another is the broker doing its job — confirm the denial is deliberate before treating it as a bug. An MCP server that hangs takes the heavy lane with it: every MCP invocation needs a timeout, and a server that times out twice gets disabled with an Issue rather than retried forever.
+
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
 ## S27 — Browser and scraping
@@ -798,6 +816,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 **Build** Project-scoped browser profiles (never shared), headless control, and a scraping toolkit good enough for real sites — retries, rate limiting, honest user agents, structured extraction. Write the ADR first; this has never been designed.
 
 **Test** Scrape a real site and file the result as a project artifact. Confirm project A's browser profile and cookies are unreachable from project B. Kill the browser mid-scrape → recovers or fails cleanly, never hangs the heavy lane. Run it under the RAM policy with the browser occupying the heavy slot.
+
+**Debug** Scraping failures are rarely code. Capture the actual response body and status before changing selectors — a block page, a consent wall, and a rate limit all render as 'the selector broke'. If memory climbs across runs the browser is not being closed on the error path. Keep one saved copy of each page shape that broke, because the site will change again.
 
 **Done when:** a scraping task completes unattended and its output lands as a project artifact.
 
@@ -812,6 +832,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Test** L10 — a trivial capture produces **zero** messages; a long task produces exactly two. Ten identical failures produce one notification with a count of ten. Every link in every notification actually opens the right page.
 
+**Debug** If notifications arrive that should not, log the classification decision alongside the message and read a day of it — the bug is nearly always in classification, not in delivery. If they do not arrive at all, check the outbox state before the transport: a message stuck `pending` and a message that failed to send look identical from the phone.
+
 **Done when:** a day of normal use produces only messages worth reading.
 
 ## S29 — Schedules, maintenance, improvement
@@ -820,6 +842,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
 
 **Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
+
+**Debug** A duplicate fire after a restart means idempotency is keyed on something other than `scheduled_for`. A schedule that silently stops has usually hit its error count and paused itself — that is correct behaviour, but it must be visible in the console rather than only in a column. For Maintenance, confirm each auto-repair wrote what it did; a repair with no audit row is indistinguishable from a bug that fixed itself.
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
@@ -840,6 +864,8 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
 
 **Test** All five gates. Every narrative N1–N8. Every critical loop.
+
+**Debug** A gate that passes on the fake harness and fails on the real one is the most likely outcome here, and it is information rather than a setback — the difference is exactly the assumptions the fake encoded. Record each one in `docs/DEBUG_NOTES.md` as you find it.
 
 **Done when:** all gates green, with N1 green **against the real harness**, not the fake one.
 
