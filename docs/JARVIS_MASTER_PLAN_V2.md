@@ -102,19 +102,19 @@ the ability to act and to dial out — it does not rebuild it.
 - The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S13–S15 repair it rather than restart it.
 
 **Does not exist at all**
-- ~~Any way for a message to become work (`task_create`)~~ — S2 done 2026-09-01: `task.create` is a Supervisor tool, refuses heavy work with no project, refuses an ambiguous project, refuses an objective that only echoes the message, and its tasks are picked up by the runner.
-- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S20.
-- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S28.
-- Browser control and scraping — S29.
-- Project onboarding and `AGENTS.md` authoring — S23.
-- Memory retrieval over dumped documents — S27.
+- Any way for a message to become work (`task_create`) — S2.
+- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S22.
+- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S30.
+- Browser control and scraping — S31.
+- Project onboarding and `AGENTS.md` authoring — S25.
+- Memory retrieval over dumped documents — S29.
 - Any test that asserts Jarvis did a piece of work — S8.
 - Any way to run the engineering loop without a paid subscription and a Linux box — S1.
 
 **Carrying weight for a dead constraint**
 The free-tier model chain. Migration 008 measured it: the nominal primary served
 9 turns of 153 and Gemini served 0. Fireworks is a paid route now. A large part
-of `catalog.ts` exists to survive a constraint that no longer applies — S22
+of `catalog.ts` exists to survive a constraint that no longer applies — S24
 removes it.
 
 ---
@@ -277,7 +277,7 @@ of them is a configuration change rather than a rewrite:
 
 | Part | Interface | Swap cost |
 |---|---|---|
-| Coding harness | `AgentRuntime` (S25) | a new implementation + a registry row |
+| Coding harness | `AgentRuntime` (S27) | a new implementation + a registry row |
 | Chat model | `model_registry` route | a URL and a key |
 | Provider | auth profile | a key, because the weights are open (VI.0) |
 | Channel | inbox event | a new ingest adapter |
@@ -289,6 +289,22 @@ free-tier collapse cost a migration and not a rebuild.
 The rule that keeps it true: **no vendor name appears outside the adapter that
 owns it.** A `claude`-specific branch in the queue, the console, or the broker is
 the abstraction failing quietly.
+
+## II.2c Do not rebuild what OpenClaw already does
+
+A principle discovered late in planning and worth stating plainly: **do not build
+a parallel replacement for capabilities OpenClaw already implements reliably.**
+
+OpenClaw owns the WhatsApp session, device pairing, and transport-level retry.
+Jarvis owns the product brain — inbox, projects, queue, issues, broker, console.
+The temptation, every time OpenClaw does something slightly differently from how
+we would, is to reimplement it. Resist it: a second implementation of session
+handling is a second thing to debug at 2am, and the one we did not write is the
+one that has been tested by other people.
+
+The line: **if it is transport, OpenClaw owns it. If it is a decision, Jarvis
+owns it.** Where that line is unclear, write it down in an ADR rather than
+building both sides.
 
 ## II.3 The task lifecycle — the spine
 
@@ -361,7 +377,7 @@ not a silent restart.
 
 # PART III — THE BUILD
 
-One agent. One step at a time. Thirty-four steps, in order.
+One agent. One step at a time. Thirty-six steps, in order.
 
 Each step is **Build → Test → Debug → Done when**. A step is not finished when
 the code compiles. It is finished when the "Done when" line has been *observed*.
@@ -712,6 +728,127 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** a dead credential is repaired from a phone and the parked task resumes by itself.
 
+## S17 — Artifacts and output control
+*Size: 3 days.*
+
+**Jarvis's outputs are first-class objects, not files attached to a log.** This
+is the mechanism by which Enrique controls the *quality* of what Jarvis produces,
+rather than only whether it ran — and the plan has so far treated an artifact as
+a byte blob with a path.
+
+### Types
+
+Pull request, commit, patch, report, document, spreadsheet, screenshot, dataset,
+downloaded file, test report, browser recording, deployment URL.
+
+### States
+
+```
+draft → generated → under_review → ready → approved → delivered
+                          ↓                    ↓
+                       rejected            superseded
+```
+
+`superseded` matters as much as `rejected`: a second attempt at the same output
+must not silently orphan the first, or the version history that makes review
+possible disappears.
+
+### Build
+
+- Extend the `artifacts` table with type, state, version, `supersedes_id`, review state and reviewer notes. Migration in the agent's next free number.
+- An artifact page showing: preview or link, its project/task/conversation, the creating agent + model + harness + auth profile **by id**, timestamp, review state, version history, Enrique's feedback, and delivery state.
+- Actions on it: approve, reject, request revision, add context, open/download, compare versions.
+- **Request revision creates a task.** Rejecting an output with a note is a work instruction, not a status change — it goes back to the queue against the same project with the note attached, so the loop closes without Enrique restating anything.
+- Delivery state is separate from approval. Something can be approved and not yet delivered, and the console must not imply otherwise.
+
+### Test
+
+- Produce each artifact type at least once and confirm the page renders it — a dataset, a screenshot and a PR are three very different previews and only one of them is a link.
+- Walk the full state path, then the two exits. Reject with a note → a task appears with that note. Approve → it can be delivered.
+- Generate v2 of an artifact → v1 becomes `superseded`, both remain, and compare-versions shows the difference.
+- Download an artifact through the API gate; confirm a quarantined one cannot be downloaded at all.
+- A task that produces **no** artifact says so plainly rather than showing an empty panel that reads like a loading state.
+- Fifty artifacts on one project → the page paginates rather than dying.
+
+### Debug
+
+If an artifact shows no creator, the run recorded the file but not the
+provenance — check the registration call, not the page. Provenance written later
+is provenance that will sometimes be missing.
+
+If version history is wrong, look at `supersedes_id` before the UI; an artifact
+overwritten in place rather than superseded has already destroyed the evidence
+and no amount of UI work will bring it back.
+
+If the preview is blank for one type only, that type has no renderer and is
+falling through to the default. Say "no preview available" rather than rendering
+nothing — a blank panel is indistinguishable from a broken one.
+
+**Done when:** an output can be reviewed, rejected with a note that becomes a
+task, revised, and the two versions compared — without leaving the console.
+
+## S18 — Global search, the command palette, and the activity feed
+*Size: 3 days.*
+
+By this point Jarvis holds months of conversations, tasks, issues, artifacts and
+memories, and the only way to reach any of it is to know which page it lives on.
+That is the point at which a console stops being usable — and it is the point
+Enrique will actually be at.
+
+### Build
+
+**Global search**, across everything, from one box: projects, conversations,
+tasks, issues, files, artifacts, memories, connections, pull requests, schedules.
+Results grouped by kind, each one a link to the thing itself. It shares the
+retrieval path built in S27, so a search for a phrase finds it in a dumped
+document as readily as in a task title.
+
+**A command palette** on `Ctrl/Cmd+K`, because the fastest interface for someone
+who already knows what he wants is typing it:
+
+```
+Create project          Open queue              Pause task
+Start conversation      Open unresolved issues  Add connection
+Show current task       Create schedule         Search <project> conversations
+```
+
+Palette actions are the same API calls the pages use. A command that exists only
+in the palette is a second implementation waiting to drift.
+
+**Two data objects the schema is missing**, both needed for things the plan
+already promises:
+
+- `resource_metrics` — CPU, RAM, disk, I/O sampled over time. Today host metrics are computed live and thrown away, so the console can say "disk is at 84%" but never "disk has climbed 9 points this week", and Maintenance cannot act before a threshold rather than after it.
+- `activity_events` — one ordered feed per project and globally. `audit_events` answers "who did what to the system"; this answers "what has been happening on Alpha", which is a different question and the one Enrique asks.
+
+### Test
+
+- Search a phrase that exists **only** inside a dumped PDF and find it. Search one that exists in a task title, an artifact name, and a memory → all three appear, grouped.
+- Search with zero results → says so, rather than rendering an empty list that looks like a loading state.
+- Every palette command executes, and each one lands on the same endpoint as the equivalent page action. Diff the two call sites if unsure.
+- Palette on mobile — where there is no keyboard shortcut, it needs a reachable control or it does not exist.
+- Resource metrics: let it run 24h, then confirm the console can draw a trend and Maintenance can see a slope rather than a snapshot.
+- Activity feed on a project with no activity, and on the busiest one — empty state and pagination are where feeds break.
+- Search scoped to project A never returns project B's content. **This is an isolation test, not a UX test**, and it stops other work if it fails.
+
+### Debug
+
+If search is slow, look at whether it is scanning artifact *bytes* rather than
+extracted text; the index should hold text, and blobs should never be in the
+query path.
+
+If results are dominated by one kind, ranking is comparing incomparable scores
+across sources — normalise per kind before merging, or group and rank within
+groups rather than pretending one global ordering is meaningful.
+
+If a palette command works from the page but not the palette, the palette built
+its own request. That is the drift this step exists to prevent; delete the second
+implementation rather than fixing it.
+
+**Done when:** a phrase inside a document dumped three months ago is findable in
+one search, every palette command works on desktop and mobile, and search cannot
+cross a project boundary.
+
 ---
 
 # STAGE 4 — MAKE THE PHONE RELIABLE
@@ -726,12 +863,12 @@ conversation, it cannot do anything as a result of one, and it cannot ring
 Enrique. This stage fixes all three.
 
 Two bugs already cost real time and must never come back. Both are one-line
-comments in `callcontrol.ts` today and regression tests after S17:
+comments in `callcontrol.ts` today and regression tests after S19:
 
 - **Self-transcription.** Recording started with the greeting, so Whisper transcribed Jarvis's own voice back as if the caller had said it.
 - **The runaway loop.** Every reply's own `playback.ended` armed another recording, so one utterance produced several transcriptions, each producing a reply, each arming more sessions.
 
-## S17 — Call reliability hardening
+## S19 — Call reliability hardening
 *Size: 2–3 days. Do this before making it smarter — a clever agent on a flaky line is worse than a dull one on a solid line.*
 
 **Build**
@@ -755,7 +892,7 @@ comments in `callcontrol.ts` today and regression tests after S17:
 
 **Done when:** ten consecutive calls, including three with a forced provider failure, all end cleanly with a stored transcript.
 
-## S18 — Turn-taking and barge-in
+## S20 — Turn-taking and barge-in
 *Size: 2 days.*
 
 **Build**
@@ -769,7 +906,7 @@ comments in `callcontrol.ts` today and regression tests after S17:
 
 **Done when:** a two-minute natural conversation runs with no talking over each other in either direction.
 
-## S19 — The desk actually does the work
+## S21 — The desk actually does the work
 *Size: 3 days. This is what makes calling useful rather than pleasant.*
 
 Tier 1 keeps the line human; Tier 2 has every tool. Today Tier 2 answers.
@@ -791,20 +928,31 @@ It must **act**.
 
 **Done when:** a phone call produces a merged-ready PR without touching a keyboard.
 
-## S20 — Jarvis calls Enrique
+## S22 — Jarvis calls Enrique
 *Size: 2–3 days. Does not exist at all today — only the quiet-hours check does.*
 
 **Build**
 - Outbound dial through Telnyx, reusing the same call state machine and voice as inbound.
-- The reasons it may call, and no others: a task blocked over an hour on something only Enrique can unblock; a production incident on a professional project; a destructive action awaiting approval past its window; a security or isolation event.
-- **Quiet hours 19:30–08:00 America/New_York are enforced at the dial site**, not in the UI. Weekends are fine. A blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+- **The reasons it may call, and no others:**
+  1. A task blocked over an hour on something only Enrique can unblock.
+  2. A production incident on a professional project.
+  3. A destructive action awaiting approval past its window.
+  4. A security or isolation event.
+  5. **A call he scheduled.** "Call me tomorrow at 9 to go over the Alpha migration" is a first-class request — it creates a schedule whose action is a call, with its subject prepared in advance.
+  6. **A monitoring rule he explicitly authorised to call.** Per rule, opt-in, never a default.
+- **Quiet hours 19:30–08:00 America/New_York, enforced at the dial site**, not in the UI. Weekends are fine. A blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+- **The one override, and it is narrow.** A confirmed security incident or active data loss may ring inside quiet hours. Nothing else may — not a production outage, not a blocked task, not an approval. The override list lives in config, is auditable, and is short enough to read aloud.
+
+  *Flagged for Enrique:* the planning conversation recommended this override and you confirmed the rule set while changing the hours to 19:30. It was never restated explicitly, so it is written narrowly here. Say the word if you want quiet hours to be absolute instead — a 3am data-loss call is precisely the case where the stricter reading costs the most.
 - It opens by saying who it is and why it is calling, in one sentence, before anything else.
 - No answer → voicemail-safe behaviour, then fall back to WhatsApp. Never redial in a loop.
 
 **Test**
-- Trigger each of the four reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
+- Trigger each of the six reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
 - Set the clock to 20:00 → refused, WhatsApp + Issue instead, retried at 08:00 (L13).
+- A **security incident** at 02:00 → rings. A production outage at 02:00 → does **not**. That pair is the whole override, and testing only the first half proves nothing.
 - Saturday 10:00 → allowed.
+- Schedule a call for a specific time → it rings then, with its subject ready, and does not ring twice after a restart.
 - Decline the call → one WhatsApp, no redial loop.
 - Answer it → the reason is stated in the first sentence.
 
@@ -812,7 +960,7 @@ It must **act**.
 
 **Done when:** a genuinely blocked task rings the phone during the day and stays silent at 21:00.
 
-## S21 — Voice memory and review
+## S23 — Voice memory and review
 *Size: 1–2 days.*
 
 **Build** Every call: recording (retention-classed like WhatsApp audio — 7 days, never past 10 unless marked permanent), transcript, summary, and any tasks it produced, all attached to a conversation and visible in the console.
@@ -827,7 +975,7 @@ It must **act**.
 
 # STAGE 5 — MAKE IT REACH
 
-## S22 — Shrink the model routing
+## S24 — Shrink the model routing
 *Size: 1 day. Do it early — it removes code every later step would otherwise inherit.*
 
 **Build** Cut to what is real: Fireworks open-weights primary plus one fallback for the Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT; ElevenLabs for TTS. Delete the dead free-tier chain. Authentication stays per **provider**, never per model.
@@ -856,7 +1004,7 @@ and route on: task complexity, project confidentiality, model capability,
 **remaining quota**, provider availability, latency, and cost. So:
 
 - "Rename this variable" → the cheap utility route, never a coding subscription.
-- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → *then* park, and say which and when they reset.
+- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → **the paid hosted route, within the ceiling.** Only when that is also exhausted does the task park, and it says which engines were spent and when each resets.
 
 Parking is the last resort, not the first response. A task that stops because
 one of three available engines was busy is a task that did not need to stop.
@@ -871,7 +1019,7 @@ engine that was actually available.
 coding task whose primary subscription is exhausted completes on the next engine
 without Enrique being told anything.
 
-## S23 — Project onboarding and `AGENTS.md`
+## S25 — Project onboarding and `AGENTS.md`
 *Size: 2–3 days. S6 reads this file; nothing currently writes it.*
 
 **Build** Creating a project is a conversation. Jarvis asks and does not guess: personal or professional; production and customer-facing status; confidentiality; exact GitHub owner/repo or permission to create a private one; which auth profiles may see this data; metered paid APIs and the ceiling; deploy environments and approval rules; required tests, review, backups, monitoring.
@@ -884,7 +1032,7 @@ On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.m
 
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
-## S24 — Configuration by conversation
+## S26 — Configuration by conversation
 *Size: 2 days.*
 
 Transcript msg 17: telling Jarvis to change how Jarvis works must work from
@@ -913,8 +1061,8 @@ always-confirm list, secret scope, and the authority of the system projects.
 
 **Done when:** a sentence changes a different project's behaviour, is auditable a week later, and can be rolled back.
 
-## S25 — The runtime interface and a second harness
-*Size: 3 days. Must land before S26 — the evaluation suite has nothing to compare until two harnesses exist.*
+## S27 — The runtime interface and a second harness
+*Size: 3 days. Must land before S28 — the evaluation suite has nothing to compare until two harnesses exist.*
 
 The planning conversation calls this "probably the single most important
 architectural decision we make", and it is the one that makes the rest of Jarvis
@@ -980,7 +1128,7 @@ runtime.
 **Done when:** one task runs on either harness by changing one field, both look
 the same in the console, and the fake harness still fits the interface.
 
-## S26 — The engineering evaluation suite
+## S28 — The engineering evaluation suite
 *Size: 3–4 days.*
 
 Transcript msg 09: Jarvis runs its own quality testing and picks its primary and
@@ -1006,7 +1154,7 @@ someone's opinion.
 
 **Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
 
-## S27 — Memory and knowledge
+## S29 — Memory and knowledge
 *Size: 4–5 days. Write ADR 017 first — but the recommendation below is the starting position, not an open question.*
 
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
@@ -1064,7 +1212,7 @@ mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
 **Done when:** N2 passes across a restore from backup, with correct citations, no
 cross-project leakage, and an honest "I don't know" when the answer is not there.
 
-## S28 — Composio and MCP
+## S30 — Composio and MCP
 *Size: 4–5 days. After S6, so there is something to use them.*
 
 **Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
@@ -1075,7 +1223,7 @@ cross-project leakage, and an honest "I don't know" when the answer is not there
 
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
-## S29 — Browser and scraping
+## S31 — Browser and scraping
 *Size: 5–6 days. Named in the very first planning message and still at zero. Write ADR 016 before any code — this has never been designed.*
 
 Enrique's first message asked for an agent that is "extremely good with scraping,
@@ -1136,7 +1284,7 @@ see another project's session.
 
 # STAGE 6 — MAKE IT SURVIVE
 
-## S30 — Notification policy
+## S32 — Notification policy
 *Size: 2 days.*
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
@@ -1147,7 +1295,7 @@ see another project's session.
 
 **Done when:** a day of normal use produces only messages worth reading.
 
-## S31 — Schedules, maintenance, improvement
+## S33 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
@@ -1158,7 +1306,7 @@ see another project's session.
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
-## S32 — Backup, restore, export
+## S34 — Backup, restore, export
 *Size: 2–3 days.*
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
@@ -1169,7 +1317,7 @@ see another project's session.
 
 **Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
 
-## S33 — Full acceptance
+## S35 — Full acceptance
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
@@ -1184,10 +1332,10 @@ see another project's session.
 
 # STAGE 7 — THE LAST THING
 
-## S34 — WhatsApp
+## S36 — WhatsApp
 *Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
 
-When S33 is done, this is the only work left between here and a finished Jarvis.
+When S35 is done, this is the only work left between here and a finished Jarvis.
 
 **Build now, before the number exists**
 - The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
@@ -1226,7 +1374,13 @@ smuggled inside a feature is how a whole stage becomes unrevertable.
 ## IV.1 Schema
 37 tables, already migrated. The task table already carries `worktree_path`,
 `branch`, `head_sha`, `harness`, `external_session_id`, `auth_profile_id` — the
-data model anticipated the executor even though the code never arrived. New columns get the next migration number and a note in the commit saying what
+data model anticipated the executor even though the code never arrived. Two objects the transcript names are **not** in the schema and are added in S18:
+`resource_metrics` (host samples over time — today they are computed and thrown
+away, so nothing can see a trend) and `activity_events` (an ordered per-project
+feed; `audit_events` answers "who changed the system", which is a different
+question).
+
+New columns get the next migration number and a note in the commit saying what
 depends on them. **Never edit an applied migration** — it has already run on the
 box, and `schema_migrations` will not re-run it, so the file and the live schema
 silently diverge. Always add a new one.
@@ -1253,6 +1407,45 @@ means updating the union in `sse.ts`, `docs/API_AND_EVENTS.md`, and the console
 together — a new event name that only one of the three knows about is a feature
 that works on your machine and nowhere else.
 
+## IV.7 Idempotency
+
+Inbound integrations retry. **Deduplicate on the provider's external event id**,
+always, before anything else happens to the event:
+
+| Source | Retries because | Dedupe on |
+|---|---|---|
+| WhatsApp webhook | delivery retry | message id |
+| Telnyx callback | callback retry | `call_control_id` + event type + sequence |
+| OAuth callback | user refresh, double submit | state token, single-use |
+| Scheduled run | restart mid-fire | `(schedule_id, scheduled_for)` |
+| Internal HMAC post | client retry | request id |
+
+A repeated delivery must never create a second task. The dedupe happens at
+ingest, before classification and before any model, because a duplicate that
+reaches routing has already cost money and may already have created work.
+
+Where a source gives no usable id, derive one from a checksum of the payload plus
+a time bucket — and record that it was derived, so a false match can be
+recognised later.
+
+## IV.8 Artifact lifecycle
+
+`draft → generated → under_review → ready → approved → delivered`, with
+`rejected` and `superseded` as exits (S17). A new version supersedes rather than
+overwrites; overwriting destroys the comparison that makes review possible.
+
+## IV.9 Audit
+
+Every consequential action is attributable: who or what initiated it, project,
+task, agent/model/harness, tool, timestamp, the approval if there was one, and
+the result. At minimum — secret updated, production approval granted, model
+changed, schedule changed, task cancelled, PR merged, provider added, connection
+denied.
+
+An audit row written after the fact is an audit row that will sometimes be
+missing. Write it in the same transaction as the action wherever the storage
+allows it.
+
 ## IV.6 Authorization levels
 
 Three levels, fixed at planning time. **The model does not decide whether
@@ -1273,7 +1466,7 @@ should spend nearly all of its time.
 Create a GitHub issue, send a draft, create a staging deployment, modify a dev
 database, post internally.
 
-Whether these need asking is a **project setting**, decided at onboarding (S23)
+Whether these need asking is a **project setting**, decided at onboarding (S25)
 and recorded in the project's `AGENTS.md`. A personal side project may allow all
 of them silently; a professional one may allow none.
 
@@ -1379,9 +1572,15 @@ stay routable; hard failures drop out.
 | STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
 
-**Budget**: VPS ≤ €20, inference ≤ $20, total under $40/month. Metered spend is
-off unless Enrique sets a ceiling on that profile. No automatic paid enablement,
-ever.
+**Budget**: VPS ≤ €20. Inference has a **$10/month soft budget and a $20/month
+hard ceiling** — soft means Jarvis reports crossing it, hard means it stops
+spending and parks. Total under €/$40 a month.
+
+The subscriptions already own most of the capacity, so the paid gateway exists
+for two things only: always-on cheap Supervisor operations, and catching coding
+work when every subscription is exhausted. Metered spend stays off unless Enrique
+sets a ceiling on that profile, and no route ever enables billing to rescue
+itself.
 
 **Jarvis manages its own models.** When a route dies it says so, proposes a
 replacement, and asks for the one key it needs — it does not fail silently and it
@@ -1478,54 +1677,78 @@ on Linux — which is why v1's never was.
 **CI runs unit and integration on every push.** Acceptance runs against a live
 stack. Manual is checklisted per stage and its evidence goes in the commit.
 
+## The gates
+
+Each gate is a set of tests with **numbers in them**. A gate written as a feeling
+("capture works under load") passes whenever someone wants it to. The quantities
+below come from the planning conversation and are the point of the exercise.
+
 ## Gate 1 — It acts *(blocks everything else)*
-- **N1** the fix, end to end — console first, then voice note at S34
+- **N1** the fix, end to end — console first, then voice note at S36
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
 
 ## Gate 2 — It loses nothing
+- **Ingestion at volume**: send **20 messages across 5 projects, rapidly, while a coding job is running.** All 20 persist, and all 20 are eventually routed to the correct project. Not 19.
 - **L1** capture while busy, including a 10-second API kill mid-send
-- **L2** queue survives process restart and a full reboot, order preserved
-- **L3** killed harness recovers from its checkpoint, same worktree
-- **N3** two things at once, two threads, two tasks, neither lost
+- **Duplicate delivery**: deliver the same webhook **5 times** → exactly one logical inbox event and one task (IV.7)
+- **L2** restart the entire server with queued *and* running work → queued state survives in order; running work is reconciled or recovered
+- **L3** kill the heavy worker mid-task → recovery resumes **without losing the user instructions attached to it**
+- **N3** one input, several projects — the five-minute memo (S3)
 - Five distinct mid-run failures (S11) each resumable
 
 ## Gate 3 — It stays inside its lines
+- **Isolation**: a worker on project A attempts project B's secret → technical denial, not a policy note. Files, browser dir, connection name and model profile too (L9)
 - **L6** two repos, distinct deploy-key fingerprints
-- **L9** cross-project probe denied and audited
 - **L11** auth-profile isolation, denied before any HTTP leaves the box
 - **L8** always-confirm blocked
+- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
 - **N6** production deploy refused without a live approval
-- All eight grant-invalidation conditions (S10) verified individually
+- Search scoped to project A never returns project B (S18)
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
 - **L17** the six mobile journeys
 - **S13** the console leads with work, not health
 - **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
+- An output can be rejected with a note, revised, and the versions compared, without leaving the console (S17)
 
 ## Gate 5 — The phone is dependable
-- Ten consecutive calls, three with a forced provider failure, all ending cleanly with a stored transcript
+- **Ten consecutive calls**, three with a forced provider failure, all ending cleanly with a stored transcript
 - The two historical bugs — self-transcription and the runaway recording loop — covered by permanent regression tests
 - Barge-in stops playback within a beat, at any point in a reply
-- A call produces a real task and a real PR (S19)
-- **L13** outbound refused at 20:00 and allowed Saturday 10:00; the four calling reasons trigger, and nothing else does
+- A call produces a real task and a real PR (S21)
+- **L13** outbound refused at 20:00, allowed Saturday 10:00; a security incident at 02:00 rings and a production outage at 02:00 does not; the six calling reasons trigger and nothing else does
 - **L12** raw call audio gone at 7 days, transcript retained
 
 ## Gate 6 — It survives
-- **L15** restore drill, **and** a restore onto a second machine that boots
-- **L4** model failover with no metered enablement
+- **Provider exhaustion across an entire role**: force rate limiting on *every* model in one role → approved fallbacks take over, then Jarvis asks for help. It does not silently stop and it does not enable billing to rescue itself
+- **L4** model failover with conversational continuity — same conversation id, no metered enablement
+- **Backup**: destroy a disposable test installation entirely and restore from backup → projects, conversations, schedules, credentials, queue metadata and configuration all return. **Destroy, not simulate** (L15)
 - **L14** schedules: no duplicate fires across a restart
 - **N7** self-repair at 03:00 without waking him
-- **N2** a question answered weeks later with a citation, across a reboot
+- **N2** a question answered weeks later with a citation, across a restore
 - **N8** the weekly report arrives and activates nothing on its own
+
+## The V1 completeness list
+
+Every one of these must have been *demonstrated*, not merely implemented:
+durable capture · project routing · simultaneous requests without loss · queue
+processing · engineering execution · PR creation · scheduling · WhatsApp · voice
+notes · phone calling · Control Center · authentication · secrets · connections ·
+model failover · watchdog recovery · crash recovery · approval enforcement ·
+backups · restore test · monitoring · artifact tracking · project isolation ·
+error management.
+
+**V1 is not complete because Jarvis can answer messages.**
 
 ## The standing rules
 
 1. **No test passes by asserting a database row where it should assert an effect.** If it does not prove something changed in the world, it does not count.
 2. **Every test must have been seen to fail once.** Break the thing deliberately, watch it go red, then fix it. An assertion that cannot fail is decoration.
 3. **A gate closes only with evidence attached** — a transcript, a task id, a log excerpt, a screenshot. "I checked" is not evidence.
+4. **A test with a number in it beats a test with an adjective in it.** Twenty messages across five projects is falsifiable; "handles load" is not.
 
 ---
 
@@ -1628,13 +1851,13 @@ shared working tree.
 |---|---|---|---|
 | **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
 | **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
-| **3 — It is visible** | S13–S16 | A console that shows work and repairs credentials | 8–10 days |
-| **4 — The phone is reliable** | S17–S21 | A call you can depend on, and Jarvis calling you | 10–12 days |
-| **5 — It reaches** | S22–S29 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
-| **6 — It survives** | S30–S33 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S34 | The last thing. Voice note in, PR back. | 2–3 days |
+| **3 — It is visible** | S13–S18 | A console that shows work, repairs credentials, controls output quality, and can be searched | 14–16 days |
+| **4 — The phone is reliable** | S19–S23 | A call you can depend on, and Jarvis calling you | 10–12 days |
+| **5 — It reaches** | S24–S31 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
+| **6 — It survives** | S32–S35 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S36 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 70–85 working days** for one agent working sequentially, with
+**Total: roughly 79–94 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
@@ -1648,11 +1871,11 @@ system is useful.
 - **S2 and S4 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
 - **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
 - **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
-- **S34 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+- **S36 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
 
 ## What "finished" means
 
-When S34 is green, this is true:
+When S36 is green, this is true:
 
 > Enrique sends a voice note. Minutes later he gets one short message with a link
 > to a pull request that fixes what he described. He can call Jarvis and talk to
@@ -1702,15 +1925,15 @@ Every requirement from the planning transcript, and where it lives.
 | Project onboarding asks before assuming (15, 20) | B10 |
 | Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
-| Phone calls, both directions (06, 07, 15) | S17–S21 |
-| Jarvis can call me (06, 15) | S20 |
-| Five-second turn-taking on calls (01) | S18 |
-| WhatsApp voice notes (01, 15) | S34 |
-| Nothing I say is ever lost (15) | S2, S11, S34, Gate 2 |
+| Phone calls, both directions (06, 07, 15) | S19–S23 |
+| Jarvis can call me (06, 15) | S22 |
+| Five-second turn-taking on calls (01) | S20 |
+| WhatsApp voice notes (01, 15) | S36 |
+| Nothing I say is ever lost (15) | S2, S11, S36, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S26 |
-| Change any project's setup from any channel (17) | S24 |
-| Weekly scan of the AI world, one-tap approve (17) | S31 |
-| Maintenance project that heals the system (17) | S31 |
-| Dump anything, ask about it later (01) | S27, N2 |
-| Never mix connections between projects (01, 20) | S5, S12, S28 |
+| Jarvis tests models and picks its own primaries (09) | S28 |
+| Change any project's setup from any channel (17) | S26 |
+| Weekly scan of the AI world, one-tap approve (17) | S33 |
+| Maintenance project that heals the system (17) | S33 |
+| Dump anything, ask about it later (01) | S29, N2 |
+| Never mix connections between projects (01, 20) | S5, S12, S30 |
