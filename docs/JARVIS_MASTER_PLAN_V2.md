@@ -938,43 +938,77 @@ plausible number.
 
 # PART VIII — ACCEPTANCE
 
-V1 is **not** launched until every critical loop is green **and** the narrative
-tests pass. The v1 failure — 33/33 passing while the machine did nothing — is
-prevented by making N1 a gate.
+Jarvis is not finished until every gate is green. v1 shipped 33 of 33 passing
+while the machine did nothing, so Gate 1 blocks all the others and N1 is what
+closes it.
 
-## Gate 1 — It acts *(blocks everything)*
-- **N1** the fix, end to end from a voice note
-- **A8** seeded failing test → passing PR
+## VIII.0 The four layers of testing
+
+Every step in Part III tests at whichever of these layers actually proves the
+thing. Naming them here stops "I ran it once" from passing as coverage.
+
+| Layer | What it covers | Runs |
+|---|---|---|
+| **Unit** | Pure logic: cron matching, backoff curves, redaction, state-transition legality, taxonomy mapping | Every commit, seconds |
+| **Integration** | Real Postgres, real HTTP, **fake harness**. Claiming, leases, checkpoints, recovery, the broker, the whole engineering loop | Every commit, minutes |
+| **Acceptance** | `scripts/acceptance-runner.py` against a running stack — the L-loops and the N-narratives | Before every merge to main |
+| **Manual** | Anything with a human in it: a phone call, a voice note, a page on a real phone | Before closing a stage |
+
+The fake harness (S1) is what makes the integration layer possible at all. Without
+it the engineering loop is only testable by hand, against a paid subscription,
+on Linux — which is why v1's never was.
+
+**CI runs unit and integration on every push.** Acceptance runs against a live
+stack. Manual is checklisted per stage and its evidence goes in the commit.
+
+## Gate 1 — It acts *(blocks everything else)*
+- **N1** the fix, end to end — console first, then voice note at S30
+- **S7** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
+- **S1's five harness variants** each producing the right taxonomy class
 
 ## Gate 2 — It loses nothing
-- **L1** capture while busy, including a 10-second API kill
-- **L2** queue survives restart and full reboot
-- **L3** killed harness recovers from checkpoint
-- **N3** two-at-once
+- **L1** capture while busy, including a 10-second API kill mid-send
+- **L2** queue survives process restart and a full reboot, order preserved
+- **L3** killed harness recovers from its checkpoint, same worktree
+- **N3** two things at once, two threads, two tasks, neither lost
+- Five distinct mid-run failures (S10) each resumable
 
 ## Gate 3 — It stays inside its lines
-- **L6** two-repo isolation, distinct key fingerprints
+- **L6** two repos, distinct deploy-key fingerprints
 - **L9** cross-project probe denied and audited
-- **L11** auth-profile isolation
-- **L8** always-confirm blocks
-- **N6** production refusal
+- **L11** auth-profile isolation, denied before any HTTP leaves the box
+- **L8** always-confirm blocked
+- **N6** production deploy refused without a live approval
+- All eight grant-invalidation conditions (S9) verified individually
 
 ## Gate 4 — It is usable
-- **N4** credential loop with no terminal
+- **N4** credential loop repaired from a phone, parked task resumes itself
 - **L17** the six mobile journeys
-- **C1** console leads with work
-- **L10** notification brevity
+- **S12** the console leads with work, not health
+- **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
 
-## Gate 5 — It survives
-- **L15** restore drill
+## Gate 5 — The phone is dependable
+- Ten consecutive calls, three with a forced provider failure, all ending cleanly with a stored transcript
+- The two historical bugs — self-transcription and the runaway recording loop — covered by permanent regression tests
+- Barge-in stops playback within a beat, at any point in a reply
+- A call produces a real task and a real PR (S18)
+- **L13** outbound refused at 20:00 and allowed Saturday 10:00; the four calling reasons trigger, and nothing else does
+- **L12** raw call audio gone at 7 days, transcript retained
+
+## Gate 6 — It survives
+- **L15** restore drill, **and** a restore onto a second machine that boots
 - **L4** model failover with no metered enablement
-- **L14** schedules, no duplicate fires
-- **N7** self-repair without waking him
+- **L14** schedules: no duplicate fires across a restart
+- **N7** self-repair at 03:00 without waking him
+- **N2** a question answered weeks later with a citation, across a reboot
+- **N8** the weekly report arrives and activates nothing on its own
 
-**Standing rule:** no test may pass by asserting a database row where it should
-assert an effect. If the test does not prove something changed in the world, it
-does not count.
+## The standing rules
+
+1. **No test passes by asserting a database row where it should assert an effect.** If it does not prove something changed in the world, it does not count.
+2. **Every test must have been seen to fail once.** Break the thing deliberately, watch it go red, then fix it. An assertion that cannot fail is decoration.
+3. **A gate closes only with evidence attached** — a transcript, a task id, a log excerpt, a screenshot. "I checked" is not evidence.
 
 ---
 
