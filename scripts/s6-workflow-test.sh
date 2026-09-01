@@ -45,6 +45,7 @@ check "all eleven phases were recorded" \
 check "each phase is one row, not many" "11" \
   "$(q "SELECT count(*) FROM task_events WHERE task_id='$T' AND type='phase';")"
 check "the task's phase column holds the last one" "push" "$(q "SELECT COALESCE(phase,'-') FROM tasks WHERE id='$T';")"
+check "Jarvis's own scratch is NOT committed into the project" "0"   "$($COMPOSE run --rm --no-deps -T runner sh -c       "git -C /var/lib/jarvis/projects/dev-sandbox/repo ls-tree -r --name-only        \$(git -C /var/lib/jarvis/projects/dev-sandbox/repo rev-parse $(q "SELECT COALESCE(branch,'main') FROM tasks WHERE id='$T';")) 2>/dev/null | grep -c '^\.jarvis/' || true" 2>/dev/null | tr -d '' | tail -1)"
 check "the verdict was recorded" "completed|true|high" \
   "$(q "SELECT verdict||'|'||reproduced||'|'||confidence FROM task_attempts WHERE task_id='$T' AND n=1;")"
 

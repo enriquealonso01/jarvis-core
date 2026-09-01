@@ -223,12 +223,22 @@ async function prepareWorkspace(
   // directory. Writing to `<worktree>/.git/info/exclude` therefore fails with
   // ENOTDIR and — because the failure was caught and ignored — the exclude was
   // silently never written. Ask git where its directory actually is.
-  const gitDir = await git(dir, ["rev-parse", "--absolute-git-dir"]).catch(() => null);
-  if (gitDir) {
-    await fs.mkdir(path.join(gitDir, "info"), { recursive: true }).catch(() => undefined);
-    await fs
-      .appendFile(path.join(gitDir, "info", "exclude"), `${NEWLINE}.jarvis/${NEWLINE}`)
-      .catch(() => undefined);
+  // ...and it is the COMMON dir, not the per-worktree one. git reads
+  // `$GIT_COMMON_DIR/info/exclude`; `--absolute-git-dir` returns
+  // `.git/worktrees/<name>`, which git never consults for excludes. Writing
+  // there succeeded and did nothing, so the first real run committed Jarvis's
+  // own `.jarvis/` scratch into the project's history.
+  const commonDir = await git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(
+    () => null,
+  );
+  if (commonDir) {
+    const info = path.join(commonDir.trim(), "info");
+    await fs.mkdir(info, { recursive: true }).catch(() => undefined);
+    const exclude = path.join(info, "exclude");
+    const current = await fs.readFile(exclude, "utf8").catch(() => "");
+    if (!current.includes(".jarvis/")) {
+      await fs.appendFile(exclude, `${NEWLINE}.jarvis/${NEWLINE}`).catch(() => undefined);
+    }
   }
   const baseSha = await git(dir, ["rev-parse", "HEAD"]).catch(() => null);
   return { dir, branch, isRepo: true, baseSha, checkoutError };
@@ -287,6 +297,22 @@ export function escapedPath(cwd: string, event: Record<string, unknown>): string
       const rel = path.relative(cwd, abs);
       if (rel.startsWith("..") || path.isAbsolute(rel)) return abs;
     }
+
+    // A shell command carries its paths in a string, not in a named argument,
+    // so the loop above never saw them. That did not matter while the harness
+    // ran with `acceptEdits` and could not execute anything; it matters a great
+    // deal now that it can. Only absolute paths inside JARVIS_ROOT are checked:
+    // the harness legitimately reads /usr, /etc and node's own installation, and
+    // flagging those would make every run an incident.
+    const command = b.input.command;
+    if (typeof command === "string" && command) {
+      for (const m of command.matchAll(/(?<![\w/-])(\/[\w./@+-]+)/g)) {
+        const abs = path.resolve(m[1]);
+        if (!abs.startsWith(`${ROOT}${path.sep}`) && abs !== ROOT) continue;
+        const rel = path.relative(cwd, abs);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) return abs;
+      }
+    }
   }
   return null;
 }
@@ -330,10 +356,20 @@ async function runHarness(args: {
         "--verbose",
         // The harness runs against a worktree it is meant to change, so it needs
         // its own tools. What it must NOT get is a path out of the worktree or a
-        // credential the broker did not hand it; that is enforced by the unix user
-        // and the single config dir, not by this flag.
+        // credential the broker did not hand it; that is enforced by the unix
+        // user and the single config dir, not by this flag.
+        //
+        // `acceptEdits` was wrong, and the first real S6 run proved it: the
+        // harness reproduced the bug, found the cause, wrote the fix AND the
+        // test — then could not run `node --test`, because acceptEdits permits
+        // edits but not execution. A loop whose `checks` phase can never pass
+        // cannot honestly finish, and it correctly reported itself blocked.
+        //
+        // The containment that replaces it is `escapedPath`, which now reads
+        // Bash commands as well as path arguments and kills the run on anything
+        // reaching outside the worktree.
         "--permission-mode",
-        "acceptEdits",
+        "bypassPermissions",
       ];
 
   const child = spawn(command, commandArgs, {
