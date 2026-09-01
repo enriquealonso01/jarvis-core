@@ -103,18 +103,18 @@ the ability to act and to dial out — it does not rebuild it.
 
 **Does not exist at all**
 - Any way for a message to become work (`task_create`) — S2.
-- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S22.
-- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S30.
-- Browser control and scraping — S31.
-- Project onboarding and `AGENTS.md` authoring — S25.
-- Memory retrieval over dumped documents — S29.
+- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S23.
+- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S31.
+- Browser control and scraping — S32.
+- Project onboarding and `AGENTS.md` authoring — S26.
+- Memory retrieval over dumped documents — S30.
 - Any test that asserts Jarvis did a piece of work — S8.
 - Any way to run the engineering loop without a paid subscription and a Linux box — S1.
 
 **Carrying weight for a dead constraint**
 The free-tier model chain. Migration 008 measured it: the nominal primary served
 9 turns of 153 and Gemini served 0. Fireworks is a paid route now. A large part
-of `catalog.ts` exists to survive a constraint that no longer applies — S24
+of `catalog.ts` exists to survive a constraint that no longer applies — S25
 removes it.
 
 ---
@@ -167,6 +167,19 @@ takes the turn. He can interrupt at any point and Jarvis yields immediately.
 
 **The voice.** ElevenLabs, one pinned `voice_id`, an English butler register.
 Sparing "sir" — never twice in a reply. Never sycophantic.
+
+**How a turn actually goes.** He asks something. Within a beat Jarvis
+acknowledges — differently each time, naming the thing so he knows it was heard.
+If the answer needs a lookup it says so, goes and does it while the line stays
+alive, and comes back. If it is taking real time it says something new rather
+than repeating itself. If it is going to take longer than a conversation should,
+it hands the work to the queue and says so plainly.
+
+**Fast and shallow beats slow and deep, on the phone, always.** The call is a
+conversation and a capture surface — not where deep work happens. Every word is
+recorded and routed regardless, so the main Jarvis system picks up anything real
+afterwards. That safety net is what allows the phone to be quick: nothing is lost
+by a shallow answer.
 
 **Two-tier answering** — already built; a latency architecture, not a feature:
 - **Tier 1 — the voice.** No tools, reasoning off, one short reply, sub-second. Its only decision is *answer* or *hand over*. Because it has no tools it must never claim anything was done.
@@ -277,7 +290,7 @@ of them is a configuration change rather than a rewrite:
 
 | Part | Interface | Swap cost |
 |---|---|---|
-| Coding harness | `AgentRuntime` (S27) | a new implementation + a registry row |
+| Coding harness | `AgentRuntime` (S28) | a new implementation + a registry row |
 | Chat model | `model_registry` route | a URL and a key |
 | Provider | auth profile | a key, because the weights are open (VI.0) |
 | Channel | inbox event | a new ingest adapter |
@@ -377,7 +390,7 @@ not a silent restart.
 
 # PART III — THE BUILD
 
-One agent. One step at a time. Thirty-six steps, in order.
+One agent. One step at a time. Thirty-seven steps, in order.
 
 Each step is **Build → Test → Debug → Done when**. A step is not finished when
 the code compiles. It is finished when the "Done when" line has been *observed*.
@@ -800,7 +813,7 @@ Enrique will actually be at.
 **Global search**, across everything, from one box: projects, conversations,
 tasks, issues, files, artifacts, memories, connections, pull requests, schedules.
 Results grouped by kind, each one a link to the thing itself. It shares the
-retrieval path built in S27, so a search for a phrase finds it in a dumped
+retrieval path built in S28, so a search for a phrase finds it in a dumped
 document as readily as in a task title.
 
 **A command palette** on `Ctrl/Cmd+K`, because the fastest interface for someone
@@ -906,7 +919,125 @@ comments in `callcontrol.ts` today and regression tests after S19:
 
 **Done when:** a two-minute natural conversation runs with no talking over each other in either direction.
 
-## S21 — The desk actually does the work
+## S21 — The conversational orchestration runtime
+*Size: 4–5 days. The step that makes the phone feel like Jarvis rather than like an IVR.*
+
+Turn-taking (S20) gets the mechanics right: who speaks when. This step is about
+what happens **during** a turn, and it is the difference between a voice
+interface and an assistant.
+
+The behaviour Enrique described: it acknowledges — but not the same way every
+time — says it is going to check something, goes and actually checks it, comes
+back and answers. Then possibly thinks again. A real conversation with someone
+who is doing something while talking to you.
+
+### The governing trade-off
+
+**On the phone, fast and shallow beats slow and deep. Every time.**
+
+The phone is a conversation and a capture surface, not where deep work happens.
+Anything that needs real thinking is recorded, queued, and picked up by the main
+Jarvis system afterwards — the call does not wait for it, and Enrique is told
+plainly that it has been handed over. A twenty-second silence while a model
+reasons is a worse experience than an immediate "I don't know off-hand, I've put
+it in the queue."
+
+### Three concurrent tracks
+
+The runtime runs three things at once, which is why it is a runtime and not a
+request handler:
+
+1. **The voice loop** — listening, endpointing, speaking. Never blocked by anything else. Sub-second, always.
+2. **The tool track** — lookups, memory search, task creation, running asynchronously. It reports progress; it never holds the line.
+3. **The speech scheduler** — decides *what to say and when*, given what the tool track is doing and whether Enrique is talking.
+
+### The turn shape
+
+```
+Enrique stops speaking
+   └─ ≤700ms  acknowledgement (varied, contextual)
+   └─ tool track starts
+        ├─ resolves <2.5s  → answer directly, no filler
+        ├─ still going at 2.5s → "let me check that" (varied)
+        ├─ still going at ~10s → a real progress line, not a repeat
+        └─ still going at 25s → "I'll have the desk finish this and come
+                                 back to you" → task queued, turn released
+   └─ answer, then hand the turn back
+```
+
+### Acknowledgement must not be stagnant
+
+The single thing that makes a voice agent feel dead is the same phrase every
+time. Requirements:
+
+- A pool of acknowledgements per situation — thinking, checking, found it, not found, handing over — and **never the same one twice in a row**, tracked per call.
+- Phrasing follows the content. "Let me pull up Alpha" is not "let me check that": naming the thing proves it was heard, and that is what makes an acknowledgement reassuring rather than a stall.
+- Progress lines say something new each time. A second "still working on it" is worse than silence, because it proves nothing is happening.
+- Everything is **interruptible**. If Enrique speaks over an acknowledgement, it stops instantly and listens — the acknowledgement was never the point.
+
+### Proactive speech
+
+The runtime may speak without being asked, in three cases only: a progress
+update on the schedule above; a result arriving from the tool track after the
+conversation moved on ("that Alpha question — it was the migration"); and a
+closing line when he has been silent long enough that the call is over.
+
+It may **never** fill silence for the sake of it. A pause where Enrique is
+thinking is his, and talking into it is the most irritating thing a voice agent
+can do.
+
+### Everything is captured regardless
+
+Every utterance is persisted before any of the above happens (persist-first, as
+everywhere else). Whether the runtime answers well, answers badly, or hands over,
+**what he said is recorded and routed by S3 exactly as a WhatsApp message would
+be.** The conversation quality and the work are independent: a call where Jarvis
+sounds vague can still produce three correctly-scoped tasks.
+
+This is the safety net that lets the phone be fast. It is allowed to be shallow
+because nothing is lost by being shallow.
+
+### Build
+
+- A per-call runtime with the three tracks above, on the persisted call state machine from S19.
+- An acknowledgement bank with per-call no-repeat tracking and content-aware selection.
+- Async tool invocation with progress events, a hard phone-side budget (~25s), and clean handover to the queue when it expires.
+- Barge-in that cancels playback, in-flight TTS render, and any speech queued behind it.
+- Latency instrumentation on every leg, stored per turn, so "it felt slow" becomes a number.
+
+### Test
+
+- **The variety test**: a five-minute call with many lookups. No acknowledgement repeats consecutively, and progress lines never repeat verbatim. Grep the transcript for consecutive duplicates — this is mechanically checkable, so check it mechanically.
+- **The budget test**: force a tool to take 60s. At 2.5s a holding line, at ~10s a real update, at 25s a clean handover with a task created. The call never goes silent for more than ~10s.
+- **The interruption test**: speak over the acknowledgement, over a progress line, and over the final answer. Each stops within a beat and listens.
+- **The silence test**: pause 4s mid-thought → it waits. It does not fill.
+- **The capture test**: make a call where every tool fails. Confirm the utterances are still persisted and routed, and tasks still created. **Conversation quality and capture must be independent.**
+- **The shallow-is-fine test**: ask something needing real work. Confirm it hands over quickly rather than grinding — and that the queued task carries the full request, not a summary of it.
+- Ten calls: p50 and p95 acknowledgement latency, reported as numbers, both under target.
+
+### Debug
+
+If it feels sluggish, read the per-leg timings before touching prompts — it is
+almost always TTS render on an uncached phrase, not the model. Pre-render the
+acknowledgement bank; a fixed phrase should never pay for synthesis twice.
+
+If acknowledgements repeat, the no-repeat state is being lost between turns —
+check it lives on the call, not in a request-scoped variable.
+
+If barge-in leaves it talking, something downstream of the cancel is still
+holding audio: cancel the render *and* flush the queued playback, not just the
+current one.
+
+If it narrates progress it isn't making, the tool track is reporting scheduled
+rather than started. Progress lines must be driven by real events; inventing
+progress is worse than silence because it is a lie told confidently.
+
+**Done when:** a five-minute call feels like talking to someone who is doing
+things while you talk — varied, interruptible, never silent for long, honest when
+it has to hand over — and every word of it is captured and routed regardless of
+how well the conversation went.
+
+## S22 — The desk actually does the work
 *Size: 3 days. This is what makes calling useful rather than pleasant.*
 
 Tier 1 keeps the line human; Tier 2 has every tool. Today Tier 2 answers.
@@ -928,7 +1059,7 @@ It must **act**.
 
 **Done when:** a phone call produces a merged-ready PR without touching a keyboard.
 
-## S22 — Jarvis calls Enrique
+## S23 — Jarvis calls Enrique
 *Size: 2–3 days. Does not exist at all today — only the quiet-hours check does.*
 
 **Build**
@@ -960,7 +1091,7 @@ It must **act**.
 
 **Done when:** a genuinely blocked task rings the phone during the day and stays silent at 21:00.
 
-## S23 — Voice memory and review
+## S24 — Voice memory and review
 *Size: 1–2 days.*
 
 **Build** Every call: recording (retention-classed like WhatsApp audio — 7 days, never past 10 unless marked permanent), transcript, summary, and any tasks it produced, all attached to a conversation and visible in the console.
@@ -975,7 +1106,7 @@ It must **act**.
 
 # STAGE 5 — MAKE IT REACH
 
-## S24 — Shrink the model routing
+## S25 — Shrink the model routing
 *Size: 1 day. Do it early — it removes code every later step would otherwise inherit.*
 
 **Build** Cut to what is real: Fireworks open-weights primary plus one fallback for the Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT; ElevenLabs for TTS. Delete the dead free-tier chain. Authentication stays per **provider**, never per model.
@@ -1019,7 +1150,7 @@ engine that was actually available.
 coding task whose primary subscription is exhausted completes on the next engine
 without Enrique being told anything.
 
-## S25 — Project onboarding and `AGENTS.md`
+## S26 — Project onboarding and `AGENTS.md`
 *Size: 2–3 days. S6 reads this file; nothing currently writes it.*
 
 **Build** Creating a project is a conversation. Jarvis asks and does not guess: personal or professional; production and customer-facing status; confidentiality; exact GitHub owner/repo or permission to create a private one; which auth profiles may see this data; metered paid APIs and the ceiling; deploy environments and approval rules; required tests, review, backups, monitoring.
@@ -1032,7 +1163,7 @@ On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.m
 
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
-## S26 — Configuration by conversation
+## S27 — Configuration by conversation
 *Size: 2 days.*
 
 Transcript msg 17: telling Jarvis to change how Jarvis works must work from
@@ -1061,8 +1192,8 @@ always-confirm list, secret scope, and the authority of the system projects.
 
 **Done when:** a sentence changes a different project's behaviour, is auditable a week later, and can be rolled back.
 
-## S27 — The runtime interface and a second harness
-*Size: 3 days. Must land before S28 — the evaluation suite has nothing to compare until two harnesses exist.*
+## S28 — The runtime interface and a second harness
+*Size: 3 days. Must land before S29 — the evaluation suite has nothing to compare until two harnesses exist.*
 
 The planning conversation calls this "probably the single most important
 architectural decision we make", and it is the one that makes the rest of Jarvis
@@ -1128,7 +1259,7 @@ runtime.
 **Done when:** one task runs on either harness by changing one field, both look
 the same in the console, and the fake harness still fits the interface.
 
-## S28 — The engineering evaluation suite
+## S29 — The engineering evaluation suite
 *Size: 3–4 days.*
 
 Transcript msg 09: Jarvis runs its own quality testing and picks its primary and
@@ -1154,7 +1285,7 @@ someone's opinion.
 
 **Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
 
-## S29 — Memory and knowledge
+## S30 — Memory and knowledge
 *Size: 4–5 days. Write ADR 017 first — but the recommendation below is the starting position, not an open question.*
 
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
@@ -1212,7 +1343,7 @@ mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
 **Done when:** N2 passes across a restore from backup, with correct citations, no
 cross-project leakage, and an honest "I don't know" when the answer is not there.
 
-## S30 — Composio and MCP
+## S31 — Composio and MCP
 *Size: 4–5 days. After S6, so there is something to use them.*
 
 **Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
@@ -1223,7 +1354,7 @@ cross-project leakage, and an honest "I don't know" when the answer is not there
 
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
-## S31 — Browser and scraping
+## S32 — Browser and scraping
 *Size: 5–6 days. Named in the very first planning message and still at zero. Write ADR 016 before any code — this has never been designed.*
 
 Enrique's first message asked for an agent that is "extremely good with scraping,
@@ -1284,7 +1415,7 @@ see another project's session.
 
 # STAGE 6 — MAKE IT SURVIVE
 
-## S32 — Notification policy
+## S33 — Notification policy
 *Size: 2 days.*
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
@@ -1295,7 +1426,7 @@ see another project's session.
 
 **Done when:** a day of normal use produces only messages worth reading.
 
-## S33 — Schedules, maintenance, improvement
+## S34 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
@@ -1306,7 +1437,7 @@ see another project's session.
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
-## S34 — Backup, restore, export
+## S35 — Backup, restore, export
 *Size: 2–3 days.*
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
@@ -1317,7 +1448,7 @@ see another project's session.
 
 **Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
 
-## S35 — Full acceptance
+## S36 — Full acceptance
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
@@ -1332,10 +1463,10 @@ see another project's session.
 
 # STAGE 7 — THE LAST THING
 
-## S36 — WhatsApp
+## S37 — WhatsApp
 *Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
 
-When S35 is done, this is the only work left between here and a finished Jarvis.
+When S36 is done, this is the only work left between here and a finished Jarvis.
 
 **Build now, before the number exists**
 - The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
@@ -1466,7 +1597,7 @@ should spend nearly all of its time.
 Create a GitHub issue, send a draft, create a staging deployment, modify a dev
 database, post internally.
 
-Whether these need asking is a **project setting**, decided at onboarding (S25)
+Whether these need asking is a **project setting**, decided at onboarding (S26)
 and recorded in the project's `AGENTS.md`. A personal side project may allow all
 of them silently; a professional one may allow none.
 
@@ -1684,7 +1815,7 @@ Each gate is a set of tests with **numbers in them**. A gate written as a feelin
 below come from the planning conversation and are the point of the exercise.
 
 ## Gate 1 — It acts *(blocks everything else)*
-- **N1** the fix, end to end — console first, then voice note at S36
+- **N1** the fix, end to end — console first, then voice note at S37
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
@@ -1718,7 +1849,7 @@ below come from the planning conversation and are the point of the exercise.
 - **Ten consecutive calls**, three with a forced provider failure, all ending cleanly with a stored transcript
 - The two historical bugs — self-transcription and the runaway recording loop — covered by permanent regression tests
 - Barge-in stops playback within a beat, at any point in a reply
-- A call produces a real task and a real PR (S21)
+- A call produces a real task and a real PR (S22)
 - **L13** outbound refused at 20:00, allowed Saturday 10:00; a security incident at 02:00 rings and a production outage at 02:00 does not; the six calling reasons trigger and nothing else does
 - **L12** raw call audio gone at 7 days, transcript retained
 
@@ -1852,12 +1983,12 @@ shared working tree.
 | **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
 | **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
 | **3 — It is visible** | S13–S18 | A console that shows work, repairs credentials, controls output quality, and can be searched | 14–16 days |
-| **4 — The phone is reliable** | S19–S23 | A call you can depend on, and Jarvis calling you | 10–12 days |
-| **5 — It reaches** | S24–S31 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
-| **6 — It survives** | S32–S35 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S36 | The last thing. Voice note in, PR back. | 2–3 days |
+| **4 — The phone is reliable** | S19–S24 | A call you can depend on, and Jarvis calling you | 10–12 days |
+| **5 — It reaches** | S25–S32 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
+| **6 — It survives** | S33–S36 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S37 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 79–94 working days** for one agent working sequentially, with
+**Total: roughly 83–99 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
@@ -1871,11 +2002,11 @@ system is useful.
 - **S2 and S4 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
 - **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
 - **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
-- **S36 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+- **S37 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
 
 ## What "finished" means
 
-When S36 is green, this is true:
+When S37 is green, this is true:
 
 > Enrique sends a voice note. Minutes later he gets one short message with a link
 > to a pull request that fixes what he described. He can call Jarvis and talk to
@@ -1925,15 +2056,15 @@ Every requirement from the planning transcript, and where it lives.
 | Project onboarding asks before assuming (15, 20) | B10 |
 | Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
-| Phone calls, both directions (06, 07, 15) | S19–S23 |
-| Jarvis can call me (06, 15) | S22 |
+| Phone calls, both directions (06, 07, 15) | S19–S24 |
+| Jarvis can call me (06, 15) | S23 |
 | Five-second turn-taking on calls (01) | S20 |
-| WhatsApp voice notes (01, 15) | S36 |
-| Nothing I say is ever lost (15) | S2, S11, S36, Gate 2 |
+| WhatsApp voice notes (01, 15) | S37 |
+| Nothing I say is ever lost (15) | S2, S11, S37, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S28 |
-| Change any project's setup from any channel (17) | S26 |
-| Weekly scan of the AI world, one-tap approve (17) | S33 |
-| Maintenance project that heals the system (17) | S33 |
-| Dump anything, ask about it later (01) | S29, N2 |
-| Never mix connections between projects (01, 20) | S5, S12, S30 |
+| Jarvis tests models and picks its own primaries (09) | S29 |
+| Change any project's setup from any channel (17) | S27 |
+| Weekly scan of the AI world, one-tap approve (17) | S34 |
+| Maintenance project that heals the system (17) | S34 |
+| Dump anything, ask about it later (01) | S30, N2 |
+| Never mix connections between projects (01, 20) | S5, S12, S31 |
