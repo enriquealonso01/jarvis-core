@@ -917,15 +917,26 @@ It must **act**.
 
 **Build**
 - Outbound dial through Telnyx, reusing the same call state machine and voice as inbound.
-- The reasons it may call, and no others: a task blocked over an hour on something only Enrique can unblock; a production incident on a professional project; a destructive action awaiting approval past its window; a security or isolation event.
-- **Quiet hours 19:30–08:00 America/New_York are enforced at the dial site**, not in the UI. Weekends are fine. A blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+- **The reasons it may call, and no others:**
+  1. A task blocked over an hour on something only Enrique can unblock.
+  2. A production incident on a professional project.
+  3. A destructive action awaiting approval past its window.
+  4. A security or isolation event.
+  5. **A call he scheduled.** "Call me tomorrow at 9 to go over the Alpha migration" is a first-class request — it creates a schedule whose action is a call, with its subject prepared in advance.
+  6. **A monitoring rule he explicitly authorised to call.** Per rule, opt-in, never a default.
+- **Quiet hours 19:30–08:00 America/New_York, enforced at the dial site**, not in the UI. Weekends are fine. A blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+- **The one override, and it is narrow.** A confirmed security incident or active data loss may ring inside quiet hours. Nothing else may — not a production outage, not a blocked task, not an approval. The override list lives in config, is auditable, and is short enough to read aloud.
+
+  *Flagged for Enrique:* the planning conversation recommended this override and you confirmed the rule set while changing the hours to 19:30. It was never restated explicitly, so it is written narrowly here. Say the word if you want quiet hours to be absolute instead — a 3am data-loss call is precisely the case where the stricter reading costs the most.
 - It opens by saying who it is and why it is calling, in one sentence, before anything else.
 - No answer → voicemail-safe behaviour, then fall back to WhatsApp. Never redial in a loop.
 
 **Test**
-- Trigger each of the four reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
+- Trigger each of the six reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
 - Set the clock to 20:00 → refused, WhatsApp + Issue instead, retried at 08:00 (L13).
+- A **security incident** at 02:00 → rings. A production outage at 02:00 → does **not**. That pair is the whole override, and testing only the first half proves nothing.
 - Saturday 10:00 → allowed.
+- Schedule a call for a specific time → it rings then, with its subject ready, and does not ring twice after a restart.
 - Decline the call → one WhatsApp, no redial loop.
 - Answer it → the reason is stated in the first sentence.
 
@@ -977,7 +988,7 @@ and route on: task complexity, project confidentiality, model capability,
 **remaining quota**, provider availability, latency, and cost. So:
 
 - "Rename this variable" → the cheap utility route, never a coding subscription.
-- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → *then* park, and say which and when they reset.
+- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → **the paid hosted route, within the ceiling.** Only when that is also exhausted does the task park, and it says which engines were spent and when each resets.
 
 Parking is the last resort, not the first response. A task that stops because
 one of three available engines was busy is a task that did not need to stop.
@@ -1545,9 +1556,15 @@ stay routable; hard failures drop out.
 | STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
 
-**Budget**: VPS ≤ €20, inference ≤ $20, total under $40/month. Metered spend is
-off unless Enrique sets a ceiling on that profile. No automatic paid enablement,
-ever.
+**Budget**: VPS ≤ €20. Inference has a **$10/month soft budget and a $20/month
+hard ceiling** — soft means Jarvis reports crossing it, hard means it stops
+spending and parks. Total under €/$40 a month.
+
+The subscriptions already own most of the capacity, so the paid gateway exists
+for two things only: always-on cheap Supervisor operations, and catching coding
+work when every subscription is exhausted. Metered spend stays off unless Enrique
+sets a ceiling on that profile, and no route ever enables billing to rescue
+itself.
 
 **Jarvis manages its own models.** When a route dies it says so, proposes a
 replacement, and asks for the one key it needs — it does not fail silently and it
