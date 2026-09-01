@@ -829,15 +829,61 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
 ## S27 — Browser and scraping
-*Size: 4–5 days. Named in the very first planning message and still at zero.*
+*Size: 5–6 days. Named in the very first planning message and still at zero. Write ADR 016 before any code — this has never been designed.*
 
-**Build** Project-scoped browser profiles (never shared), headless control, and a scraping toolkit good enough for real sites — retries, rate limiting, honest user agents, structured extraction. Write the ADR first; this has never been designed.
+Enrique's first message asked for an agent that is "extremely good with scraping,
+in any sense of scraping", and named a package that dictation rendered as "Paw
+HTTPS" — almost certainly a TLS-fingerprinting HTTP client (`pyhttpx`,
+`curl_cffi` or similar). **Confirm which one he meant before choosing**; the
+choice determines whether the fetch tier can pass fingerprint checks at all.
 
-**Test** Scrape a real site and file the result as a project artifact. Confirm project A's browser profile and cookies are unreachable from project B. Kill the browser mid-scrape → recovers or fails cleanly, never hangs the heavy lane. Run it under the RAM policy with the browser occupying the heavy slot.
+### The three tiers
 
-**Debug** Scraping failures are rarely code. Capture the actual response body and status before changing selectors — a block page, a consent wall, and a rate limit all render as 'the selector broke'. If memory climbs across runs the browser is not being closed on the error path. Keep one saved copy of each page shape that broke, because the site will change again.
+A scraper that reaches for a browser first is slow, memory-hungry, and fragile.
+Pick the cheapest tier that works and escalate only on failure:
 
-**Done when:** a scraping task completes unattended and its output lands as a project artifact.
+1. **Plain HTTP** — `fetch` with sane headers. Covers most APIs and static pages. Milliseconds, no RAM.
+2. **Fingerprinted HTTP** — a TLS-fingerprinting client for sites that reject stock clients on JA3/JA4 before any content is served. Still cheap; this is the tier that handles most "it works in my browser but not in code" cases.
+3. **Real browser** — headless Chromium, project-scoped profile. Only for pages that genuinely need JavaScript execution or an authenticated session. **Occupies the single heavy slot** (ADR 007) — while a browser is scraping, no coding task runs.
+
+The tier used is recorded on the task so a slow scrape can be explained later.
+
+### Build
+
+- **Project-scoped browser profiles** at `/var/lib/jarvis/browsers/<project_id>`, never shared. Cookies, local storage, and saved logins belong to one project and are invisible to every other. A browser worker gets **no** harness-auth mount (ADR 006).
+- **Containerised.** Unlike the coding harness, the browser runs in Docker — it executes untrusted remote code by definition. This is not the ADR 015 exception.
+- **A fetch/extract toolkit**: retries with backoff, per-domain rate limiting, structured extraction (CSS/XPath/JSON-path), pagination, and a saved snapshot of every page it parsed.
+- **Politeness by default**: honest user agent unless the project's `AGENTS.md` says otherwise, `robots.txt` respected unless explicitly overridden per project, and a per-domain request ceiling. Overriding either is a project-level decision recorded in the repo, not a per-task whim.
+- **Output is an artifact**, not a log line: structured data plus the raw pages it came from, so a wrong result can be diagnosed without re-scraping.
+- **A login flow that asks.** When a site needs credentials Jarvis does not have, it raises a `UserActionRequest` with a link — the same credential loop as S15. It never guesses at, stores, or reuses a login across projects.
+
+### Test
+
+- Each tier individually against a site that requires exactly that tier. Assert the escalation actually happens and is recorded.
+- Project A's cookies and profile unreachable from project B. Assert it; a success here is an isolation bug that stops other work.
+- Kill the browser mid-scrape → recovers or fails cleanly. **Never hangs the heavy lane** — this is the most likely way scraping takes the whole system down.
+- Run under memory pressure with the browser holding the heavy slot; confirm no coding task starts concurrently and `MemAvailable` stays above the floor.
+- Scrape the same page twice → same structured output. Non-determinism here means the extractor is depending on render timing.
+- Point it at a page that returns a consent wall, one that returns a block page, and one that rate-limits. Each must be **reported as what it is**, not as an extraction failure.
+- Ten pages in sequence → memory flat at the end, no orphaned Chromium processes.
+
+### Debug
+
+Scraping failures are rarely in your code. **Capture the response body and status
+before touching a selector** — a block page, a consent wall, a rate limit, and a
+genuine markup change all present identically as "the selector broke".
+
+If memory climbs across runs the browser is not being closed on the error path;
+check the `finally`, not the happy path. Orphaned Chromium after a crash means
+the container is not being reaped — `docker ps` after a failed run.
+
+Keep one saved copy of every page shape that broke, in the project's artifacts.
+The site will change again, and the diff between the old snapshot and the new
+page is the fastest possible diagnosis.
+
+**Done when:** a scraping task completes unattended, escalates tiers correctly,
+files structured output plus source snapshots as project artifacts, and cannot
+see another project's session.
 
 ---
 
