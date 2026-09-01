@@ -26,6 +26,18 @@ import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths
 
 const NEWLINE = "\n";
 
+/**
+ * Set the moment systemd asks us to stop.
+ *
+ * `KillMode=control-group` is systemd's default, so a `systemctl restart` sends
+ * SIGTERM to the whole cgroup — the harness included. The harness then dies with
+ * 143 and, without this flag, the runner cannot tell its own shutdown from a
+ * crash: it recorded `harness.crash`, marked the task failed_terminal, and threw
+ * away everything the run had done. Observed on Netcup, which is the entire
+ * reason S4 says to test a mid-run restart on real hardware.
+ */
+let draining = false;
+
 const RUNNER_ID = process.env.RUNNER_ID ?? "heavy-1";
 const ROOT = JARVIS_ROOT;
 const ARTIFACTS = ARTIFACTS_DIR;
@@ -663,7 +675,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       exit_code: outcome.code,
       result_subtype: outcome.subtype,
       is_error: outcome.isError,
-      stop_reason: stopReason,
+      stop_reason: draining && !stopReason ? "drained" : stopReason,
       escape_attempt: outcome.escape,
       changed,
       outcome: outcome.escape ? "blocked" : outcome.code === 0 && !stopReason ? "completed" : "failed",
@@ -703,6 +715,20 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
         evidence: { attempted_path: outcome.escape, worktree: workspace.dir, transcript: relTranscript },
         requiredAction: "Read the transcript. The branch was discarded; do not retry until the cause is understood.",
       });
+      return;
+    }
+
+    // Shutting down is not an outcome. The task keeps its `running` state and its
+    // stale heartbeat, and the watchdog does stalled -> recovering -> queued from
+    // the checkpoint — which is exactly the recovery the plan asks for. Deciding
+    // anything here would be deciding it on behalf of a process that is about to
+    // stop existing.
+    if (draining && !stopReason) {
+      await pool.query(
+        `UPDATE task_attempts SET ended_at = now(), summary = $3 WHERE task_id = $1 AND n = $2`,
+        [taskId, n, "runner drained mid-run; left for the watchdog to requeue"],
+      ).catch(() => undefined);
+      console.log(`runner ${RUNNER_ID} leaving task ${taskId} for the watchdog`);
       return;
     }
 
@@ -804,6 +830,7 @@ async function main(): Promise<void> {
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.on(sig, () => {
       stopping = true;
+      draining = true;
       console.log(`runner ${RUNNER_ID} draining on ${sig}`);
     });
   }

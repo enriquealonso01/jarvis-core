@@ -135,6 +135,41 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### A restart threw away the run it was supposed to preserve
+**Symptom:** found by S4's own on-box test, first time it ran for real.
+`systemctl restart jarvis-runner` mid-run left the task `failed_terminal` with
+`harness.crash` and `harness exited 143`. The whole run's work was gone — the
+exact opposite of the step's Done-when, "a mid-run restart recovers instead of
+losing work".
+**Cause:** `KillMode=control-group` is systemd's default, so SIGTERM goes to
+every process in the unit's cgroup — the `claude` child included. It died with
+143, and the runner had no way to tell its own shutdown from a harness that
+crashed on its own. It concluded the task on behalf of a process that was about
+to stop existing.
+**Fix:** a module-level `draining` flag set by the SIGTERM/SIGINT handler. When
+the harness exits while draining and nothing else has gone wrong, the runner
+writes the checkpoint, records the attempt as drained, and **returns without
+transitioning** — leaving the task `running` with a stale heartbeat so the
+watchdog does `stalled -> recovering -> queued` from the checkpoint. Covered by
+`scripts/s4-drain-test.sh`.
+**Lesson:** a worker that can be told to stop needs to know it was told. Without
+that, every graceful shutdown looks exactly like a crash — and the difference
+decides whether work is requeued or destroyed.
+
+### `kill -TERM -1` does not signal PID 1, so the repro missed the bug
+**Symptom:** the first dev reproduction of the above showed the task failing —
+but for the wrong reason. The runner never entered its drain path, and the fix
+appeared not to work.
+**Cause:** two wrong repros in a row. `docker stop` signals only PID 1, so the
+harness survived and the runner never saw its child die. Then `kill -TERM -1`
+signals everything *except* the caller and PID 1 (Linux excludes init), so the
+harness died and the leader did not — the reverse.
+**Fix:** walk `/proc` and signal every pid, leader included, which is what a
+cgroup-wide TERM actually does.
+**Lesson:** "signal everything" has at least three meanings and only one of them
+matches systemd. When reproducing a signal-delivery bug, verify *which* process
+actually received the signal before concluding anything about the code.
+
 ### A failed harness run was recorded with a blank summary
 **Symptom:** none in production yet — found by doing what the plan says and
 capturing one real `claude -p --output-format stream-json` run before trusting
