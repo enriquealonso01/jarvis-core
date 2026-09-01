@@ -1,0 +1,250 @@
+{
+  "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
+  "plan_sha": "b02f8f8fb679254e277ce12c7bba4270386edad4",
+  "total_steps": 37,
+  "updated_at": "2026-09-01T22:41:08.858Z",
+  "current_step": "S5",
+  "steps": [
+    {
+      "id": "S1",
+      "title": "The test environment and the fake harness",
+      "stage": 1,
+      "state": "done",
+      "pr": 7,
+      "evidence": "dev compose stack + fake harness; all 6 variants observed; S1 suite 23/23"
+    },
+    {
+      "id": "S2",
+      "title": "`task_create`",
+      "stage": 1,
+      "state": "done",
+      "pr": 17,
+      "evidence": "task_create; 24/24 incl. the runner executing a console-created task and the commit landing"
+    },
+    {
+      "id": "S3",
+      "title": "Routing what Enrique says",
+      "stage": 1,
+      "state": "done",
+      "pr": 17,
+      "evidence": "routing 3a/3b/3c; 30+37+22 = 89 assertions; mid-run context read by the harness"
+    },
+    {
+      "id": "S4",
+      "title": "The runner, live on real hardware",
+      "stage": 1,
+      "state": "done",
+      "pr": 21,
+      "evidence": "runner live on Netcup: real claude task succeeded w/ transcript, systemctl restart recovered, MemoryMax=4294967296"
+    },
+    {
+      "id": "S5",
+      "title": "Project checkouts and deploy keys",
+      "stage": 1,
+      "state": "partial",
+      "evidence": "deploy-key isolation proved against a real sshd (20/20); GitHub half blocked on PAT permissions",
+      "blocker": "BLOCKED.md#github-pat-cannot-create-repositories"
+    },
+    {
+      "id": "S6",
+      "title": "The engineering workflow",
+      "stage": 1,
+      "state": "not_started"
+    },
+    {
+      "id": "S7",
+      "title": "The pull request",
+      "stage": 1,
+      "state": "not_started"
+    },
+    {
+      "id": "S8",
+      "title": "The acceptance test that matters",
+      "stage": 1,
+      "state": "not_started"
+    },
+    {
+      "id": "S9",
+      "title": "Independent review",
+      "stage": 2,
+      "state": "not_started"
+    },
+    {
+      "id": "S10",
+      "title": "Grants, merge, deploy",
+      "stage": 2,
+      "state": "not_started"
+    },
+    {
+      "id": "S11",
+      "title": "Recovery under failure",
+      "stage": 2,
+      "state": "not_started"
+    },
+    {
+      "id": "S12",
+      "title": "Isolation, proved",
+      "stage": 2,
+      "state": "not_started"
+    },
+    {
+      "id": "S13",
+      "title": "The console leads with work",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S14",
+      "title": "Live work detail",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S15",
+      "title": "Repair the degraded console",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S16",
+      "title": "The credential loop",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S17",
+      "title": "Artifacts and output control",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S18",
+      "title": "Global search, the command palette, and the activity feed",
+      "stage": 3,
+      "state": "not_started"
+    },
+    {
+      "id": "S19",
+      "title": "Call reliability hardening",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S20",
+      "title": "Turn-taking and barge-in",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S21",
+      "title": "The conversational orchestration runtime",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S22",
+      "title": "The desk actually does the work",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S23",
+      "title": "Jarvis calls Enrique",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S24",
+      "title": "Voice memory and review",
+      "stage": 4,
+      "state": "not_started"
+    },
+    {
+      "id": "S25",
+      "title": "Shrink the model routing",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S26",
+      "title": "Project onboarding and `AGENTS.md`",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S27",
+      "title": "Configuration by conversation",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S28",
+      "title": "The runtime interface and a second harness",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S29",
+      "title": "The engineering evaluation suite",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S30",
+      "title": "Memory and knowledge",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S31",
+      "title": "Composio and MCP",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S32",
+      "title": "Browser and scraping",
+      "stage": 5,
+      "state": "not_started"
+    },
+    {
+      "id": "S33",
+      "title": "Notification policy",
+      "stage": 6,
+      "state": "not_started"
+    },
+    {
+      "id": "S34",
+      "title": "Schedules, maintenance, improvement",
+      "stage": 6,
+      "state": "not_started"
+    },
+    {
+      "id": "S35",
+      "title": "Backup, restore, export",
+      "stage": 6,
+      "state": "not_started"
+    },
+    {
+      "id": "S36",
+      "title": "Full acceptance",
+      "stage": 6,
+      "state": "not_started"
+    },
+    {
+      "id": "S37",
+      "title": "WhatsApp",
+      "stage": 7,
+      "state": "not_started"
+    }
+  ],
+  "gates": {
+    "1": "pending",
+    "2": "pending",
+    "3": "pending",
+    "4": "pending",
+    "5": "pending",
+    "6": "pending",
+    "7": "pending"
+  }
+}

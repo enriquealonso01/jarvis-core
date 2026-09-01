@@ -135,6 +135,20 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### A two-phase key test regenerated the keys between the phases
+**Symptom:** the S5 isolation test's cross-project assertion passed, but so did
+its control — alpha could not reach its OWN repo either. A test where everything
+fails is not proving isolation, it is proving nothing.
+**Cause:** the test ran in two phases (generate and authorise keys, restart sshd,
+then assert) and used timestamped project slugs. Phase 2 created *new* projects
+with *new* keys the server had never been told about, so every connection was
+refused for the ordinary reason.
+**Fix:** deterministic slugs, and phase 2 reads back the key phase 1 stored
+rather than making one.
+**Lesson:** an isolation test needs a control that succeeds. "A cannot reach B"
+means nothing unless "A can reach A" is green in the same run — otherwise the
+first broken thing in the setup silently satisfies the assertion.
+
 ### A restart threw away the run it was supposed to preserve
 **Symptom:** found by S4's own on-box test, first time it ran for real.
 `systemctl restart jarvis-runner` mid-run left the task `failed_terminal` with

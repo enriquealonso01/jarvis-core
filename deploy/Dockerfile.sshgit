@@ -1,0 +1,29 @@
+# A tiny SSH git host for the dev stack (plan S5).
+#
+# Deploy-key isolation is a property of a real SSH server: whether project A's
+# key can reach project B's repository is decided by sshd and authorized_keys,
+# not by anything in this codebase. Testing it against a mock would prove
+# nothing, so the dev stack gets a real one.
+#
+# Two unix users, one repository each, one authorized key each. That is exactly
+# the shape GitHub deploy keys have — a key that authenticates for one
+# repository and no other — reproduced with the smallest thing that can actually
+# refuse a connection.
+FROM debian:bookworm-slim
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssh-server git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /run/sshd \
+  && useradd -m -s /usr/bin/git-shell alpha \
+  && useradd -m -s /usr/bin/git-shell beta
+
+# Password auth off, so a missing or wrong key is a refusal rather than a prompt.
+RUN sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+  && sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
+  && echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
+
+COPY deploy/sshgit-entrypoint.sh /usr/local/bin/sshgit-entrypoint.sh
+RUN chmod +x /usr/local/bin/sshgit-entrypoint.sh
+EXPOSE 22
+CMD ["/usr/local/bin/sshgit-entrypoint.sh"]

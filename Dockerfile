@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends python3 make g++ git openssh-client ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.15.1 --activate
 # Last-resort Supervisor route (ADR 006 / INITIAL_MODEL_ROUTING): Claude on the

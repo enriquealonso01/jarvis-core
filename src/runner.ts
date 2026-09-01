@@ -157,20 +157,43 @@ function isolationRefusal(project: Project | null): string | null {
  * still runs and still produces evidence, it just has no repo to change.
  */
 async function prepareWorkspace(
+  pool: pg.Pool,
   task: Task,
   project: Project | null,
-): Promise<{ dir: string; branch: string | null; isRepo: boolean; baseSha: string | null }> {
+): Promise<{
+  dir: string;
+  branch: string | null;
+  isRepo: boolean;
+  baseSha: string | null;
+  checkoutError?: string;
+}> {
+  let checkoutError: string | undefined;
   const slug = project?.slug ?? "unscoped";
   const short = task.id.slice(0, 8);
   const dir = path.join(WORKTREES, slug, short);
   await fs.mkdir(path.dirname(dir), { recursive: true });
 
   const repo = project ? path.join(PROJECTS, project.slug, "repo") : null;
-  const hasRepo = repo ? await fs.stat(path.join(repo, ".git")).then(() => true, () => false) : false;
+  let hasRepo = repo ? await fs.stat(path.join(repo, ".git")).then(() => true, () => false) : false;
+
+  // "Wire key provisioning to project create and to FIRST USE" (S5). This is
+  // first use: a project with a linked repository and no checkout gets one now,
+  // cloned with its own deploy key. If that fails the run continues in a scratch
+  // directory rather than dying — the harness still produces evidence, and the
+  // reason the clone failed is on the task rather than buried in a stack trace.
+  if (project && !hasRepo && project.github_owner && project.github_repo) {
+    const { ensureProjectCheckout } = await import("./checkout.js");
+    const out = await ensureProjectCheckout(pool, project.id);
+    if (out.ok) {
+      hasRepo = true;
+    } else {
+      checkoutError = out.error;
+    }
+  }
 
   if (!repo || !hasRepo) {
     await fs.mkdir(dir, { recursive: true });
-    return { dir, branch: null, isRepo: false, baseSha: null };
+    return { dir, branch: null, isRepo: false, baseSha: null, checkoutError };
   }
 
   const branch = `jarvis/task-${short}`;
@@ -183,7 +206,7 @@ async function prepareWorkspace(
   await git(repo, ["fetch", "--quiet", "origin", base]).catch(() => undefined);
   await git(repo, ["worktree", "add", "-b", branch, dir, `origin/${base}`]);
   const baseSha = await git(dir, ["rev-parse", "HEAD"]).catch(() => null);
-  return { dir, branch, isRepo: true, baseSha };
+  return { dir, branch, isRepo: true, baseSha, checkoutError };
 }
 
 function git(cwd: string, args: string[]): Promise<string> {
@@ -552,7 +575,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
   );
   const n = attempt.rows[0].n;
 
-  let workspace: { dir: string; branch: string | null; isRepo: boolean; baseSha: string | null } | null = null;
+  let workspace: Awaited<ReturnType<typeof prepareWorkspace>> | null = null;
   const controller = new AbortController();
   let heartbeat: NodeJS.Timeout | null = null;
   let lastEventAt = Date.now();
@@ -561,13 +584,19 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
   let stopReason: "cancelled" | "silent" | "timeout" | null = null;
 
   try {
-    workspace = await prepareWorkspace(task, project);
+    workspace = await prepareWorkspace(pool, task, project);
     await pool.query(
       `UPDATE tasks SET worktree_path = $2, branch = $3, harness = 'claude_code',
          auth_profile_id = $4, updated_at = now()
        WHERE id = $1`,
       [taskId, workspace.dir, workspace.branch, profile.id],
     );
+    if (workspace.checkoutError) {
+      await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [
+        taskId,
+        `checkout failed, running without a repo: ${workspace.checkoutError}`.slice(0, 500),
+      ]).catch(() => undefined);
+    }
     await transitionTask(pool, taskId, "running", `harness claude_code on ${profile.id}`, "runner", "heartbeat_at = now()");
 
     heartbeat = setInterval(() => {
