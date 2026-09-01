@@ -19,6 +19,33 @@ Enrique's to run or to authorise.
 | Postgres | listening on `127.0.0.1:5432`, container healthy |
 | `/etc/jarvis` | exists, `0750 root:jarvis` |
 
+## The box is running pre-S1 code — sync it FIRST
+
+Surveyed 2026-09-01. `/opt/jarvis/core` does not contain `paths.ts`,
+`routing.ts`, `work.ts` or `fakemodel.ts`; its `migrations/` stops at `009`, and
+the live database has 9 migrations applied. It is a **file drop used as a Docker
+build context**, not a git checkout, so it does not move when `main` does.
+
+This matters more than it looks: running `pnpm build` there today would build
+the *old* runner — the one with the blank-summary bug, no `JARVIS_ROOT`, and no
+mid-run context delivery. The unit would come up and run the wrong code.
+
+So the order is:
+
+1. **Merge the stack** — S1 (#7), S2+S3 (#9), S4 (#16) — to `main`.
+2. **Sync `/opt/jarvis/core` from `main`.** Sync the *contents* in place rather
+   than replacing the directory: Compose builds from that path and the
+   Control Center deploy script already documents why swapping the inode
+   underneath a running container breaks it.
+3. **Apply migrations 010 and 011** (route decisions, task context). The API and
+   worker containers rebuild from the same path, so they need the new schema
+   before they restart.
+4. Only then the three fixes below, then the unit.
+
+I have not done step 2 because I do not know which transfer mechanism this box
+expects, and guessing at a production deploy path is exactly the wrong place to
+improvise.
+
 ## Three things block the deploy
 
 ### 1. `.claude.json` is owned by root inside the jarvis config dir
@@ -46,6 +73,7 @@ unit's `ExecStart=/usr/bin/node /opt/jarvis/core/dist/runner.js` has nothing to
 run.
 
 ```bash
+# ONLY after the sync above — otherwise this builds pre-S1 code.
 cd /opt/jarvis/core
 sudo -u jarvis pnpm install --frozen-lockfile
 sudo -u jarvis pnpm build          # produces dist/runner.js
