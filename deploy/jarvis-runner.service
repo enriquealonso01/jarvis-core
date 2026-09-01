@@ -23,6 +23,15 @@ Environment=NODE_ENV=production
 
 ExecStart=/usr/bin/node /opt/jarvis/core/dist/runner.js
 
+# ADR 007 budgets the heavy worker 4 GB. Every other component is a container
+# with a mem_limit; this one is a host process, so without these two lines the
+# largest slice on the box is also the only unbounded one — and an OOM here
+# takes Postgres down with it. MemoryHigh throttles and reclaims first so a
+# merely-hungry run is slowed rather than killed.
+MemoryHigh=3584M
+MemoryMax=4096M
+# An OOM kill must not look like a clean restart: the task is left for the
+# watchdog to recover and the exit shows up in the journal.
 Restart=always
 RestartSec=5
 # Draining on SIGTERM lets an in-flight harness run finish its checkpoint; the
