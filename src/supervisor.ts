@@ -5,7 +5,7 @@ import { readJsonCredential } from "./credentials.js";
 import { classifyRouteFailure, markRouteHealth, routesForRole, setProbeTools, type ModelRole } from "./catalog.js";
 import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
 import { metadataOnlyPayload } from "./redaction.js";
-import { transitionTask } from "./jobs.js";
+import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
 import { FAKE_MODEL, fakeCompletion } from "./fakemodel.js";
 import {
   ONBOARDING_FIELDS,
@@ -301,58 +301,6 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   models_list: "models.list",
 };
 
-const LANES = new Set(["heavy", "system", "supervisor"]);
-const PRIORITIES = new Set(["critical", "high", "normal", "low", "background"]);
-
-/** Loose enough to survive punctuation and case, tight enough to catch an echo. */
-function normalise(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-/**
- * Resolve what the model called a project into exactly one row, or say why not.
- *
- * Guessing is the expensive failure here: a task filed against the wrong project
- * runs with the wrong credentials, the wrong repo and the wrong confidentiality
- * class. One short question costs a round trip; a wrong project costs an
- * isolation incident.
- */
-async function resolveProject(
-  pool: pg.Pool,
-  wanted: string,
-): Promise<{ id: string; slug: string } | { error: string }> {
-  const q = wanted.trim();
-  const r = await pool.query<{ id: string; slug: string }>(
-    `SELECT id, slug FROM projects
-     WHERE archived_at IS NULL AND (slug = $1 OR lower(slug) = lower($1) OR lower(name) = lower($1))`,
-    [q],
-  );
-  if (r.rows.length === 1) return r.rows[0];
-  if (r.rows.length > 1) {
-    return { error: `"${q}" matches ${r.rows.map((p) => p.slug).join(", ")}. Ask which one; do not guess.` };
-  }
-  const like = await pool.query<{ slug: string }>(
-    `SELECT slug FROM projects
-     WHERE archived_at IS NULL AND (slug ILIKE $1 OR name ILIKE $1)
-     ORDER BY slug LIMIT 5`,
-    [`%${q}%`],
-  );
-  if (like.rows.length === 1) return await resolveProject(pool, like.rows[0].slug);
-  if (like.rows.length > 1) {
-    return {
-      error: `"${q}" is ambiguous: it could be ${like.rows.map((p) => p.slug).join(" or ")}. `
-        + "Ask him which one in one short question. No task was created.",
-    };
-  }
-  const all = await pool.query<{ slug: string }>(
-    `SELECT slug FROM projects WHERE archived_at IS NULL AND is_system = false ORDER BY slug LIMIT 10`,
-  );
-  return {
-    error: `there is no project called "${q}". Existing projects: `
-      + `${all.rows.map((p) => p.slug).join(", ") || "(none yet)"}. Ask him which one. No task was created.`,
-  };
-}
-
 async function runTool(
   pool: pg.Pool,
   conversationId: string,
@@ -379,10 +327,8 @@ async function runTool(
         + "it will be recognised as finished. No task was created.";
     }
 
-    const lane = LANES.has((args.lane ?? "").toLowerCase()) ? (args.lane as string).toLowerCase() : "heavy";
-    const priority = PRIORITIES.has((args.priority ?? "").toLowerCase())
-      ? (args.priority as string).toLowerCase()
-      : "normal";
+    const lane = (args.lane ?? "heavy").toLowerCase() || "heavy";
+    const priority = (args.priority ?? "normal").toLowerCase() || "normal";
 
     // The conversation's own project wins over anything the model names: it is a
     // fact about where this thread lives, not a guess about what was meant.
@@ -408,22 +354,29 @@ async function runTool(
     // Provenance is taken from the turn, never from the model: it is the only
     // link back from a task to the sentence that caused it, and a model that
     // invents an id breaks the trail silently.
-    const inserted = await pool.query<{ id: string }>(
-      `INSERT INTO tasks (project_id, conversation_id, origin_inbox_id, title, objective, state, lane, priority)
-       VALUES ($1, $2, $3, $4, $5, 'captured', $6, $7)
-       RETURNING id`,
-      [projectId, conversationId, inboxId || null, title.slice(0, 200), objective, lane, priority],
+    const taskId = await createTask(pool, {
+      projectId,
+      conversationId,
+      originInboxId: inboxId || null,
+      title,
+      objective,
+      lane,
+      priority,
+      cause: "task_create",
+    });
+    const slug = await projectSlug(pool, projectId);
+    const stored = await pool.query<{ lane: string; priority: string }>(
+      `SELECT lane, priority FROM tasks WHERE id = $1`,
+      [taskId],
     );
-    const taskId = inserted.rows[0].id;
-    // Walk the documented machine rather than jumping straight to queued, so the
-    // Work view has a trail and STATE_MACHINES stays true.
-    await transitionTask(pool, taskId, "classified", "task_create", "supervisor");
-    await transitionTask(pool, taskId, "queued", "task_create", "supervisor");
-
-    const slug = projectId
-      ? (await pool.query<{ slug: string }>(`SELECT slug FROM projects WHERE id = $1`, [projectId])).rows[0]?.slug
-      : null;
-    return JSON.stringify({ task_id: taskId, project: slug, lane, priority, state: "queued", title });
+    return JSON.stringify({
+      task_id: taskId,
+      project: slug,
+      lane: stored.rows[0]?.lane,
+      priority: stored.rows[0]?.priority,
+      state: "queued",
+      title,
+    });
   }
   if (name === "memory.upsert") {
     // An empty body would persist a row that says nothing and still report
@@ -1031,7 +984,17 @@ export async function quickCompletion(
   pool: pg.Pool,
   system: string,
   user: string,
+  opts: { maxTokens?: number } = {},
 ): Promise<string | null> {
+  // The router is a quickCompletion too, so the fake model has to reach here or
+  // routing cannot be tested offline at all.
+  if (FAKE_MODEL) {
+    const reply = fakeCompletion([
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
+    return reply.content ?? null;
+  }
   const candidates = await getProviderCandidates(pool, "supervisor");
   for (const c of candidates) {
     try {
@@ -1045,7 +1008,7 @@ export async function quickCompletion(
             { role: "user", content: user },
           ],
           temperature: 0.3,
-          max_tokens: 200,
+          max_tokens: opts.maxTokens ?? 200,
           ...(c.provider === "fireworks" ? { reasoning_effort: "none" } : {}),
         }),
       });

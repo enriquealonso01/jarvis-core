@@ -83,6 +83,17 @@ async function main(): Promise<void> {
     RESTART IDENTITY CASCADE
   `);
 
+  // Projects are fixture, not test data - but only the ones this script creates.
+  // A test (or a sabotage) that creates a project left it behind, because the
+  // truncate list above is all work tables, and the next run then had a project
+  // in it that nobody had asked for. "Reset to a known state" has to mean the
+  // projects too, or one test silently changes the world the next one runs in.
+  await pool.query(
+    `DELETE FROM projects
+     WHERE is_system = false AND slug <> ALL($1::text[])`,
+    [[PROJECT_SLUG, "alpha-web", "alpha-mobile"]],
+  );
+
   // The console's own thread: unscoped, so nothing pre-selects a project for the
   // Supervisor. That is the case worth testing.
   const conversation = await pool.query<{ id: string }>(
@@ -93,6 +104,10 @@ async function main(): Promise<void> {
   for (const dir of ["artifacts", "worktrees", "projects", "browsers", "quarantine", "keys", "harness-auth", "dev-origins"]) {
     await fs.mkdir(path.join(JARVIS_ROOT, dir), { recursive: true });
   }
+
+  // A test that dropped a fake-model overlay and then died would otherwise
+  // answer every later suite from its own fixture. Reset means reset.
+  await fs.rm(path.join(JARVIS_ROOT, "fake-overlay.json"), { force: true }).catch(() => undefined);
 
   const keyPath = process.env.MASTER_KEY_PATH ?? path.join(JARVIS_ROOT, "keys", "master.key");
   if (!(await fs.stat(keyPath).then(() => true, () => false))) {

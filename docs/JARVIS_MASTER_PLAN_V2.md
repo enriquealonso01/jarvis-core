@@ -104,10 +104,10 @@ the ability to act and to dial out — it does not rebuild it.
 **Does not exist at all**
 - ~~Any way for a message to become work (`task_create`)~~ — S2 done 2026-09-01: `task.create` is a Supervisor tool, refuses heavy work with no project, refuses an ambiguous project, refuses an objective that only echoes the message, and its tasks are picked up by the runner.
 - Outbound calling. Only the quiet-hours *check* exists; nothing dials — S20.
-- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S27.
-- Browser control and scraping — S28.
+- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S28.
+- Browser control and scraping — S29.
 - Project onboarding and `AGENTS.md` authoring — S23.
-- Memory retrieval over dumped documents — S26.
+- Memory retrieval over dumped documents — S27.
 - Any test that asserts Jarvis did a piece of work — S8.
 - Any way to run the engineering loop without a paid subscription and a Linux box — S1.
 
@@ -269,6 +269,27 @@ Host: Netcup VPS. Target ≤ €20/month. Tailscale for admin access; no public 
 **Persist-first is absolute.** OpenClaw must not let a model answer a DM until
 Jarvis has stored the event. The bridge refuses to complete if the ingest failed.
 
+## II.2b The harness is disposable
+
+Jarvis is not its harness, its models, or its providers. Every one of those is a
+replaceable part behind an interface, and the plan is built so that replacing any
+of them is a configuration change rather than a rewrite:
+
+| Part | Interface | Swap cost |
+|---|---|---|
+| Coding harness | `AgentRuntime` (S25) | a new implementation + a registry row |
+| Chat model | `model_registry` route | a URL and a key |
+| Provider | auth profile | a key, because the weights are open (VI.0) |
+| Channel | inbox event | a new ingest adapter |
+
+This is what makes "eventually I will buy a machine and run everything myself"
+a configuration change rather than a second project. It is also the reason the
+free-tier collapse cost a migration and not a rebuild.
+
+The rule that keeps it true: **no vendor name appears outside the adapter that
+owns it.** A `claude`-specific branch in the queue, the console, or the broker is
+the abstraction failing quietly.
+
 ## II.3 The task lifecycle — the spine
 
 ```
@@ -340,7 +361,7 @@ not a silent restart.
 
 # PART III — THE BUILD
 
-One agent. One step at a time. Thirty-three steps, in order.
+One agent. One step at a time. Thirty-four steps, in order.
 
 Each step is **Build → Test → Debug → Done when**. A step is not finished when
 the code compiles. It is finished when the "Done when" line has been *observed*.
@@ -811,11 +832,44 @@ It must **act**.
 
 **Build** Cut to what is real: Fireworks open-weights primary plus one fallback for the Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT; ElevenLabs for TTS. Delete the dead free-tier chain. Authentication stays per **provider**, never per model.
 
-**Test** `/api/models` shows two healthy supervisor routes and no `discovered` row pretending to be routable. Kill the primary → failover, same conversation id, no metered enablement (L4). Add a second model on an existing provider → **no** new key requested.
+**Test** `/api/models` shows two healthy supervisor routes and no `discovered` row pretending to be routable. Kill the primary → failover, same conversation id, no metered enablement (L4). Add a second model on an existing provider → **no** new key requested. Mark a coding subscription exhausted → the next task lands on the next engine silently; mark all of them exhausted → *then* it parks, naming which and when each resets.
 
 **Debug** A route that looks healthy but never serves is usually failing its probe silently and being left `degraded` rather than dropped. Read `model_registry.last_error`. If a supposedly deleted provider still appears, something is re-seeding it on boot — grep the migrations and the catalog seeder before editing rows by hand.
 
-**Done when:** every registered route has passed a real tool-enabled call.
+### Quota is a routable resource, not just a failure
+
+The plan has been treating a subscription limit as an error — park the task and
+notify. That is wrong, and it wastes the main advantage of running on flat-rate
+subscriptions. **Remaining quota is an input to routing.**
+
+Jarvis should know, per profile:
+
+```
+claude_personal      quota_status = healthy
+openai_codex         quota_remaining = 62%
+cursor_personal      monthly_usage = 41%
+fireworks            metered, ceiling $20, spent $6.40
+groq                 requests_remaining_today = 763
+```
+
+and route on: task complexity, project confidentiality, model capability,
+**remaining quota**, provider availability, latency, and cost. So:
+
+- "Rename this variable" → the cheap utility route, never a coding subscription.
+- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → *then* park, and say which and when they reset.
+
+Parking is the last resort, not the first response. A task that stops because
+one of three available engines was busy is a task that did not need to stop.
+
+Track quota from what the provider actually reports plus what Jarvis has spent.
+**Where a subscription exposes no usage API, infer conservatively from observed
+rate-limit responses and say the number is an estimate** — a confident wrong
+quota figure is worse than an honest unknown, because it will route around an
+engine that was actually available.
+
+**Done when:** every registered route has passed a real tool-enabled call, and a
+coding task whose primary subscription is exhausted completes on the next engine
+without Enrique being told anything.
 
 ## S23 — Project onboarding and `AGENTS.md`
 *Size: 2–3 days. S6 reads this file; nothing currently writes it.*
@@ -859,7 +913,74 @@ always-confirm list, secret scope, and the authority of the system projects.
 
 **Done when:** a sentence changes a different project's behaviour, is auditable a week later, and can be rolled back.
 
-## S25 — The engineering evaluation suite
+## S25 — The runtime interface and a second harness
+*Size: 3 days. Must land before S26 — the evaluation suite has nothing to compare until two harnesses exist.*
+
+The planning conversation calls this "probably the single most important
+architectural decision we make", and it is the one that makes the rest of Jarvis
+outlive its parts.
+
+### The principle
+
+Jarvis must never *be* its harness. It talks to an abstract runtime:
+
+```
+Jarvis
+  └── AgentRuntime
+        ├── ClaudeCodeRuntime      (today)
+        ├── CodexRuntime
+        ├── CursorRuntime
+        └── FutureRuntime          (a self-hosted model, five years from now)
+```
+
+and asks for work in terms that name no vendor:
+
+```
+run_task(
+  project      = "ticketflipping",
+  objective    = "Fix the checkout bug and open a PR",
+  permissions  = ["repo:write", "github:pr"],
+  model_profile= "coding-large"
+)
+```
+
+It should not care which engine underneath serves that. When Enrique eventually
+buys a machine and runs the weights himself, the swap is a new runtime
+implementation and a registry row — **Jarvis does not change.** That is the whole
+payoff, and it is only available if the seam is built before there is a second
+implementation to force it.
+
+### Build
+
+- Extract the harness call in `runner.ts` behind an `AgentRuntime` interface: start a run, stream events, checkpoint, cancel, report a terminal outcome. Nothing vendor-specific crosses that line.
+- Normalise events. Each runtime emits its own format; the interface exposes one — phase, tool call, output, error, result. `task_events` stores the normalised shape, so the console and the evaluation suite work identically whichever engine ran.
+- Implement **CodexRuntime** as the second one. The fake harness from S1 is already a third implementation, which is how you know the interface is honest rather than shaped around a single vendor.
+- The runtime used is recorded on the task, and selectable per project and per task.
+
+### Test
+
+- The same task runs to a passing PR on Claude Code and on Codex, changing one field and nothing else.
+- The console renders both runs identically — if one shows phases and the other does not, the normalisation is incomplete.
+- The fake harness still satisfies the interface. **An interface that only two real vendors fit is a coincidence, not an abstraction.**
+- Point a task at a runtime that is not installed → a clean `provider.cred_expired`-class park with a useful message, not a crash.
+- Kill a run on each runtime and confirm recovery is identical from the outside.
+
+### Debug
+
+If adding the second runtime requires changing anything outside its own file, the
+interface leaked and the leak is where the vendor assumption lives — usually
+event parsing or exit-code interpretation. Fix the seam rather than special-casing
+the caller.
+
+If the same objective behaves very differently on the two runtimes, check the
+prompt and permissions being passed before blaming the model; the two CLIs take
+different flags for the same intent, and that translation belongs inside the
+runtime.
+
+**Done when:** one task runs on either harness by changing one field, both look
+the same in the console, and the fake harness still fits the interface.
+
+## S26 — The engineering evaluation suite
 *Size: 3–4 days.*
 
 Transcript msg 09: Jarvis runs its own quality testing and picks its primary and
@@ -885,7 +1006,7 @@ someone's opinion.
 
 **Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
 
-## S26 — Memory and knowledge
+## S27 — Memory and knowledge
 *Size: 4–5 days. Write ADR 017 first — but the recommendation below is the starting position, not an open question.*
 
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
@@ -943,7 +1064,7 @@ mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
 **Done when:** N2 passes across a restore from backup, with correct citations, no
 cross-project leakage, and an honest "I don't know" when the answer is not there.
 
-## S27 — Composio and MCP
+## S28 — Composio and MCP
 *Size: 4–5 days. After S6, so there is something to use them.*
 
 **Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
@@ -954,7 +1075,7 @@ cross-project leakage, and an honest "I don't know" when the answer is not there
 
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
-## S28 — Browser and scraping
+## S29 — Browser and scraping
 *Size: 5–6 days. Named in the very first planning message and still at zero. Write ADR 016 before any code — this has never been designed.*
 
 Enrique's first message asked for an agent that is "extremely good with scraping,
@@ -1015,7 +1136,7 @@ see another project's session.
 
 # STAGE 6 — MAKE IT SURVIVE
 
-## S29 — Notification policy
+## S30 — Notification policy
 *Size: 2 days.*
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
@@ -1026,7 +1147,7 @@ see another project's session.
 
 **Done when:** a day of normal use produces only messages worth reading.
 
-## S30 — Schedules, maintenance, improvement
+## S31 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
@@ -1037,7 +1158,7 @@ see another project's session.
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
-## S31 — Backup, restore, export
+## S32 — Backup, restore, export
 *Size: 2–3 days.*
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
@@ -1048,7 +1169,7 @@ see another project's session.
 
 **Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
 
-## S32 — Full acceptance
+## S33 — Full acceptance
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
@@ -1063,10 +1184,10 @@ see another project's session.
 
 # STAGE 7 — THE LAST THING
 
-## S33 — WhatsApp
+## S34 — WhatsApp
 *Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
 
-When S32 is done, this is the only work left between here and a finished Jarvis.
+When S33 is done, this is the only work left between here and a finished Jarvis.
 
 **Build now, before the number exists**
 - The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
@@ -1221,6 +1342,22 @@ configuration. Worktrees are disposable — GitHub is canonical.
 
 # PART VI — MODELS, ROUTING, COST
 
+## VI.0 The model principle
+
+**Open-weights models, hosted by a provider we pay. Not self-deployed, and not
+free tiers.**
+
+Both halves matter, and both are corrections of earlier plans:
+
+- **Open weights, not closed.** The weights for the Supervisor and utility roles are publicly available, so the provider is a convenience rather than a dependency. If Fireworks doubles its price, disappears, or degrades, the same model is available elsewhere and the migration is a URL and a key — not a rewrite. This is what makes the portability Enrique asked for in his first message real rather than aspirational.
+- **Hosted, not self-deployed.** Running these weights ourselves means a GPU box costing more per month than the entire budget, plus the operational burden of keeping it alive. Someone else runs the hardware and we pay for tokens.
+- **Paid, not free.** The free-tier premise is dead and the evidence is in this repo: migration 008 measured the nominal free primary serving 9 turns out of 153, and Gemini serving 0. Free tiers rate-limit, retire models without notice, and cannot be depended on for a system meant to run unattended.
+
+The exception is coding. The senior engineer and reviewer roles run on
+**subscription CLIs** already paid for — Claude Code today, Codex and Cursor
+registered for later. Those are flat-rate and their marginal cost is zero, which
+is why the most expensive role in the system is also the cheapest to run.
+
 **Roles**: supervisor, utility, senior_engineer, reviewer, stt, voice_tts, vision, embeddings.
 
 **Routing key**: `role + model + provider + auth_profile + project_policy`. Never
@@ -1237,9 +1374,9 @@ stay routable; hard failures drop out.
 
 | Role | Route | Cost |
 |---|---|---|
-| Supervisor / utility | Fireworks open-weights primary + one fallback | ~$5–10/mo |
+| Supervisor / utility | Hosted open-weights, one primary + one fallback (Fireworks today) | ~$5–10/mo |
 | Senior engineer / reviewer | Claude Code on `anthropic_personal` | $0 marginal |
-| STT | Groq Whisper free tier | $0 |
+| STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
 
 **Budget**: VPS ≤ €20, inference ≤ $20, total under $40/month. Metered spend is
@@ -1342,7 +1479,7 @@ on Linux — which is why v1's never was.
 stack. Manual is checklisted per stage and its evidence goes in the commit.
 
 ## Gate 1 — It acts *(blocks everything else)*
-- **N1** the fix, end to end — console first, then voice note at S33
+- **N1** the fix, end to end — console first, then voice note at S34
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
@@ -1493,9 +1630,9 @@ shared working tree.
 | **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
 | **3 — It is visible** | S13–S16 | A console that shows work and repairs credentials | 8–10 days |
 | **4 — The phone is reliable** | S17–S21 | A call you can depend on, and Jarvis calling you | 10–12 days |
-| **5 — It reaches** | S22–S28 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
-| **6 — It survives** | S29–S32 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S33 | The last thing. Voice note in, PR back. | 2–3 days |
+| **5 — It reaches** | S22–S29 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
+| **6 — It survives** | S30–S33 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S34 | The last thing. Voice note in, PR back. | 2–3 days |
 
 **Total: roughly 70–85 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
@@ -1511,11 +1648,11 @@ system is useful.
 - **S2 and S4 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
 - **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
 - **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
-- **S33 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+- **S34 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
 
 ## What "finished" means
 
-When S33 is green, this is true:
+When S34 is green, this is true:
 
 > Enrique sends a voice note. Minutes later he gets one short message with a link
 > to a pull request that fixes what he described. He can call Jarvis and talk to
@@ -1568,12 +1705,12 @@ Every requirement from the planning transcript, and where it lives.
 | Phone calls, both directions (06, 07, 15) | S17–S21 |
 | Jarvis can call me (06, 15) | S20 |
 | Five-second turn-taking on calls (01) | S18 |
-| WhatsApp voice notes (01, 15) | S33 |
-| Nothing I say is ever lost (15) | S2, S11, S33, Gate 2 |
+| WhatsApp voice notes (01, 15) | S34 |
+| Nothing I say is ever lost (15) | S2, S11, S34, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S25 |
+| Jarvis tests models and picks its own primaries (09) | S26 |
 | Change any project's setup from any channel (17) | S24 |
-| Weekly scan of the AI world, one-tap approve (17) | S30 |
-| Maintenance project that heals the system (17) | S30 |
-| Dump anything, ask about it later (01) | S26, N2 |
-| Never mix connections between projects (01, 20) | S5, S12, S27 |
+| Weekly scan of the AI world, one-tap approve (17) | S31 |
+| Maintenance project that heals the system (17) | S31 |
+| Dump anything, ask about it later (01) | S27, N2 |
+| Never mix connections between projects (01, 20) | S5, S12, S28 |

@@ -1,131 +1,325 @@
-[
-  {
-    "match": "wire it end to end",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "dev-sandbox",
-          "title": "Wire it end to end",
-          "objective": "Prove a sentence in the console reaches the heavy lane: add a file to the sandbox repo and commit it on a branch.",
-          "lane": "heavy",
-          "priority": "high"
+{
+  "supervisor": [
+    {
+      "match": "wire it end to end",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "dev-sandbox",
+            "title": "Wire it end to end",
+            "objective": "Prove a sentence in the console reaches the heavy lane: add a file to the sandbox repo and commit it on a branch.",
+            "lane": "heavy",
+            "priority": "high"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "fix the login button",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha-web",
-          "title": "Fix the login button",
-          "objective": "The login button on the sign-in page does nothing when clicked. Find why the click handler never fires, fix it, and open a pull request against main with a test that fails without the fix.",
-          "lane": "heavy",
-          "priority": "high"
+      ]
+    },
+    {
+      "match": "fix the login button",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha-web",
+            "title": "Fix the login button",
+            "objective": "The login button on the sign-in page does nothing when clicked. Find why the click handler never fires, fix it, and open a pull request against main with a test that fails without the fix.",
+            "lane": "heavy",
+            "priority": "high"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "prefers tuesdays",
-    "tool_calls": [
-      {
-        "name": "memory_upsert",
-        "arguments": {
-          "kind": "preference",
-          "body": "The client prefers Tuesdays for calls."
+      ]
+    },
+    {
+      "match": "prefers tuesdays",
+      "tool_calls": [
+        {
+          "name": "memory_upsert",
+          "arguments": {
+            "kind": "preference",
+            "body": "The client prefers Tuesdays for calls."
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "speed up the checkout",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha",
-          "title": "Speed up checkout",
-          "objective": "Checkout takes over four seconds. Profile it and get it under one second.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "speed up the checkout",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha",
+            "title": "Speed up checkout",
+            "objective": "Checkout takes over four seconds. Profile it and get it under one second.",
+            "lane": "heavy"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "tidy up the logs",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "title": "Tidy up the logs",
-          "objective": "Log lines are unstructured. Give them a consistent prefix and a level.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "tidy up the logs",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "title": "Tidy up the logs",
+            "objective": "Log lines are unstructured. Give them a consistent prefix and a level.",
+            "lane": "heavy"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "make the header sticky",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha-web",
-          "title": "Sticky header",
-          "objective": "Make the header sticky.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "make the header sticky",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha-web",
+            "title": "Sticky header",
+            "objective": "Make the header sticky.",
+            "lane": "heavy"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "burst one",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha-web",
-          "title": "Burst one",
-          "objective": "First of three requests sent in quick succession. Rename the settings page.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "burst one",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha-web",
+            "title": "Burst one",
+            "objective": "First of three requests sent in quick succession. Rename the settings page.",
+            "lane": "heavy"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "burst two",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha-web",
-          "title": "Burst two",
-          "objective": "Second of three requests sent in quick succession. Add a footer link.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "burst two",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha-web",
+            "title": "Burst two",
+            "objective": "Second of three requests sent in quick succession. Add a footer link.",
+            "lane": "heavy"
+          }
         }
-      }
-    ]
-  },
-  {
-    "match": "burst three",
-    "tool_calls": [
-      {
-        "name": "task_create",
-        "arguments": {
-          "project": "alpha-web",
-          "title": "Burst three",
-          "objective": "Third of three requests sent in quick succession. Fix the favicon.",
-          "lane": "heavy"
+      ]
+    },
+    {
+      "match": "burst three",
+      "tool_calls": [
+        {
+          "name": "task_create",
+          "arguments": {
+            "project": "alpha-web",
+            "title": "Burst three",
+            "objective": "Third of three requests sent in quick succession. Fix the favicon.",
+            "lane": "heavy"
+          }
         }
+      ]
+    },
+    {
+      "match": "what time is it",
+      "content": "I do not have a clock, but nothing needed doing there."
+    },
+    {
+      "match": "how does our deploy work",
+      "content": "We deploy by zipping the app folder and pushing it to Elastic Beanstalk."
+    }
+  ],
+  "classifier": [
+    {
+      "match": "prefers tuesdays",
+      "json": {
+        "reason": "he is telling me a fact, not asking for work",
+        "segments": [
+          {
+            "category": "capture",
+            "project": null,
+            "text": "The client prefers Tuesdays.",
+            "reason": "a standing preference, nothing to do"
+          }
+        ]
       }
-    ]
-  },
-  {
-    "match": "what time is it",
-    "content": "I do not have a clock, but nothing needed doing there."
-  }
-]
+    },
+    {
+      "match": "the login button is dead",
+      "json": {
+        "reason": "one thing to do, in one project",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "the login button is dead",
+            "title": "Fix the login button",
+            "objective": "The login button does nothing when clicked. Find why the handler never fires, fix it, and open a pull request.",
+            "reason": "an explicit request to change code"
+          }
+        ]
+      }
+    },
+    {
+      "match": "always ask me before deploying",
+      "json": {
+        "reason": "a change to how I behave",
+        "segments": [
+          {
+            "category": "instruction",
+            "project": null,
+            "text": "always ask me before deploying",
+            "reason": "a standing rule, not a one-off"
+          }
+        ]
+      }
+    },
+    {
+      "match": "how does our deploy work",
+      "json": {
+        "reason": "answerable now",
+        "segments": [
+          {
+            "category": "question",
+            "project": null,
+            "text": "how does our deploy work",
+            "reason": "he wants an answer, not an action"
+          }
+        ]
+      }
+    },
+    {
+      "match": "quick brain dump",
+      "json": {
+        "reason": "three separate destinations in one message",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "alpha web needs the checkout page fixed",
+            "title": "Fix the checkout page",
+            "objective": "Checkout errors on submit. Reproduce it, fix it, open a PR.",
+            "reason": "explicit work, names Alpha Web"
+          },
+          {
+            "category": "work",
+            "project": "alpha-mobile",
+            "text": "for alpha mobile I thought of a nicer onboarding",
+            "title": "Nicer onboarding flow",
+            "objective": "Redesign the first-run onboarding so it is three screens instead of six.",
+            "reason": "explicit work, names Alpha Mobile"
+          },
+          {
+            "category": "capture",
+            "project": null,
+            "text": "next month we should review pricing",
+            "reason": "a note for later, no project named"
+          }
+        ]
+      }
+    },
+    {
+      "match": "get that sorted in zeppelin",
+      "json": {
+        "reason": "he named a project I do not have",
+        "segments": [
+          {
+            "category": "ambiguous",
+            "project": null,
+            "text": "get that sorted in zeppelin",
+            "reason": "he said 'zeppelin'; there is no such project. Ask before creating anything."
+          }
+        ]
+      }
+    },
+    {
+      "match": "fenced reply please",
+      "content": "Here you go:\n```json\n{\"reason\":\"fenced\",\"segments\":[{\"category\":\"capture\",\"project\":null,\"text\":\"fenced reply please\",\"reason\":\"still parseable\"}]}\n```"
+    },
+    {
+      "match": "garbled router reply",
+      "content": "I think this is probably a task for someone."
+    },
+    {
+      "match": "invented category",
+      "json": {
+        "reason": "bad category",
+        "segments": [
+          {
+            "category": "urgent-thing",
+            "project": null,
+            "text": "invented category",
+            "reason": "made up"
+          }
+        ]
+      }
+    },
+    {
+      "match": "two unclear things at once",
+      "json": {
+        "reason": "two segments, neither placeable",
+        "segments": [
+          {
+            "category": "work",
+            "project": null,
+            "text": "the first unclear thing",
+            "title": "Unclear one",
+            "objective": "Not enough to go on.",
+            "reason": "work but he named no project"
+          },
+          {
+            "category": "work",
+            "project": null,
+            "text": "the second unclear thing",
+            "title": "Unclear two",
+            "objective": "Not enough to go on.",
+            "reason": "work but he named no project"
+          }
+        ]
+      }
+    },
+    {
+      "match": "mixed message",
+      "json": {
+        "reason": "one thing to do and one thing to answer",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "alpha web needs the search box fixed",
+            "title": "Fix the search box",
+            "objective": "The search box returns nothing. Find the broken query, fix it, open a PR.",
+            "reason": "explicit work in a named project"
+          },
+          {
+            "category": "question",
+            "project": null,
+            "text": "how does our deploy work",
+            "reason": "he wants an answer"
+          }
+        ]
+      }
+    },
+    {
+      "match": "ship the dashboard in hindenburg",
+      "json": {
+        "reason": "clear work, but the project he named is not one I have",
+        "segments": [
+          {
+            "category": "work",
+            "project": "hindenburg",
+            "text": "ship the dashboard in hindenburg",
+            "title": "Ship the dashboard",
+            "objective": "Build and release the dashboard page.",
+            "reason": "he named Hindenburg as the project"
+          }
+        ]
+      }
+    }
+  ]
+}

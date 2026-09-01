@@ -148,6 +148,76 @@ prerequisite. If the application needs a directory, the application should
 create it — otherwise "works on the server" is the only environment there is.
 
 
+### A test changed the API container's environment and every later suite lied
+**Symptom:** after S3c passed, S3b went 17/37, S3a 17/30 and S2 5/24 — hundreds
+of assertions failing at once, in code none of them touched.
+**Cause:** S3c needs fixtures naming task ids that do not exist until it creates
+them, so it recreated the API container with its own
+`JARVIS_FAKE_MODEL_SCRIPT`. The override stuck. Every suite that ran afterwards
+was answered from S3c's three-entry fixture.
+**Fix:** the fake model reads an optional overlay from
+`JARVIS_ROOT/fake-overlay.json` on the shared volume, merged in front of the
+base script. No restart, no env change, and `dev-seed` deletes it so a crashed
+run heals itself.
+**Lesson:** a test that mutates shared infrastructure has to restore it, and
+"restore it in a trap" is weaker than "never mutate it". Prefer a mechanism the
+seed can undo.
+
+### A bind mount left a directory where the test expected a file
+**Symptom:** the S3c fixture silently failed to write, so the router had no
+scripted verdict and sixteen assertions failed as though routing were broken.
+**Cause:** an earlier attempt mounted the fixture with `-v "$FIX:/in.json"`.
+Docker creates a *directory* at a source path that does not exist, so
+`/tmp/s3c-fixture.json` became a directory and stayed one. Every later
+`json.dump(open(out,"w"))` failed, and without `set -e` the script carried on.
+**Fix:** a per-run path, `rm -rf` before writing, and an explicit
+`[ -s "$FIX" ] || exit 1` guard so an unwritten fixture aborts loudly.
+**Lesson:** Docker bind mounts create missing sources as directories. And a test
+that builds its own fixture must assert the fixture exists before trusting a
+single result that depends on it.
+
+### The build-fails-silently trap, a third time — and the fix
+**Symptom:** three separate see-it-fail passes reported confident greens for
+sabotaged code, because the sabotage did not typecheck, the Docker build failed,
+and the previous image kept serving.
+**Cause:** `docker compose up --build` prints its error inside a long build log,
+and the command was piped through `tail`.
+**Fix:** `scripts/dev-rebuild.sh` typechecks on the host first, builds with the
+log captured, greps it for `error TS` / `#N ERROR` even on exit 0, and exits
+non-zero on any of them — so `dev-rebuild.sh && run-suite` cannot run a suite
+against a stale image. It caught the very next sabotage attempt.
+**Lesson:** when the same mistake happens three times, stop writing it down and
+make it impossible. A note is a reminder; a guard is a fix.
+
+### The seed did not reset what a test had created, so tests changed each other
+**Symptom:** after a routing sabotage was reverted and the suites re-run, S2 and
+S3b both failed on project counts, and S3b reported `task in hindenburg` — a
+project no fixture defines.
+**Cause:** `dev-seed.ts` truncated the work tables but never `projects`. A
+sabotage round had created a project as part of proving an assertion could fail;
+it survived every subsequent seed, and from then on the world each test ran in
+was not the world the fixture described.
+**Fix:** the seed deletes every non-system project that is not one of its own
+three fixtures.
+**Lesson:** "reset to a known state" has to include the tables a test can write
+to, not just the ones it is expected to. Anything a test can create, the seed
+must be able to remove — otherwise the first test to leave a trace silently
+becomes part of every later test's setup.
+
+### A fixture keyed on a phrase swallowed every longer message containing it
+**Symptom:** a message asking for work *and* a question routed as a pure
+question, and the work half vanished. It read exactly like a segmentation bug in
+the router.
+**Cause:** the fake model matched fixtures with `Array.find`, so the first
+fixture whose `match` appeared anywhere in the message won. A fixture keyed on
+"how does our deploy work" matched a longer sentence that merely contained it.
+**Fix:** longest match wins, and test sentences avoid containing another
+fixture's key verbatim. The rule helps but does not remove the hazard: a longer
+key can still be a substring of a shorter test message's superset.
+**Lesson:** substring-matched fixtures are order- and length-sensitive in ways
+that look like product bugs. When a routing test fails in a way the code cannot
+explain, check which fixture actually matched before reading the code.
+
 ### TRUNCATE CASCADE quietly deleted every conversation
 **Symptom:** after the S2 seed ran, `POST /api/conversations//messages` — with an
 empty id — 500'd with `invalid input syntax for type uuid: ""`. It read like a
