@@ -170,7 +170,13 @@ export async function openPullRequestForTask(pool: pg.Pool, taskId: string): Pro
 
   const project = await loadProject(pool, task.project_id);
   if (!project?.github_owner || !project.github_repo) {
-    return { ok: false, reason: "the project has no linked repository", parked: false };
+    // Recorded, not just returned. A silent refusal is indistinguishable from a
+    // step that never ran, and the acceptance output then cannot explain itself.
+    const reason = "no pull request: this project has no linked repository";
+    await pool
+      .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, reason])
+      .catch(() => undefined);
+    return { ok: false, reason, parked: false };
   }
 
   const dir = repoDir(project.slug);

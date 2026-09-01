@@ -164,6 +164,42 @@ async function main() {
     process.exit(0);
   }
 
+  if (variant === "fixtest") {
+    // S8: make a real failing test pass, by editing real source.
+    //
+    // The plan is explicit that an acceptance test which passes on a run where
+    // the harness plainly did nothing is asserting the task row rather than the
+    // diff. So this variant does not fake a fix — it applies one, and the
+    // assertion downstream is the seeded test going from red to green.
+    init();
+    const jdir = path.join(cwd, ".jarvis");
+    fs.mkdirSync(jdir, { recursive: true });
+    const say = (phase, note) => {
+      fs.appendFileSync(path.join(jdir, "phases.jsonl"), JSON.stringify({ phase, note }) + "\n");
+      assistantText(`${phase}: ${note}`);
+    };
+    for (const p of ["preserve","context","reproduce","inspect","root_cause","plan"]) say(p, `at ${p}`);
+    const target = path.join(cwd, "src", "answer.js");
+    const before = fs.readFileSync(target, "utf8");
+    const after = before.replace("return 41;", "return 42;");
+    if (after === before) {
+      process.stderr.write("fake-harness: nothing to fix in src/answer.js\n");
+      process.exit(1);
+    }
+    fs.writeFileSync(target, after);
+    assistantToolUse("Edit", { file_path: target, content: "return 42" });
+    say("change", "answer() returned 41; it should return 42");
+    say("tests", "the seeded test already covers this");
+    const check = spawnSync("node", ["--test"], { cwd, encoding: "utf8" });
+    say("checks", `node --test exited ${check.status}`);
+    git(["add", "-A"]);
+    git(["-c", "user.email=fake@jarvis.local", "-c", "user.name=Fake Harness", "commit", "-m", "Return 42 from answer()"]);
+    say("commit", "committed the fix");
+    writeOutcome("completed", { notes: "answer() returned 41; changed it to 42 so the seeded test passes" });
+    result("success", "fixed answer() and the seeded test passes");
+    process.exit(0);
+  }
+
   // --- S6: the engineering loop, announced phase by phase ---------------
   if (variant.startsWith("workflow")) {
     // workflow        -> all phases, verdict completed
