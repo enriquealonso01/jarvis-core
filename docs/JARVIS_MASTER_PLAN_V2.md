@@ -708,6 +708,89 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** disk percentage is no longer the first thing on the page.
 
+## S13b — The build progress bar
+*Size: 1 day. Lives on Home until the build is finished, then retires.*
+
+While Jarvis is being built, the most useful thing on the home page is **how far
+along the build is**. Enrique asked for it directly: the length of the plan, and
+how much of it the agent has done.
+
+### The data
+
+`PROGRESS.json` at the repo root — root rather than `docs/` (owned by the plan)
+or `src/` (it is data, not code). The building agent writes it; the console reads
+it directly. No endpoint, no table: the file is versioned in git, so the bar's
+whole history is auditable and a state change is a diff with a timestamp.
+
+```json
+{
+  "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
+  "plan_sha": "<sha of the plan when last read>",
+  "total_steps": 37,
+  "updated_at": "<iso8601>",
+  "current_step": "S5",
+  "steps": [
+    {"id": "S1", "stage": 1, "state": "done", "pr": 7,
+     "evidence": "all five harness variants observed"},
+    {"id": "S5", "stage": 1, "state": "in_progress"},
+    {"id": "S6", "stage": 1, "state": "blocked", "blocker": "BLOCKED.md#netcup-ssh"}
+  ],
+  "gates": {"1": "green", "2": "pending"}
+}
+```
+
+States: `not_started` · `in_progress` · `partial` · `blocked` · `done`.
+
+### The integrity rules — the entire point
+
+A progress bar is the most temptingly roundable artifact in any project, and this
+one is **self-reported by the party being measured.** So:
+
+- `done` requires **both** that the step's "Done when" line was observed **and** that its PR is merged to main. Either alone is `partial`.
+- A step waiting on Enrique is `blocked`. Never `done`, never quietly skipped.
+- A step whose real half is covered only by the fake harness is `partial`, and it says which half is real.
+- A gate is `green` only when every test under it has passed **with evidence attached**. Not "should pass".
+- **`total_steps` is counted from the plan on every update, never hardcoded.** The plan has grown from 30 steps to 37 during the build, and a stale denominator turns the bar into a flattering lie.
+- Where two states are arguable, **pick the lower one.**
+
+Updated in the same commit as the change it describes — starting a step,
+finishing one, hitting or clearing a blocker, closing a gate. Never batched at
+the end of a session, because a bar updated in batches is a bar that was
+reconstructed from memory.
+
+### The UI
+
+One horizontal bar on Home, above the fold, segmented by the seven stages and
+each segment sized by its step count. Done solid; in-progress hatched; blocked in
+the alert colour; not-started empty. Beside it: `S5 of 37 · Stage 1 · 4 done,
+1 blocked`. Tapping a segment lists that stage's steps and states. The blocked
+count links to `BLOCKED.md`.
+
+If `PROGRESS.json` is older than 24 hours, the bar **says so** rather than
+presenting stale numbers as live.
+
+### Test
+
+- Every state renders distinguishably, including on a phone and in the colour-blind-safe palette. Blocked must not read as done.
+- Add a step to the plan → the denominator grows on the next update and the percentage **goes down**. That is correct behaviour and the bar must not hide it.
+- Stale file → the staleness notice appears; back-date `updated_at` to force it.
+- A step marked `done` whose PR is not merged → the console flags the inconsistency rather than trusting the file. **The bar is a claim, and the console is allowed to check it.**
+- Malformed or missing `PROGRESS.json` → the bar is absent with a plain explanation, never a half-drawn bar or a crash.
+
+### Debug
+
+If the bar and reality disagree, believe git. Cross-check `state: done` against
+merged PR numbers before believing the file, and say so on screen when they
+differ — a progress bar nobody trusts is worse than no progress bar, because it
+still gets looked at.
+
+If percentages jump around, the denominator is being hardcoded somewhere despite
+the rule. Grep for the literal number.
+
+**Done when:** Enrique can open Home on his phone and see, in one glance and
+without asking, how much of the plan is built, what is being worked on now, and
+what is waiting on him.
+
 ## S14 — Live work detail
 *Size: 2–3 days.*
 
