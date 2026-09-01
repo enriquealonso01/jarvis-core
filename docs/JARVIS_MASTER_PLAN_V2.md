@@ -1394,16 +1394,44 @@ HTTPS" — almost certainly a TLS-fingerprinting HTTP client (`pyhttpx`,
 `curl_cffi` or similar). **Confirm which one he meant before choosing**; the
 choice determines whether the fetch tier can pass fingerprint checks at all.
 
-### The three tiers
+### Two modes, and they are not the same thing
 
-A scraper that reaches for a browser first is slow, memory-hungry, and fragile.
-Pick the cheapest tier that works and escalate only on failure:
+The transcript draws a distinction the plan had blurred, and it is the one that
+decides whether this is affordable:
 
-1. **Plain HTTP** — `fetch` with sane headers. Covers most APIs and static pages. Milliseconds, no RAM.
-2. **Fingerprinted HTTP** — a TLS-fingerprinting client for sites that reject stock clients on JA3/JA4 before any content is served. Still cheap; this is the tier that handles most "it works in my browser but not in code" cases.
-3. **Real browser** — headless Chromium, project-scoped profile. Only for pages that genuinely need JavaScript execution or an authenticated session. **Occupies the single heavy slot** (ADR 007) — while a browser is scraping, no coding task runs.
+**Mode 1 — Browser agent.** The model drives a real browser, step by step.
+For *"log into this dashboard and change that setting"*: one-off, interactive,
+needs judgement at every click. Expensive per action, and that is fine, because
+there are ten actions.
 
-The tier used is recorded on the task so a slow scrape can be explained later.
+**Mode 2 — Scraping engine.** For *"collect every listing across 14,000 pages"*.
+Here the model does **not** drive the browser.
+
+> **The agent determines *how* to scrape. Normal software performs the actual
+> scraping.**
+
+The model inspects a few pages, works out the shape — URL pattern, selectors,
+pagination, rate limit — and emits a **deterministic scraper**. Then ordinary
+code runs it 14,000 times with no model in the loop at all.
+
+Making an LLM click through Chrome 14,000 times is the single most expensive
+mistake available in this system: orders of magnitude slower, costs per page, and
+fails in a new way each time. Mode 2 exists to make that impossible rather than
+merely discouraged.
+
+### Mode 2's strategy ladder
+
+Within the generated scraper, pick the cheapest fetch that works and escalate
+only on failure:
+
+1. **Plain HTTP** — sane headers. Most APIs and static pages. Milliseconds, no RAM.
+2. **Fingerprinted HTTP** — a TLS-fingerprinting client for sites that reject stock clients on JA3/JA4 before serving any content. Still cheap; handles most "works in my browser, not in code" cases.
+3. **Headless browser** — only for pages that genuinely need JavaScript execution or an authenticated session. **Occupies the single heavy slot** (ADR 007): while a browser is scraping, no coding task runs.
+
+Tooling to draw on: an HTTP client, an HTML parser, Playwright/Patchright,
+Crawlee, curl, and hand-written scrapers. The mode and tier used are recorded on
+the task, so a slow or costly scrape can be explained afterwards rather than
+guessed at.
 
 ### Build
 
@@ -1416,6 +1444,8 @@ The tier used is recorded on the task so a slow scrape can be explained later.
 
 ### Test
 
+- **The 14,000-page test, at small scale**: point Mode 2 at a paginated site and confirm the model is invoked to *design* the scraper and then **not once per page**. Count model calls. If they scale with pages rather than with page *shapes*, Mode 2 is not implemented — it is Mode 1 wearing a costume, and it will be discovered by the bill.
+- A Mode 1 task — log into something and change a setting — completes with the model driving, and does not silently fall into Mode 2.
 - Each tier individually against a site that requires exactly that tier. Assert the escalation actually happens and is recorded.
 - Project A's cookies and profile unreachable from project B. Assert it; a success here is an isolation bug that stops other work.
 - Kill the browser mid-scrape → recovers or fails cleanly. **Never hangs the heavy lane** — this is the most likely way scraping takes the whole system down.
@@ -1429,6 +1459,12 @@ The tier used is recorded on the task so a slow scrape can be explained later.
 Scraping failures are rarely in your code. **Capture the response body and status
 before touching a selector** — a block page, a consent wall, a rate limit, and a
 genuine markup change all present identically as "the selector broke".
+
+If a Mode 2 job is slow *and* expensive, check the model-call count first: the
+usual cause is falling back to per-page model judgement when a selector misses,
+which converts a cheap scrape into an expensive one silently. A selector that
+stops matching should fail the run and ask for a redesign, not quietly summon the
+model 14,000 times.
 
 If memory climbs across runs the browser is not being closed on the error path;
 check the `finally`, not the happy path. Orphaned Chromium after a crash means
