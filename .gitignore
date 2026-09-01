@@ -10,6 +10,7 @@ config/site.yaml
 /worktrees/
 node_modules/
 dist/
+pnpm-debug.log*
 .next/
 .venv/
 __pycache__/

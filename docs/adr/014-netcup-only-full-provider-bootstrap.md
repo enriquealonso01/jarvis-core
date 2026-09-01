@@ -38,6 +38,7 @@ The operator was explicit: the OS lives on another machine. The plan already nam
 - FIRST_SLICE and PHASE_CHECKLIST run on Netcup.
 - Control Center first-run is a **provider checklist**, then chat.
 - No `NODE_ENV=development` cookie exceptions as the real environment. Local HTTP cookie rules are gone.
+- **Rollback:** developing on the laptop again would need a second environment with its own cookie, TLS, and credential rules — the exact split this ADR removes. Deferring a §35 provider is reversible (the profile stays `waiting`); turning on metered spend is not reversible without a billing conversation.
 
 ## User approval required
 

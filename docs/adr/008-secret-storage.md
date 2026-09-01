@@ -39,6 +39,7 @@ Plan requires envelope encryption, key outside normal rows, documented recovery.
 
 - Losing both server disk and restic password is unrecoverable. Restore runbook says this plainly.
 - `jarvis export` redacts secrets; `jarvis restore` needs master key + restic.
+- **Rollback:** moving to Vault or a cloud KMS is additive — decrypt with the master key, re-encrypt under the new root — but it must happen while the master key still exists. There is no rollback from a lost master key plus a lost restic password; the runbook says so plainly.
 
 ## User approval required
 

@@ -13,22 +13,17 @@ jarvis.enriquecodes.com {
 		-Server
 	}
 
-	handle /api/health {
-		header Content-Type application/json
-		respond `{"ok":true,"service":"jarvis","phase":0}` 200
-	}
-
 	handle /api/* {
-		reverse_proxy jarvis-api:8080
+		reverse_proxy api:8080
 	}
 
 	handle /webhooks/telnyx {
-		reverse_proxy jarvis-api:8080
+		reverse_proxy api:8080
 	}
 
 	handle {
 		root * /srv/www
-		try_files {path} /index.html
+		try_files {path} {path}/ {path}.html /index.html
 		file_server
 	}
 }

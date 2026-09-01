@@ -6,7 +6,11 @@ Auth: cookie against `/api`. Preview: see ADR 004.
 
 ## Navigation (plan §38)
 
-Desktop sidebar; mobile bottom: Home, Work, Conversations, Issues, More.
+Primary destinations, the same on desktop and in the mobile tab bar: **Home, Chats, Projects, Alerts, More**. Everything else in the table below sits in the More menu and in the command palette.
+
+This departs from the plan's "Home, Work, Conversations, Issues, More". Work is folded into Home, which already shows the running heavy task and the queue counters; Projects takes the freed slot because it is the way into per-project chats and work. Alerts is Issues, badged with the needs-you count.
+
+A new chat is never named by hand: `POST /api/conversations` accepts no title, and the first message titles the thread (`deriveThreadTitle` in Core's `inbox.ts`). This holds for WhatsApp and phone threads too, not just the web ones.
 
 | Route | Primary APIs |
 |---|---|

@@ -53,6 +53,7 @@ The plan’s Phase 3 vs Phase 4 split put “create project from chat” after e
 
 - Slice A/B exit is L0 on Netcup, not L0b (PR).
 - Control Center may start as `apps/control-center` in Core until the second GitHub repo exists; split before calling the frontend a separate production project.
+- **Rollback:** the slice boundary is a sequencing decision, so reversing it costs nothing already built. Moving Control Center out of Core later is a repo split; leaving it inside Core past the point where the frontend is called a separate production project is the change that is hard to undo.
 
 ## User approval required
 

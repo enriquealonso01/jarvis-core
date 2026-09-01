@@ -56,6 +56,7 @@ Plan §28.2 says the Supervisor may capture and route professional/confidential 
 - Implementation of §15 starts with Stage B code, not a prompt.
 - Acceptance §80.1 uses a **temporary** professional project created in the test, not a seeded tenant.
 - Correlation window is 10 minutes.
+- **Rollback:** letting a model read first means Stage B becomes advisory, and ADR 005's metadata-only path stops being a guarantee. Not reversible for confidential projects without operator consent, because bodies already withheld would have to be replayed to a provider.
 
 ## User approval required
 

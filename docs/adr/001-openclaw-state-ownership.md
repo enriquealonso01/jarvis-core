@@ -61,6 +61,7 @@ The frozen plan requires both “do not duplicate OpenClaw” and “OpenClaw hi
 - OpenClaw main agent must not auto-complete user work.
 - Reconciliation is a first-class system-lane job, not an afterthought.
 - Internal ingest binds to `127.0.0.1` (and Tailscale only if explicitly needed for debug), HMAC-authenticated.
+- **Rollback:** reversing this means OpenClaw becomes a second writer, so every product table it touches needs a reconciliation owner and a conflict rule before the change, not after. Cheap while `jarvis-bridge` is the only ingest path; expensive once any table has two writers in production.
 
 ## User approval required
 

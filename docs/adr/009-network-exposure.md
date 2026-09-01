@@ -40,6 +40,7 @@ Plan says OpenClaw admin is not public, and Telnyx needs a public webhook. Both 
 
 - Phase 0: Tailscale on the Netcup box, Enrique’s devices on the tailnet.
 - Health check “OpenClaw reachable” is from the API container via localhost, not from the internet.
+- **Rollback:** exposing the OpenClaw Gateway or Postgres publicly is a one-line Caddy change and an unbounded attack-surface increase. Narrowing exposure further (dropping the Telnyx webhook) is always safe and only costs inbound call handling.
 
 ## User approval required
 

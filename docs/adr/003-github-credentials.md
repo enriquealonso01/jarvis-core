@@ -53,6 +53,7 @@ The frozen plan requires repository isolation **and** PR/merge. One SSH deploy k
 
 - Coding harnesses push via deploy key; they ask Jarvis to open/merge PRs unless a task grant explicitly allows in-harness `gh` using a **short-lived** broker-minted token for that repo only, injected for that task, revoked after.
 - §76 tests must assert two different deploy keys and that A cannot push to B.
+- **Rollback:** collapsing back to one credential per repository means either losing PR automation (deploy key only) or handing repo-write to browser workers (PAT only). Both are isolation regressions, so this ADR cannot be rolled back without a replacement isolation story.
 
 ## User approval required
 

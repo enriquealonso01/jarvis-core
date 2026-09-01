@@ -45,6 +45,7 @@ The frozen v1.1 plan used TicketFlipping as the exemplar professional tenant. Th
 - Unix users: `jarvis` plus **per-project** uids created at project-create time when isolation requires it — not `jarvis-tf`.
 - Acceptance isolation tests create two **temporary** projects during the test, not a preloaded customer project.
 - Example WhatsApp copy uses a generic project name.
+- **Rollback:** seeding a customer or employer project later is just project creation through onboarding, so nothing has to be undone. Reversing the decision the other way — removing a project that has been fingerprinted into the seed data — means a data migration, which is exactly what this ADR avoids.
 
 ## User approval required
 

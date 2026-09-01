@@ -12,10 +12,9 @@
         --muted: #57534e;
         --line: #d6d3d1;
         --card: #fffcf7;
+        --err: #9f1239;
       }
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
@@ -33,29 +32,98 @@
         border-radius: 1rem;
         padding: 2rem 2.25rem;
       }
-      h1 {
-        margin: 0 0 0.35rem;
-        font-size: 1.75rem;
-        font-weight: 600;
-        letter-spacing: -0.02em;
+      h1 { margin: 0 0 0.35rem; font-size: 1.75rem; font-weight: 600; letter-spacing: -0.02em; }
+      p, label { color: var(--muted); line-height: 1.5; }
+      form { display: grid; gap: 0.75rem; margin-top: 1.25rem; }
+      input {
+        width: 100%;
+        padding: 0.6rem 0.7rem;
+        border: 1px solid var(--line);
+        border-radius: 0.4rem;
+        font: inherit;
       }
-      p {
-        margin: 0.75rem 0 0;
-        color: var(--muted);
-        line-height: 1.5;
+      button {
+        font: inherit;
+        padding: 0.6rem 0.9rem;
+        border: 0;
+        border-radius: 0.4rem;
+        background: var(--ink);
+        color: var(--card);
+        cursor: pointer;
       }
-      code {
-        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-        font-size: 0.9em;
-        color: var(--ink);
-      }
+      #err { color: var(--err); min-height: 1.25rem; }
+      ul { padding-left: 1.2rem; }
+      code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; color: var(--ink); }
     </style>
   </head>
   <body>
     <main>
       <h1>Jarvis</h1>
-      <p>Control Center is not built yet. TLS and the host are up. Phase 0 placeholder for <code>jarvis.enriquecodes.com</code>.</p>
-      <p><code>/api/health</code> should return JSON from this origin.</p>
+      <p id="status">Temporary host UI until the Control Center ships. Composer stays off until a Supervisor model route is healthy.</p>
+      <div id="gate">
+        <form id="login">
+          <label>Email<input name="email" type="email" autocomplete="username" required /></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
+          <button type="submit">Log in</button>
+          <p id="err"></p>
+        </form>
+      </div>
+      <div id="app" hidden>
+        <p>Signed in as <code id="who"></code></p>
+        <p>Projects</p>
+        <ul id="projects"></ul>
+        <p>Connections</p>
+        <ul id="connections"></ul>
+        <button id="logout" type="button">Log out</button>
+      </div>
     </main>
+    <script>
+      const gate = document.getElementById("gate");
+      const app = document.getElementById("app");
+      const err = document.getElementById("err");
+
+      async function showApp() {
+        const me = await fetch("/api/me", { credentials: "same-origin" });
+        if (!me.ok) return false;
+        const user = await me.json();
+        document.getElementById("who").textContent = user.email;
+        const projects = await (await fetch("/api/projects", { credentials: "same-origin" })).json();
+        document.getElementById("projects").innerHTML = projects.projects
+          .map((p) => `<li><code>${p.slug}</code> — ${p.name}</li>`)
+          .join("");
+        const connections = await (await fetch("/api/connections", { credentials: "same-origin" })).json();
+        document.getElementById("connections").innerHTML = connections.connections
+          .map((c) => `<li><code>${c.slug}</code> — ${c.auth_type} — ${c.has_credential ? "key stored" : "not connected"}</li>`)
+          .join("");
+        gate.hidden = true;
+        app.hidden = false;
+        return true;
+      }
+
+      document.getElementById("login").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        err.textContent = "";
+        const data = new FormData(e.target);
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: data.get("email"), password: data.get("password") }),
+        });
+        if (!res.ok) {
+          err.textContent = "Login failed.";
+          return;
+        }
+        await showApp();
+      });
+
+      document.getElementById("logout").addEventListener("click", async () => {
+        await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+        app.hidden = true;
+        gate.hidden = false;
+      });
+
+      showApp();
+    </script>
   </body>
 </html>

@@ -42,6 +42,7 @@ The plan allowed collapsing Integrations. Two repos is the minimum that still ma
 
 - Phase 0 checklist does not include “broker creates jarvis-core.”
 - No customer GitHub org is configured at bootstrap.
+- **Rollback:** none needed — the manual Phase 0 steps are one-time. If the broker later gains repo-creation for its own repos, this ADR is superseded rather than reversed; the two existing repos are not recreated.
 
 ## User approval required
 

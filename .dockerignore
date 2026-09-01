@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.next
+docs/JARVIS_V1_MASTER_PLAN_v1.1.md
+*.md
+!README.md

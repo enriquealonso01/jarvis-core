@@ -30,6 +30,7 @@ The plan did not pick a language. That is how repos grow two APIs.
 
 - `package.json` at Core root; `packages/openclaw-jarvis-bridge`, `packages/integrations`.
 - Do not start a Django app for Jarvis.
+- **Rollback:** switching the control plane to Python means rewriting the API, workers, broker, and bridge. The migrations survive unchanged, which is the point of keeping raw SQL as the schema source of truth. Supersede this ADR before Phase 1 code rather than reversing it after.
 
 ## User approval required
 

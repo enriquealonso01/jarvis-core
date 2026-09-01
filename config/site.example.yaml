@@ -2,6 +2,7 @@
 
 domain: jarvis.enriquecodes.com     # public origin (ADR 004)
 timezone: America/New_York
+operator_email: alonsorequejoenrique@gmail.com
 
 netcup:
   sku: RS2000G12                    # RS 2000 G12 ip iv
@@ -40,5 +41,8 @@ elevenlabs:
   voice_id: ""                      # refined British male, pinned
 
 telnyx:
+  # Public signing key from the Telnyx portal. Not a secret — it only verifies
+  # inbound webhook signatures, so it lives here rather than in the broker.
+  public_key: ""
   from_e164: ""
   to_e164: ""                       # Enrique's phone for outbound

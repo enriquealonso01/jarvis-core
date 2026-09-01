@@ -55,6 +55,7 @@ OpenClaw ACP docs: vendor auth must exist on the host; auth is not a portable se
 - Phase 0 creates `jarvis` and the personal harness-auth dirs. Per-project uids are created **when the project is created**, not at boot for imaginary tenants.
 - Isolation tests create two temporary projects and assert cross-read is denied.
 - Improvement sandbox never mounts any harness-auth dir.
+- **Rollback:** moving subscription logins into the broker as injectable secrets would put a personal account credential inside project containers. Reversible only by re-authenticating every harness from scratch; the host directories cannot be re-derived from broker ciphertext.
 
 ## User approval required
 

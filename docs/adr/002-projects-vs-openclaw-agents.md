@@ -39,6 +39,7 @@ OpenClaw “agents” are personas with workspaces and SQLite. Jarvis “project
 - WhatsApp allowlist and pairing live on the single Supervisor agent.
 - Project isolation is enforced by Jarvis (sandbox mounts, broker, profile dirs), not by OpenClaw workspace paths.
 - Do not treat `~/.openclaw/workspace` as a project boundary (plan §7 already said this).
+- **Rollback:** splitting into one OpenClaw agent per project means re-pairing WhatsApp per agent and moving the channel allowlist off the single Supervisor. Reversible until a second agent holds live channel state of its own.
 
 ## User approval required
 

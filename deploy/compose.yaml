@@ -4,6 +4,8 @@ services:
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
+    depends_on:
+      - api
     ports:
       - "80:80"
       - "443:443"
@@ -14,6 +16,64 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    build:
+      context: /opt/jarvis/core
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - /etc/jarvis/compose.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      JARVIS_DOMAIN: jarvis.enriquecodes.com
+      JARVIS_OPERATOR_EMAIL: alonsorequejoenrique@gmail.com
+      JARVIS_ORIGIN: https://jarvis.enriquecodes.com
+      MASTER_KEY_PATH: /var/lib/jarvis/keys/master.key
+      LOGIN_ONCE_PATH: /var/lib/jarvis/keys/login-once.txt
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - /var/lib/jarvis:/var/lib/jarvis
+      - /etc/jarvis:/etc/jarvis:ro
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: /opt/jarvis/core
+      dockerfile: Dockerfile
+    command: ["node", "dist/worker.js"]
+    restart: unless-stopped
+    env_file:
+      - /etc/jarvis/compose.env
+    environment:
+      WORKER_ID: system-1
+      MASTER_KEY_PATH: /var/lib/jarvis/keys/master.key
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - /var/lib/jarvis:/var/lib/jarvis
+      - /etc/jarvis:/etc/jarvis:ro
+    mem_limit: 384m
     logging:
       driver: json-file
       options:
@@ -40,6 +100,32 @@ services:
       start_period: 15s
     mem_limit: 1024m
     shm_size: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Not started until WhatsApp pairing. docker compose --profile openclaw up -d
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    profiles: ["openclaw"]
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:18789:18789"
+    volumes:
+      - /var/lib/jarvis/openclaw:/home/node/.openclaw
+      - /opt/jarvis/core/packages/openclaw-jarvis-bridge:/plugins/jarvis-bridge:ro
+    # INTERNAL_HMAC comes from the shared env file; the bridge refuses to hand a
+    # message to a model unless Jarvis persisted it first.
+    env_file:
+      - /etc/jarvis/compose.env
+    environment:
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      JARVIS_INGEST_URL: http://api:8080/internal/inbox/ingest
+    mem_limit: 1536m
     logging:
       driver: json-file
       options:

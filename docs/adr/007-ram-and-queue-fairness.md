@@ -53,6 +53,7 @@ The plan picked 16 GB and concurrency 1 but did not allocate RAM or define fairn
 
 - Command Center shows RAM and whether embeddings are shed.
 - Phase 0 records the actual SKU in `config/site.yaml`.
+- **Rollback:** raising heavy-lane concurrency above 1 needs a real RAM measurement on the actual SKU first, and the starvation cap in the queue rewritten. Lowering the budget is safe at any time; raising it risks the OOM this ADR exists to prevent.
 
 ## User approval required
 

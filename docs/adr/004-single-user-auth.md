@@ -57,6 +57,7 @@ The plan requires authenticated Control Center and expiring action pages, and fo
 - Domain must be chosen at Phase 0 (`config/site.yaml`).
 - Control Center env: production `API` is relative `/api`.
 - §83 inspects cookies: session cookie is opaque, not a provider secret.
+- **Rollback:** adding a second human user means sessions, grants, audit actor, and every `requireUser` call gain an identity dimension. Splitting the origin again reintroduces the SameSite/CSRF problem this ADR exists to avoid, and would need Bearer auth end to end.
 
 ## User approval required
 
