@@ -104,7 +104,7 @@ removes it.
 # PART I — THE EXPERIENCE
 
 This part is the product as Enrique experiences it. It is the acceptance target
-for Tracks B and C.
+for Stages 3 and 4 especially, and the target every step is ultimately serving.
 
 ## I.1 WhatsApp — the primary channel
 
