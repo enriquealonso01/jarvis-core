@@ -6,7 +6,9 @@
 - Diagnosis this responds to: `docs/GAP_ANALYSIS.md`.
 - ADRs 001–015 remain in force. Where this document and an ADR disagree on **mechanics**, the ADR wins. On **product**, this document wins.
 
-This is written to be executed by **three agents working concurrently**. Part III assigns every piece of work to exactly one track with exclusive file ownership. Part IX is the mechanics of running them without collisions.
+This is written to be executed by **one agent, sequentially**. Part III is thirty steps in order; every one of them carries its own Build, Test, Debug and Done-when. Part IX is the working discipline.
+
+When the last step is finished, Jarvis is done.
 
 ---
 
@@ -269,400 +271,516 @@ not a silent restart.
 
 ---
 
-# PART III — THE THREE TRACKS
+# PART III — THE BUILD
 
-## III.0 How the tracks do not collide
+One agent. One step at a time. Thirty steps, in order.
 
-**Exclusive file ownership.** Every file has exactly one owning track. A track
-never edits a file it does not own. This is the rule that makes concurrency safe,
-and it is not negotiable — the first attempt at parallel work in this repo
-produced two sessions writing `supervisor.ts` sixty seconds apart.
+Each step is **Build → Test → Debug → Done when**. A step is not finished when
+the code compiles. It is finished when the "Done when" line has been *observed*.
 
-| Track | Owns |
-|---|---|
-| **A — Execution** | `src/runner.ts`, `src/harness/*`, `src/worktree.ts`, `src/github.ts`, `src/review.ts`, `src/worker.ts`, `deploy/jarvis-runner.service` |
-| **B — Intake & Brain** | `src/supervisor.ts`, `src/inbox.ts`, `src/callagent.ts`, `src/callcontrol.ts`, `src/telnyx.ts`, `src/catalog.ts`, `src/chatparams.ts`, `src/redaction.ts`, `packages/openclaw-jarvis-bridge/*` |
-| **C — Surface & Integrations** | `src/index.ts`, `src/product.ts`, `src/operations.ts`, `src/actions.ts`, `src/grants.ts`, `src/uploads.ts`, `src/siteconfig.ts`, `src/hostmetrics.ts`, `packages/integrations/*`, the whole `jarvis-control-center` repo |
+This replaces the earlier three-track split. Sequential is slower on paper and
+faster in practice here: the tracks collided at the seams within an hour of being
+proposed, and one agent holding the whole system in its head makes fewer
+integration mistakes than three agents coordinating through a document.
 
-**Shared and frozen.** `src/db.ts`, `src/jobs.ts`, `src/sse.ts`, `src/notify.ts`,
-`src/policy.ts`, `src/isolation.ts`, `src/credentials.ts`, `src/crypto.ts`,
-`src/auth.ts`, `src/hmac.ts`, `src/timing.ts`, `src/blockers.ts`, `src/services.ts`.
+## III.0 The rules for every step
 
-Any track may **read and call** these. To **change** one, the track opens a
-seam-change note (Part IX.4) and the change lands on its own before dependent
-work continues. No exceptions — these files are where a silent conflict becomes a
-production bug.
-
-**Migration numbers are reserved** so two tracks can never author the same file:
-Track A `010–019`, Track B `020–029`, Track C `030–039`.
-
-**Interface direction.** B writes tasks. A reads and executes them. C reads
-everything and owns the outward-facing surfaces. No track reaches into another's
-internals; they meet at table rows and at the frozen helpers.
+1. **Never skip the Test section.** A step whose test was skipped is not done — it is a liability wearing a green checkmark. v1 shipped 33/33 passing while the machine did nothing.
+2. **A typecheck is not a test.** `tsc` proves the code parses. It proves nothing about behaviour.
+3. **Test the failure path too.** Anyone can demo the happy path. Kill it, unplug it, feed it garbage, and check it fails the way the taxonomy says it should.
+4. **Debug from evidence, not from theory.** Every step names the things most likely to break and where to look. Read the log before forming a hypothesis.
+5. **Commit per step,** with the test evidence in the commit body. One PR per step or per tight pair. A branch spanning five steps cannot be reviewed or reverted.
+6. **When something breaks twice for the same reason, write it down** in `docs/DEBUG_NOTES.md`. The call agent's self-transcription bug and its runaway-recording loop were each found the expensive way; both are now one-line comments in `callcontrol.ts`. Repeat that pattern.
+7. **Do not start the next step until the current one is observed working.** Half-finished steps compound.
 
 ---
 
-## TRACK A — EXECUTION
+# STAGE 1 — MAKE IT ACT
 
-> **Mission:** a task goes in, a reviewed pull request comes out.
+Nothing else matters until Stage 1 is green. It is the whole difference between
+Jarvis and a chat window.
 
-Track A is the engine. If A is not finished, nothing else matters.
+## S1 — The test environment and the fake harness
+*Size: 1 day. Do this first — every later step is tested through it.*
 
-**Current state:** `src/runner.ts` exists (PR #1) — it claims heavy tasks, cuts a
-worktree, spawns `claude -p`, streams a transcript, heartbeats, and honours
-cancel/silence/timeout. It has never been run. It does not yet produce a PR.
+Today nothing can be run without Postgres, a Claude subscription, a Linux box and
+`/var/lib/jarvis`. That is exactly why `runner.ts` was written and never
+executed. Fix that before writing anything else.
 
-### A1 — Prove the runner on real hardware
-*Size: 1 day. **Critical path.** Nothing in Track A proceeds until this is green on Netcup.*
+**Build**
+- `deploy/compose.dev.yaml` — Postgres + API locally, migrations applied, one seeded operator, one seeded personal project pointing at a throwaway repo.
+- Honour `JARVIS_ROOT` everywhere (the runner already does) so a dev box needs no `/var/lib/jarvis`.
+- **The fake harness.** `JARVIS_HARNESS=fake` makes the runner spawn a script instead of `claude`. It emits a realistic `stream-json` sequence, writes a file into the worktree, commits, exits 0. Variants by env: `fake:slow` (silent for 11 minutes — exercises the silence detector), `fake:crash` (exit 1 with stderr), `fake:runaway` (never exits), `fake:noop` (changes nothing), `fake:escape` (tries to write outside the worktree).
+- `scripts/dev-seed.ts` — reset to a known state in one command.
 
-Deploy `jarvis-runner.service` to Netcup. Create `/etc/jarvis/runner.env` (0640
-root:jarvis, `DATABASE_URL` only). Run one heavy task end to end.
+**Test**
+- Cold start on a clean checkout: migrations apply, operator logs in.
+- Runner against `fake`: a task goes `queued → preparing → running → succeeded`.
+- Each variant behaves as the taxonomy says: `crash` → `harness.crash`; `slow` → `process.stuck`; `runaway` → `agent.loop` at the run limit; `noop` → succeeds with an empty diff **and says so**; `escape` → blocked and audited.
 
-*Done when:* a heavy task reaches `succeeded` with a real harness transcript
-visible in Work detail, and the transcript is a registered artifact.
+**Debug**
+- Migrations failing on a fresh DB usually means one depends on a later one's column. Check ordering in `schema_migrations`.
+- If the runner claims nothing, the lane or `lease_until` is wrong. Query `tasks` directly before suspecting code.
+- Windows is not a target for the runner — it spawns POSIX processes and sets unix permissions. Use WSL, a container, or the box.
 
-*Expect to fix:* the `stream-json` event shape, `git worktree` setup, and the
-`claude` binary's path and permissions under systemd.
+**Done when:** someone with no Claude subscription and no network can run the entire engineering loop end to end, and all five variants behave as specified.
 
-### A2 — Project checkouts and deploy keys
-*Size: 2 days. Blocks A3.*
+## S2 — `task_create`
+*Size: half a day. Highest value-per-hour in the plan.*
 
-A project with a linked GitHub repo gets a checkout at
-`/var/lib/jarvis/projects/<slug>/repo`, cloned over a **project-scoped deploy
-key** — never the personal admin credential. Key provisioning already exists in
-`github.ts`; wire it to project create and to first use.
+**Build**
+A Supervisor tool creating a task with project, title, objective, lane, priority
+and provenance (`conversation_id`, `origin_inbox_id`). Heavy work goes to
+`lane='heavy'`. Refuse to create a heavy task with no project — ask which one.
 
-*Done when:* two projects exist with different key fingerprints, and a run in
-project A cannot `git ls-remote` project B's repo (assert it).
+**Test**
+- "In Alpha, fix the login button and open a PR" → a heavy task, right project, a real objective (not the raw message echoed), both provenance ids set.
+- "Remember the client prefers Tuesdays" → memory, **no task**. Over-creating tasks is as broken as creating none.
+- Ambiguous request matching two projects → one short question, no task.
+- Three messages in ten seconds → three tasks, none merged, none dropped.
 
-### A3 — The engineering workflow
-*Size: 4–5 days. **The single biggest deliverable in the plan.***
+**Debug**
+- If the model *narrates* calling the tool instead of calling it, the schema is wrong or the route lost tool support. Read the raw response body — the failure is visible there and invisible in the reply.
+- Confirm the tool ran by querying `tasks`, never by trusting the assistant's own claim.
 
-The full §27 loop inside a single run, with each phase written to `task_events`
-so Work detail can show it:
+**Done when:** a sentence in the console becomes a correctly-scoped heavy task, and a non-work sentence does not.
 
-1. Preserve the original report and its attachments.
-2. Load the project's `AGENTS.md` and its eligible connections.
-3. Reproduce the issue where reasonably possible.
-4. Inspect code, logs, browser, API, and permitted databases.
-5. Determine root cause; write a plan.
-6. Implement the smallest sound change.
-7. Add or update meaningful tests.
-8. Run lint, typecheck, unit, integration, and browser QA as the project defines.
-9. Commit and push the branch.
-10. Open an evidence-backed PR.
+## S3 — The runner, live on real hardware
+*Size: 1 day. Critical path.*
 
-If reproduction is impossible, it says so: what it tried, what evidence is
-missing, and its confidence in the proposed change. **A guess presented as a fix
-is a failure**, and it must be labelled.
+**Build**
+Deploy `jarvis-runner.service`. Create `/etc/jarvis/runner.env` (0640 root:jarvis,
+`DATABASE_URL` only). Complete the Claude Code host login **as the `jarvis`
+user**. Confirm the memory ceilings are in force.
 
-*Done when:* narrative **N1** passes end to end from a UI-created task.
+**Test**
+- One real heavy task end to end, transcript artifact visible in the console.
+- `systemctl restart jarvis-runner` mid-run → watchdog stalls, recovers, requeues from checkpoint.
+- `systemctl show jarvis-runner -p MemoryMax` confirms the ceiling is actually applied, not merely written in the file.
 
-### A4 — Independent review
-*Size: 2 days. After A3.*
+**Debug**
+- **Expect the `stream-json` event shape to differ from assumption.** Capture one raw run to a file and read it before touching the parser.
+- `claude` not found under systemd is a PATH problem — use an absolute path in `ExecStart`.
+- Permission errors on `CLAUDE_CONFIG_DIR` mean the login ran as the wrong user.
+- Task succeeds but the transcript is empty → stdout buffering; check the spawn's stdio.
 
-Before the PR is opened, a second model — different family where the project's
-policy allows one — reviews the diff. Valid findings are addressed and
-verification re-runs. Findings and responses attach to the task.
+**Done when:** a heavy task reaches `succeeded` on Netcup with a readable transcript, and a mid-run restart recovers instead of losing work.
 
-*Done when:* a deliberately flawed change is caught by review and corrected
-before the PR exists.
+## S4 — Project checkouts and deploy keys
+*Size: 2 days.*
 
-### A5 — Merge and deploy under authority
-*Size: 2–3 days. After A4.*
+**Build**
+Clone each linked repo to `/var/lib/jarvis/projects/<slug>/repo` using a
+**project-scoped deploy key** — never the personal admin credential. Wire key
+provisioning to project create and to first use.
 
+**Test**
+- Two projects, two keys, different fingerprints. Assert it; do not eyeball it.
+- A run in project A cannot `git ls-remote` project B. Assert the failure.
+- A run cannot read `github_personal_admin`. Assert the denial **and** the audit row.
 
-Merging and deploying are broker-gated. A natural-language instruction ("fix it,
-PR it, merge it") creates a **task grant** scoped to the project, the task, the
-repository, the resulting commit, the named environment, and an expiry.
+**Debug**
+- Git ignoring the deploy key means `GIT_SSH_COMMAND` is unset on the spawn, or the key is not 0600.
+- A cross-project read that *succeeds* stops all other work until it is closed.
 
-Jarvis skips a redundant approval only when all of these hold: the instruction
-was unambiguous, the task stayed in scope, required tests and policies passed,
-the revision deploying is the one produced under the grant, and no new high-risk
-condition appeared.
+**Done when:** L6 passes.
 
-The grant is **invalidated** — and a fresh approval required — by any of:
-1. project or environment ambiguous
-2. scope materially expanded
-3. a destructive database migration appeared
-4. a security control would have to be weakened
-5. paid billing would have to be enabled
-6. secrets or permissions changed materially
-7. the branch or commit changed after validation
-8. the task resumed after the grant expired
+## S5 — The engineering workflow
+*Size: 4–5 days. The largest step in the plan.*
 
-Store the reason in `task_grants.invalidate_reason`. Production on a professional
-project requires a live approval and defaults to off regardless of any grant.
+**Build**
+The full §27 loop in one run, each phase written to `task_events` so the console
+can show it: preserve the report and attachments → load `AGENTS.md` and eligible
+connections → reproduce → inspect code, logs, browser, API, permitted databases →
+root cause → plan → smallest sound change → tests → lint, typecheck, unit,
+integration, browser QA per project policy → commit → push.
 
-*Done when:* **N6** refuses correctly, the personal non-production path merges
-without a second click, and amending the commit after tests invalidates the grant
-and raises an approval (**L7**).
+If reproduction is impossible it says so: what it tried, what evidence is
+missing, its confidence. **A guess presented as a fix is a failure** and must be
+labelled a guess.
 
-### A6 — Harness resilience
-*Size: 2 days. Can run alongside A4.*
+**Test**
+- Seeded repo, real bug, real fix, real test added. Read the diff by hand — this one cannot be automated away on the first pass.
+- A deliberately **unreproducible** report → it says so rather than inventing a fix.
+- A request outside the repo's scope → it declines rather than sprawling.
+- Kill the run at each phase boundary; confirm the checkpoint resumes at that phase, not from the start.
+- A repo whose tests already fail before Jarvis touches it → it reports that rather than claiming credit or blaming itself.
 
-Map harness failure onto the taxonomy: subscription limit reached →
-`provider.cred_expired`, park and notify; silence → `process.stuck`; run limit →
-`agent.loop`; dirty exit → `harness.crash`. Retry within the taxonomy's limits;
-resume from checkpoint, never from the beginning.
+**Debug**
+- Phases missing in the console → `task_events` is not being written. Check that before suspecting the UI.
+- A harness editing outside the worktree is a containment bug: check `cwd` and permission mode.
+- If it *always* claims it cannot reproduce, it probably has no way to run the project — check the `AGENTS.md` setup and test commands.
 
-*Done when:* killing the harness mid-run produces the full
-`stalled → recovering → running → succeeded` trail with the same worktree (**L3**).
+**Done when:** N1 passes end to end from a console-created task, and the unreproducible case is handled honestly.
 
-### A7 — Second harness adapter
-*Size: 2 days. Any time after A3.*
+## S6 — The pull request
+*Size: 1 day.*
 
-Extract the harness call behind an interface and add Codex. Cursor stays
-registered and unbuilt until there is a reason.
+**Build**
+Push the branch and open an evidence-backed PR through the project's API
+credential: what changed, why, root cause, tests run and their output, linked task.
 
-*Done when:* the same task runs on either harness by changing one field.
+**Test**
+- A real PR on a real private repo, readable by a human with no extra context.
+- Credential missing → one issue, one notification, task parks. Not a crash.
+- The same task run twice → no duplicate PR.
+- A branch with no changes → no PR, and it says why.
 
-### A8 — The acceptance test that matters
-*Size: half a day. Do it the day A3 lands, not later.*
+**Debug**
+- 403 on PR create is nearly always the deploy key being used where the API credential belongs. Different credentials, different scopes.
 
-A seeded repo with a failing test. Assert Jarvis opens a PR that makes it pass.
+**Done when:** a PR link arrives for work Jarvis did unattended.
 
-*Done when:* it is in the suite and green — and **before any autonomous loop is
-pointed at the suite again**.
+## S7 — The acceptance test that matters
+*Size: half a day. Do it the day S5 and S6 land.*
 
-### A9 — The engineering evaluation suite
-*Size: 3–4 days. Depends on A3.*
+**Build**
+Seeded repo, one failing test. Assert Jarvis opens a PR that makes it pass.
+Runs against the fake harness in CI, against the real harness on demand.
 
-Transcript msg 09: Jarvis picks its own primaries by testing them, not by reading
-vendor claims. Build a private benchmark from real issues already solved in these
-repos, and score each harness/model pair on: reproduction, root-cause accuracy,
-correctness, hidden tests, regression safety, test quality, tool reliability,
-scope control, code quality, PR quality, unnecessary escalation, and quota
-consumed.
+**Test**
+Run it. Then deliberately break the runner and confirm the test goes **red** — a
+test that cannot fail is not a test.
 
-A model **earns** the `senior_engineer` role by winning this suite. Results land
-in `benchmarks`; the registry's `route_order` follows from them.
-
-*Done when:* two harnesses have run the suite and the winner is what routing
-actually uses.
+**Done when:** it is in `scripts/acceptance-runner.py` and green — **before** any
+autonomous loop is ever pointed at the suite again.
 
 ---
 
-## TRACK B — INTAKE & BRAIN
+# STAGE 2 — MAKE IT TRUSTWORTHY
 
-> **Mission:** anything Enrique says, on any channel, becomes the right durable record and the right task.
+## S8 — Independent review
+*Size: 2 days.*
 
-Track B is why the engine ever starts.
+**Build** A second model — different family where policy allows — reviews the diff before the PR opens. Findings and responses attach to the task; valid findings are addressed and verification re-runs.
 
-**Current state:** the Supervisor chat loop, model failover, and eleven
-self-referential tools work. `callagent.ts` (two-tier voice) is in progress.
-There is no way for a message to become work.
+**Test** Plant a flawed change (off-by-one, dropped null check, a test asserting nothing) and confirm review catches it. Then submit a *correct* change and confirm review does not invent problems — a reviewer that always finds something is noise that will be ignored within a week.
 
-### B1 — `task_create` — the missing link
-*Size: half a day. **Critical path.** Highest value-per-hour in the plan.*
+**Debug** If review always passes, check it is receiving the diff and not an empty string.
 
-A Supervisor tool that creates a task: project, title, objective, lane,
-priority, and the originating conversation and inbox event. Heavy work goes to
-`lane='heavy'`.
+**Done when:** a planted bug is caught and corrected before the PR exists, and a clean change passes without invented findings.
 
-This is the single highest-value change in the entire plan. Nothing the runner
-can do is reachable without it.
+## S9 — Grants, merge, deploy
+*Size: 2–3 days.*
 
-*Done when:* "In Alpha, fix the login button and open a PR" in the Control Center
-chat produces a heavy task with the right project, objective, and provenance.
+**Build** Task grants per IV.6 with all eight invalidation conditions. Merge and deploy broker-gated. Production on professional projects needs a live approval and defaults off.
 
-### B2 — Intent routing
-*Size: 3 days. After B1.*
+**Test** Each of the eight invalidation conditions **individually**. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
 
-Classify every inbound item: capture / question / instruction / work /
-configuration change. Route to memory, to an answer, to a task, or to a config
-task. Ambiguity asks one short question rather than guessing.
+**Debug** A grant surviving a SHA change means it is bound to the task rather than the commit. Check what is actually stored.
 
-*Done when:* **N3** passes — two messages seconds apart become two threads and two
-correctly-scoped tasks.
+**Done when:** all eight conditions verified one by one, and N6 refuses.
 
-### B3 — WhatsApp end to end
-*Size: 3–4 days. Independent of Track A.*
+## S10 — Recovery under failure
+*Size: 2 days.*
 
-Pair the dedicated number by QR. Bridge persists first and never lets OpenClaw's
-default agent answer. Text, voice, images, documents all ingest. Reconciliation
-backfills anything missed while the API was down.
+**Build** Map every harness failure onto the taxonomy: subscription limit → `provider.cred_expired`, park and notify; silence → `process.stuck`; run limit → `agent.loop`; dirty exit → `harness.crash`. Retry within taxonomy limits, resume from checkpoint, never from the start.
 
-*Done when:* **L1** passes, including killing the API for 10 seconds mid-send with
-no drop.
+**Test** Mid-run: kill the harness (L3); reboot the box; fill the disk; revoke the credential; sever the network. Each must produce the right class, the right notification, and a resumable task. Restart API and worker with three tasks queued and one running (L2) — order preserved, nothing lost.
 
-### B4 — Voice notes
-*Size: 2 days. After B3.*
+**Debug** A task restarting from the beginning means checkpoints are written but not read. Look at the resume path, not the write path.
 
-Audio → artifact (`retention_class='raw_audio'`) → STT → transcript message
-linked to the original. Raw audio deleted at 7 days, never kept past 10 unless
-marked permanent.
+**Done when:** five distinct mid-run failures each recover correctly and none loses work.
 
-*Done when:* **N1** starts from an actual voice note, and **L12** passes.
+## S11 — Isolation, proved
+*Size: 1 day.*
 
-### B5 — Notification policy
-*Size: 2 days. After B3.*
+**Build** Nothing new. This step exists to *prove* what earlier steps claimed.
 
-Implement §17 exactly: silence on trivial capture; one line on short work;
-ack-plus-result on long work; one message per blocker with a working link; the
-weekly report. Deduplicate — a repeated condition is a counter, not another page.
+**Test** Cross-project probe for files, secrets, browser dir, connection name, model profile — each → 403 + audit + `security.isolation` (L9). A project-owned auth profile used by the Supervisor → denied before any HTTP leaves the box (L11). Always-confirm actions blocked (L8).
 
-*Done when:* **L10** passes: a trivial capture produces zero WhatsApp messages and a
-long task produces exactly two.
+**Debug** Any probe that succeeds stops all other work until it is closed.
 
-### B6 — Phone, both directions
-*Size: 5–6 days. Largest Track B item; defer past M1.*
+**Done when:** L8, L9 and L11 all pass.
 
-Telnyx inbound and outbound. Quiet hours enforced at the call site, not in the
-UI. Five-second turn-taking, interruptible. ElevenLabs voice with the pinned
-`voice_id`. Tier 1 answers, Tier 2 acts.
+---
 
-*Done when:* **N5** and **L13** pass — including an outbound call at 20:00 that is
-refused and becomes a WhatsApp plus an Issue.
+# STAGE 3 — MAKE IT VISIBLE
 
-### B7 — Memory and knowledge
+## S12 — The console leads with work
+*Size: half a day.*
+
+**Build** Home shows the running task, the queue, and what needs Enrique. Health collapses to a strip. System lane hidden by default.
+
+**Test** With a heavy task running, the first screenful on a phone is that task. With nothing running, Home reads calm rather than broken.
+
+**Done when:** disk percentage is no longer the first thing on the page.
+
+## S13 — Live work detail
+*Size: 2–3 days.*
+
+**Build** Phases, live tool events over SSE, tests, review findings, artifacts, timers, checkpoints, PR links, originating inbox events. "Live updates paused" after 5s of SSE silence.
+
+**Test** Watch a complete S5 run from the console with no terminal access. Kill SSE mid-run → banner appears, then reconnects and catches up without losing events. Unknown renders `unknown`, never `0`.
+
+**Debug** Events arriving but not rendering is usually the throttle, not the transport. Inspect the raw event stream in the browser.
+
+**Done when:** an entire engineering run is legible from a phone.
+
+## S14 — Repair the degraded console
 *Size: 3–4 days.*
 
-Everything Enrique dumps is chunked, indexed, and searchable forever, scoped by
-project with a global tier for Supervisor memory. Answers cite what they came
-from.
+**Build** Audit every page against real API fields. Mobile first.
 
-*Done when:* **N2** passes across a restart.
+**Test** L17's six journeys on a real phone: check health, add context to a running task, resolve an API-key issue, approve something, reprioritise the queue, open an artifact. Then every page against a project with **zero** data and one with a great deal — empty states and overflow are where consoles actually break.
 
-### B8 — Configuration by conversation
-*Size: 2 days. After B2.*
+**Done when:** all six journeys work on a phone and no page shows an invented number.
 
-"Change Alpha's deploy policy", "stop doing X", "always Y" become versioned,
-validated, audited, reversible config tasks — from WhatsApp.
+## S15 — The credential loop
+*Size: 2 days.*
 
-*Done when:* a WhatsApp instruction changes a project's instructions, and
-"what changed in this project's policy last week?" answers correctly.
+**Build** Jarvis needs a key → ticket + one link → action page with a masked field and a plain statement of purpose and cost → submitted to the broker → connection tested → ticket closed → parked task resumes.
 
-### B9 — Model routing, shrunk
-*Size: 1 day. Do it early — it removes code the other items would otherwise inherit.*
+**Test** N4 end to end with no terminal. Expired link → refused. Replayed link → 409. Wrong key → connection test fails, ticket stays open with a useful message rather than a stack trace.
 
-Cut to what is real: Fireworks open-weights primary plus one fallback for the
-Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT;
-ElevenLabs for TTS. Delete the dead free-tier chain — sixteen half-probed models
-across five providers exist for a constraint that no longer applies.
-
-Authentication is **per provider, not per model**: switching models within a
-provider reuses the key and never asks Enrique again.
-
-*Done when:* `/api/models` shows two healthy supervisor routes and no `discovered`
-rows pretending to be routable.
-
-### B10 — Project onboarding
-*Size: 2–3 days. Blocks A3 — without it there is no `AGENTS.md` to read.*
-
-Creating a project is a conversation, not a form. Jarvis must ask, and must not
-guess: personal or professional; production and customer-facing status;
-confidentiality; the exact GitHub owner/repo or permission to create a new
-private one; which auth profiles may see this data; whether metered paid APIs are
-allowed and the ceiling if so; deploy environments and approval rules; required
-tests, review, backups, monitoring.
-
-On finalize, Jarvis **writes `AGENTS.md` into the repository** from the template
-in `docs/TEMPLATES.md` — classification, repo, approved auth profiles, setup/test/
-lint commands, environments, forbidden actions, PR and deploy gates, default queue
-priority. Every engineering task reads it. Changes are versioned in
-`project_instructions_versions`.
-
-Never bake a named customer or employer into the template; the professional
-policy is generic (§28.2).
-
-*Done when:* a project created by voice ends with a committed `AGENTS.md` whose
-values match the answers given in the thread.
+**Done when:** a dead credential is repaired from a phone and the parked task resumes by itself.
 
 ---
 
-## TRACK C — SURFACE & INTEGRATIONS
+# STAGE 4 — MAKE THE PHONE RELIABLE
 
-> **Mission:** Enrique can see and steer everything, and Jarvis can reach the outside world.
+The phone already works. Telnyx webhooks are verified, calls are answered, the
+caller is checked against the allowlist, audio is recorded, Whisper transcribes,
+ElevenLabs renders the reply, and a two-tier agent keeps the line responsive.
+That is further than most of this system.
 
-**Current state:** the Control Center exists with all its pages and is degraded.
-`packages/integrations` is an empty README — Jarvis cannot touch anything outside
-its own database.
+What it is not yet is **dependable**. It can hold a turn; it cannot hold a
+conversation, it cannot do anything as a result of one, and it cannot ring
+Enrique. This stage fixes all three.
 
-### C1 — Make the console lead with work
-*Size: half a day. Do it first; it is the fastest visible improvement.*
+Two bugs already cost real time and must never come back. Both are one-line
+comments in `callcontrol.ts` today and regression tests after S16:
 
-Home shows what Jarvis is doing, what is queued, and what needs Enrique. Health
-becomes a collapsed strip. The system lane is hidden by default.
+- **Self-transcription.** Recording started with the greeting, so Whisper transcribed Jarvis's own voice back as if the caller had said it.
+- **The runaway loop.** Every reply's own `playback.ended` armed another recording, so one utterance produced several transcriptions, each producing a reply, each arming more sessions.
 
-*Done when:* with a heavy task running, Home's first screenful is that task — not
-disk percentage.
+## S16 — Call reliability hardening
+*Size: 2–3 days. Do this before making it smarter — a clever agent on a flaky line is worse than a dull one on a solid line.*
 
-### C2 — Repair the degraded UI
-*Size: 3–4 days. Ongoing alongside everything else.*
+**Build**
+- A real per-call state machine — `ringing → greeting → listening → thinking → speaking → closing` — persisted, not held in a module-level map that a restart erases mid-call.
+- A deadline on every leg. STT, model, and TTS each get a budget; blowing it produces a spoken holding line, never silence.
+- Graceful degradation: ElevenLabs down → Telnyx voice with a logged issue; STT returns nothing → "I didn't catch that" rather than a dead line; model fails → "give me a moment" then retry once, then offer to follow up in writing.
+- Every call gets a stored transcript artifact and a conversation thread, so a call is reviewable afterwards like any other channel.
+- Hang-up, caller silence, and mid-call network loss all end the call cleanly and release state.
 
-Audit every page against real API fields. Any metric without a real source shows
-`unknown`. Fix the mobile journeys first — that is where it is actually used.
+**Test**
+- **Regression first:** assert Jarvis never transcribes its own audio, and that one utterance produces exactly one reply. These two tests exist before any new feature lands.
+- Restart the API mid-call. The call must survive or end cleanly — never hang.
+- Force each provider to fail in turn (bad key, unroutable endpoint, 500) and confirm the spoken fallback.
+- Call and say nothing for 30 seconds. Call and talk over the greeting. Call and hang up mid-sentence.
+- Ten consecutive calls without a restart — no leaked state, no growing memory, no stuck `call_control_id`.
 
-*Done when:* **L17** passes: on a phone viewport Enrique can check health, add
-context to a task, resolve an API-key issue, approve something, reprioritise, and
-open an artifact.
+**Debug**
+- Telnyx `client_state` is the only reliable way to know which playback just ended. If turns interleave wrongly, that is where to look.
+- A hung call is almost always an awaited promise with no timeout. Every external call in this path needs one.
+- Keep one raw webhook capture per failure mode in `docs/DEBUG_NOTES.md` — the event ordering is the hard part and it is not guessable.
 
-### C3 — Live work detail
-*Size: 2–3 days. Needs A1 running to have anything to show.*
+**Done when:** ten consecutive calls, including three with a forced provider failure, all end cleanly with a stored transcript.
 
-The full Work view: phases, live tool events over SSE, tests, review findings,
-artifacts, timers, checkpoints, PR links, and the inbox events that caused it.
-"Live updates paused" when SSE drops for 5s.
+## S17 — Turn-taking and barge-in
+*Size: 2 days.*
 
-*Done when:* an entire A3 run is legible from the console with no log access.
+**Build**
+- Roughly five seconds of silence hands the turn to Jarvis (transcript msg 15).
+- **Barge-in**: Enrique speaking over Jarvis stops playback immediately and starts listening. Being talked over by your own assistant is the single most irritating failure in voice UX.
+- Tune the endpointing so a natural pause mid-thought is not treated as the end of a turn.
 
-### C4 — The credential loop
-*Size: 2 days. Needs B5 for the WhatsApp link.*
+**Test** Interrupt at the start, middle, and end of a long reply — playback stops within a beat each time. Pause three seconds mid-sentence and continue: Jarvis waits. Pause six: Jarvis takes the turn. Background noise and a TV playing do not trigger a turn.
 
-The loop Enrique asked for repeatedly: Jarvis needs a key → ticket + one WhatsApp
-link → action page with a masked field, a statement of purpose and cost →
-submitted straight to the broker → connection tested → ticket closed → blocked
-task resumes.
+**Debug** If barge-in is laggy the audio stream is being buffered before detection. Measure from the caller's first syllable to playback stop; anything over ~300 ms feels rude.
 
-*Done when:* **N4** and **L5** pass without a terminal.
+**Done when:** a two-minute natural conversation runs with no talking over each other in either direction.
 
-### C5 — Composio
-*Size: 3 days. After A3.*
+## S18 — The desk actually does the work
+*Size: 3 days. This is what makes calling useful rather than pleasant.*
 
-The Composio adapter, so any Composio-supported service is reachable under
-project scope through the broker. Connection manifests declare kind, scopes, and
-permission schema.
+Tier 1 keeps the line human; Tier 2 has every tool. Today Tier 2 answers.
+It must **act**.
 
-*Done when:* a project-scoped Composio connection is used by a heavy task, and
-the same connection is denied to a second project.
+**Build**
+- Tier 2 gets `task_create` and the rest of the Supervisor toolset, running after the caller has been acknowledged.
+- The call carries context across turns — one conversation, not a series of unrelated questions.
+- Tier 1 never claims something was done. It has no tools; its acknowledgements say "passing that to the desk", never "done".
+- When the desk finishes, it reports on the channel Enrique prefers — and during a call, it can be spoken back mid-conversation if it lands in time.
 
-### C6 — Generic MCP client
-*Size: 3 days. After C5.*
+**Test**
+- Call and say "in Alpha, the login button is off-centre on mobile — fix it and open a PR." Hang up. A heavy task exists with the right project and a usable objective, and the PR link arrives afterwards.
+- Ask a question needing a lookup: the answer is correct and cites what it came from.
+- Confirm Tier 1 never says a thing was stored, created, or changed. Grep the transcripts for those claims as an actual test.
+- Say two things about two projects in one call → two tasks, correct projects.
 
-Jarvis can attach any MCP server, scoped to a project, with its tools surfaced to
-the harness. Untrusted servers run in Docker, never on the host.
+**Debug** If the desk is slow enough to be useless, check whether it is re-loading memory and the full tool schema on every turn. Tier 1's latency budget is the feature; Tier 2's is not, but minutes is not "not a budget".
 
-*Done when:* an external MCP server is attached to one project and invisible to
-another.
+**Done when:** a phone call produces a merged-ready PR without touching a keyboard.
 
-### C7 — Browser and scraping
-*Size: 4–5 days. After A3.*
+## S19 — Jarvis calls Enrique
+*Size: 2–3 days. Does not exist at all today — only the quiet-hours check does.*
 
-Named in Enrique's first message and still at zero. A project-scoped browser
-profile, headless control, and a scraping toolkit good enough for real sites.
-Never shares a profile across projects.
+**Build**
+- Outbound dial through Telnyx, reusing the same call state machine and voice as inbound.
+- The reasons it may call, and no others: a task blocked over an hour on something only Enrique can unblock; a production incident on a professional project; a destructive action awaiting approval past its window; a security or isolation event.
+- **Quiet hours 19:30–08:00 America/New_York are enforced at the dial site**, not in the UI. Weekends are fine. A blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+- It opens by saying who it is and why it is calling, in one sentence, before anything else.
+- No answer → voicemail-safe behaviour, then fall back to WhatsApp. Never redial in a loop.
 
-*Done when:* a heavy task scrapes a real site and files the result as a
-project artifact.
+**Test**
+- Trigger each of the four reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
+- Set the clock to 20:00 → refused, WhatsApp + Issue instead, retried at 08:00 (L13).
+- Saturday 10:00 → allowed.
+- Decline the call → one WhatsApp, no redial loop.
+- Answer it → the reason is stated in the first sentence.
 
-### C8 — Export and portability
-*Size: 2–3 days. Any time.*
+**Debug** The commonest failure will be calling too often. Instrument the decision and review a week of it before trusting it; a Jarvis that cries wolf gets silenced permanently.
 
-"Any day I want, I can move everything to another machine." One command produces
-an encrypted bundle: schema, rows, artifacts, credentials (re-encryptable),
-model registry, config, and the OpenClaw session. A documented restore brings it
-up elsewhere.
+**Done when:** a genuinely blocked task rings the phone during the day and stays silent at 21:00.
 
-*Done when:* a restore into a clean directory reproduces projects,
-conversations, tasks, issues, schedules, a decrypted canary credential, and the
-model registry (**L15**).
+## S20 — Voice memory and review
+*Size: 1–2 days.*
+
+**Build** Every call: recording (retention-classed like WhatsApp audio — 7 days, never past 10 unless marked permanent), transcript, summary, and any tasks it produced, all attached to a conversation and visible in the console.
+
+**Test** Make a call, then find it in the console and read what was said and what it caused. Ask in a later call "what did I ask you about Alpha yesterday?" and get it right. Confirm the raw audio is gone at day 7 and the transcript remains (L12).
+
+**Done when:** a call is as reviewable as a chat thread, and audio retention holds.
+
+---
+
+# STAGE 5 — MAKE IT REACH
+
+## S21 — Shrink the model routing
+*Size: 1 day. Do it early — it removes code every later step would otherwise inherit.*
+
+**Build** Cut to what is real: Fireworks open-weights primary plus one fallback for the Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT; ElevenLabs for TTS. Delete the dead free-tier chain. Authentication stays per **provider**, never per model.
+
+**Test** `/api/models` shows two healthy supervisor routes and no `discovered` row pretending to be routable. Kill the primary → failover, same conversation id, no metered enablement (L4). Add a second model on an existing provider → **no** new key requested.
+
+**Done when:** every registered route has passed a real tool-enabled call.
+
+## S22 — Project onboarding and `AGENTS.md`
+*Size: 2–3 days. S5 reads this file; nothing currently writes it.*
+
+**Build** Creating a project is a conversation. Jarvis asks and does not guess: personal or professional; production and customer-facing status; confidentiality; exact GitHub owner/repo or permission to create a private one; which auth profiles may see this data; metered paid APIs and the ceiling; deploy environments and approval rules; required tests, review, backups, monitoring.
+
+On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.md` and versions it in `project_instructions_versions`.
+
+**Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
+
+**Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
+
+## S23 — Memory and knowledge
+*Size: 3–4 days.*
+
+**Build** Everything Enrique dumps — documents, pasted logs, transcripts, forwarded threads — chunked, indexed, searchable forever. Scoped per project with a global tier for Supervisor memory. Answers cite their source.
+
+Decide and record the retrieval architecture in an ADR: embeddings local or hosted, which model, and how it obeys the RAM policy (embeddings never run while heavy work is active). This is the one genuinely open architectural question left.
+
+**Test** N2: dump a long thread and three PDFs, ask a specific question three weeks later (clock-shifted), get a cited answer. Survive a reboot. Ask about project A and confirm project B's documents are not in the answer.
+
+**Done when:** N2 passes across a restart with correct citations and no cross-project leakage.
+
+## S24 — Composio and MCP
+*Size: 4–5 days. After S5, so there is something to use them.*
+
+**Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
+
+**Test** A project-scoped Composio connection used by a heavy task; the same connection denied to a second project. An MCP server attached to one project and invisible to another. A deliberately hostile MCP server cannot escape its container or read another project.
+
+**Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
+
+## S25 — Browser and scraping
+*Size: 4–5 days. Named in the very first planning message and still at zero.*
+
+**Build** Project-scoped browser profiles (never shared), headless control, and a scraping toolkit good enough for real sites — retries, rate limiting, honest user agents, structured extraction. Write the ADR first; this has never been designed.
+
+**Test** Scrape a real site and file the result as a project artifact. Confirm project A's browser profile and cookies are unreachable from project B. Kill the browser mid-scrape → recovers or fails cleanly, never hangs the heavy lane. Run it under the RAM policy with the browser occupying the heavy slot.
+
+**Done when:** a scraping task completes unattended and its output lands as a project artifact.
+
+---
+
+# STAGE 6 — MAKE IT SURVIVE
+
+## S26 — Notification policy
+*Size: 2 days.*
+
+**Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
+
+**Test** L10 — a trivial capture produces **zero** messages; a long task produces exactly two. Ten identical failures produce one notification with a count of ten. Every link in every notification actually opens the right page.
+
+**Done when:** a day of normal use produces only messages worth reading.
+
+## S27 — Schedules, maintenance, improvement
+*Size: 3 days.*
+
+**Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
+
+**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
+
+**Done when:** the system runs a full week unattended and the only messages are ones worth reading.
+
+## S28 — Backup, restore, export
+*Size: 2–3 days.*
+
+**Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
+
+**Test** L15: restore into a clean directory and verify projects, conversations, tasks, issues, schedules, a decrypted canary credential, and the model registry. **Then restore onto a different machine and boot it** — that is the transferability Enrique asked for in his first message, and a restore that has only ever been tested in place has not been tested.
+
+**Debug** v1's backups did not contain the database and it went unnoticed. Assert on the dump's size and on a known row, not on the exit code.
+
+**Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
+
+## S29 — Full acceptance
+*Size: 2 days.*
+
+**Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
+
+**Test** All five gates. Every narrative N1–N8. Every critical loop.
+
+**Done when:** all gates green, with N1 green **against the real harness**, not the fake one.
+
+---
+
+# STAGE 7 — THE LAST THING
+
+## S30 — WhatsApp
+*Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
+
+When S29 is done, this is the only work left between here and a finished Jarvis.
+
+**Build now, before the number exists**
+- The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
+- Ingest for every payload type: text, **voice notes**, images, documents, forwarded messages.
+- **Voice notes are the priority** — that is how Enrique will mostly use it. Audio → artifact (`retention_class='raw_audio'`) → Groq Whisper → transcript message linked to the original → routed exactly like typed text. The whole path is testable today by posting the same payload shape to the ingest endpoint; it does not need a paired number.
+- Reconciliation that backfills anything missed while the API was down.
+- Retention: raw audio 7 days, never past 10 unless marked permanent.
+
+**Test before the number exists** — everything except pairing:
+- Synthesised inbound payloads of each type against `/internal/inbox/ingest` → correct inbox events, artifacts, transcripts and routing.
+- A real audio file through the full transcribe-and-route path.
+- Kill the API for 10 seconds mid-send → the bridge retries, reconciliation fills the gap, nothing is dropped (L1).
+- Ingest with a bad HMAC → refused.
+- An unknown sender → ignored, not processed.
+
+**Test after pairing (tomorrow)**
+- QR pair the dedicated number. Send a text, a voice note, an image and a document from Enrique's phone.
+- Two voice notes ten seconds apart about two projects → two threads, two tasks (N3).
+- The full N1: voice note in, PR link back.
+
+**Debug**
+- If OpenClaw answers with its own agent, the plugin failed to load — it must stay plain JavaScript, no type annotations.
+- Missing `INTERNAL_HMAC` makes the bridge refuse to complete. That is correct behaviour, not a bug.
+
+**Done when:** N1 runs end to end from a voice note on Enrique's phone. **That is the finish line for this plan.**
+
 
 ---
 
 # PART IV — SHARED CONTRACTS
 
-Frozen. These are the seams the three tracks meet at.
+Frozen. These are the invariants every step is built against. Changing one is
+its own commit, never bundled into feature work — a schema or taxonomy change
+smuggled inside a feature is how a whole stage becomes unrevertable.
 
 ## IV.1 Schema
 37 tables, already migrated. The task table already carries `worktree_path`,
@@ -791,8 +909,8 @@ Output: one WhatsApp per week, each item one-tap approvable.
 
 ## VII.5 Updating Jarvis itself
 
-With three tracks merging daily this matters more, not less. Jarvis is a
-production system for one user, and the one user is also its only operator.
+Jarvis is a production system for one user, and that user is also its only
+operator. There is nobody to catch a bad deploy.
 
 - Pin every version: base images, Node, Postgres, Caddy, the harness CLIs.
 - Version every configuration change in `config_versions`; validate before restart.
@@ -860,117 +978,138 @@ does not count.
 
 ---
 
-# PART IX — RUNNING THREE AGENTS
+# PART IX — HOW TO WORK
 
-## IX.1 Isolation
-Each track works in its own git worktree off `main`, on its own long-lived
-branch: `track/a-execution`, `track/b-intake`, `track/c-surface`. Three
-directories, three checkouts, no shared working tree. The failure that produced
-this plan — two sessions writing `supervisor.ts` sixty seconds apart — is
-structurally impossible under this rule.
+One agent, thirty steps, in order. This part is the discipline that keeps that
+honest.
 
-## IX.2 The contract each agent gets
-1. This document, and the file-ownership table in III.0.
-2. Its track's section, and only its track's section, as its backlog.
-3. `AGENTS.md`, `DATA_MODEL.md`, `STATE_MACHINES.md`, `ERROR_TAXONOMY.md` as read-only law.
-4. Its reserved migration range.
-5. A standing instruction: **if you need to change a file you do not own, stop and open a seam-change note.**
+## IX.1 The loop for every step
 
-## IX.3 Integration cadence
-- Each track opens a PR per deliverable, never a batch. Small PRs merge; large ones rot.
-- `main` must always typecheck and must never regress a green gate.
-- Integration is daily: rebase each track on `main`, run the suite, fix drift immediately.
-- A track that has not merged in two days is stuck — surface it rather than letting the branch drift.
+Read the step. Build it. **Test it, including the failure paths.** Debug until
+the "Done when" line is observed. Commit with the evidence in the message. Then,
+and only then, read the next step.
 
-## IX.4 Seam changes
-To change a frozen file or a shared contract: write a short note (what, why,
-which tracks are affected), land it as its own PR touching nothing else, tell the
-other tracks, then continue. Never bundle a seam change with feature work.
+Do not batch steps. Do not start S5 because S4 is "basically done". Basically
+done is how v1 accumulated a chassis with no engine.
 
-## IX.5 Dependency order
-```
-B1 (task_create) ──┐
-                   ├─→ A1 → A3 → A4 → A5   [the engine]
-A1 (runner live) ──┘
-C1, C2, C3 ────────── independent, start immediately
-C4 ──────────────── needs B5 for the WhatsApp link
-B3, B4, B6 ──────── independent of A entirely
-C5, C6, C7 ──────── after A3, so there is something to use them
-```
-**B1 and A1 are the critical path.** Everything the product is judged on runs
-through them. If a track is idle, it helps with those.
+## IX.2 The test discipline
 
-## IX.6 What every agent is forbidden to do
-- Touch a file it does not own.
-- Add a feature not in this document. If the gap is real, write an ADR.
-- Work on the frozen ops layer: error taxonomy, outbox, quiet-hours plumbing, backups, host metrics, health incidents, ADR conformance sweeps. These are finished and good. Every hour spent there is an hour Jarvis still cannot open a PR.
-- Mark something done because a row was written. Done means the effect happened.
+This is the part of the plan that matters most, because it is the part v1 skipped.
 
-## IX.7 Local development and testing
+**What counts as tested**
+- The happy path was **observed**, not inferred from a green typecheck.
+- At least one failure path was forced and behaved as the taxonomy says.
+- The evidence — a transcript, a task id, a screenshot, a log excerpt — is in the commit message or an artifact.
 
-Every track hits this on day one, so it is settled here rather than three times.
-The runner could not be tested at all while it was being written, and that is not
-acceptable as a standing condition.
+**What does not count**
+- `tsc` passing.
+- The code "looking right".
+- A test asserting that a database row exists where it should assert that something happened in the world.
+- A test that has never been seen to fail. Break the thing deliberately once and watch it go red. An assertion that cannot fail is decoration.
 
-- **`docker compose -f deploy/compose.dev.yaml up`** brings up Postgres and the API locally with migrations applied and a seeded operator. Track C owns this file (range `030-039` if it needs schema).
-- **`JARVIS_ROOT`** is already honoured by the runner; point it at a scratch directory so nothing needs `/var/lib/jarvis` on a dev box.
-- **A fake harness.** Track A ships `JARVIS_HARNESS=fake`, which emits a canned `stream-json` transcript and touches a file in the worktree. It makes the whole engineering loop testable with no subscription, no network, and no Claude CLI — and it is what A8 runs against in CI.
-- **Windows is not a target.** The runner spawns POSIX processes and manages unix permissions. Develop it in WSL, in a container, or on the Netcup box directly. Typecheck-only on Windows is fine; do not pretend a green `tsc` is a tested change.
-- No track marks a deliverable done on a typecheck. "Done when" means observed.
+**The four questions before calling a step done**
+1. Did I watch it work, or am I assuming?
+2. What happens when the network, the provider, the disk, or the process dies mid-way?
+3. What happens with empty input, and with far more input than expected?
+4. If this breaks in three weeks, what evidence will exist to debug it?
 
-## IX.8 Arbitration and blocking
+**Test order within a step:** failure paths first where practical. They are
+where the bugs are, and building the happy path first tends to bake in
+assumptions that the failure paths then have to fight.
 
-- Enrique decides scope, priority, and anything touching isolation, billing, or production. Nothing else waits on him.
-- A track blocked on another track for more than half a day says so rather than working around it — a workaround at a seam is how the file-ownership rule gets broken.
-- Two tracks wanting the same frozen file is a seam-change note (IX.4), never a negotiation between agents.
-- A track that believes the plan is wrong writes an ADR. It does not quietly diverge.
+**Regression tests are permanent.** Every bug found the expensive way becomes a
+test before the fix is committed. The call agent's self-transcription bug and
+runaway-recording loop are the model: both cost real time, both are now one-line
+comments, and both should have been tests.
 
-## IX.9 The work already in flight
+## IX.3 The development environment
 
-At the time of writing there is uncommitted Track B work in the tree —
-`callagent.ts` plus edits to `supervisor.ts`, `catalog.ts`, `callcontrol.ts`, and
-`product.ts` — building the two-tier phone agent. Under this plan that is B6,
-which is deferred past M1.
+S1 exists so that no later step has to be built blind. After S1:
 
-Before three agents start: commit it on `track/b-intake`, and let Track B decide
-whether to finish it or shelve it. Do not leave it uncommitted in a shared tree —
-that is the exact condition that produced two sessions editing one file sixty
-seconds apart.
+- `docker compose -f deploy/compose.dev.yaml up` gives Postgres and the API with migrations applied and a seeded operator.
+- `JARVIS_ROOT` points at a scratch directory; no dev box needs `/var/lib/jarvis`.
+- `JARVIS_HARNESS=fake` runs the whole engineering loop with no subscription, no network, and no Claude CLI. Variants `fake:slow`, `fake:crash`, `fake:runaway`, `fake:noop`, `fake:escape` exercise every failure branch deterministically.
+- `scripts/dev-seed.ts` resets to a known state.
 
-Note also that `product.ts` is Track C's file and `catalog.ts` is Track B's. That
-crossing is pre-existing and needs untangling on first contact, not preserving.
+**Windows is not a target for the runner.** It spawns POSIX processes and sets
+unix permissions. Use WSL, a container, or the box itself. A green `tsc` on
+Windows is not a tested change.
+
+## IX.4 Debugging on the live box
+
+- **Read the evidence before forming a hypothesis.** `journalctl -u jarvis-runner -f`, `docker compose logs -f api worker`, and the `task_transitions` table for a given task id will answer most questions faster than reasoning about the code.
+- **The database is the source of truth**, not the assistant's own account of what it did. When a tool "worked", query the table.
+- **Capture raw payloads once** for anything whose shape you are guessing at — `stream-json` events, Telnyx webhooks, provider error bodies. Read the capture; do not infer the shape.
+- **A bare status code is not a diagnosis.** The v1 model-routing failure took far longer than it should have because only the code was stored and not the provider's error body. Store bodies.
+- **When stuck for more than an hour, write down what you observed** in `docs/DEBUG_NOTES.md` before trying anything else. Half the value is in noticing that the observations contradict the hypothesis.
+
+## IX.5 When to stop and ask Enrique
+
+Stop for: anything touching isolation, billing, production permissions, or the
+always-confirm list; a decision that changes what the product *is*; a step that
+has failed three times for different reasons, which usually means the step is
+wrong rather than the code.
+
+Do not stop for: which library, how to structure a module, what to name things,
+or whether to write a test. Those are yours.
+
+## IX.6 What not to do
+
+- **Do not work on the frozen ops layer.** Error taxonomy, notification outbox, quiet-hours plumbing, backups, host metrics, health incidents, ADR conformance sweeps. They are finished and good. Every hour there is an hour Jarvis still cannot open a PR. This is the single trap that consumed v1's overnight run of 31 ticks.
+- **Do not add features not in this document.** If the gap is real, write an ADR.
+- **Do not mark a step done because a row was written.** Done means the effect happened.
+- **Do not point an autonomous loop at the acceptance suite until S7 exists.** A loop optimises what the suite measures; before S7 the suite measures plumbing.
+- **Do not refactor across steps.** A refactor spanning half-finished work is unreviewable and unrevertable.
+
+## IX.7 The work already in flight
+
+There is uncommitted work in the tree — `callagent.ts` plus edits to
+`supervisor.ts`, `catalog.ts`, `callcontrol.ts` and `product.ts` — building the
+two-tier phone agent. That is real progress on Stage 4 and it should be committed
+on its own branch before anything else touches those files, not left loose in a
+shared working tree.
 
 ---
 
-# PART X — MILESTONES
+# PART X — THE ROAD
 
-| Milestone | Contents | Gate |
-|---|---|---|
-| **M1 — It acts** | B1, B9, B10, A1, A2, A3, A8, C1 | N1 green. **This is the milestone that matters.** |
-| **M2 — It is reachable** | B2, B3, B4, B5, C2, C3, C4 | Gates 2 and 4 |
-| **M3 — It is trustworthy** | A4, A5, A6, B8 | Gate 3 |
-| **M4 — It reaches out** | C5, C6, C7, A7, A9 | Composio, MCP, scraping; a harness that earned its role |
-| **M5 — It speaks** | B6, B7 | Phone and voice, N5 |
-| **M6 — It survives** | C8, VII.2, VII.4, VII.5 | Gate 5, then freeze |
+| Stage | Steps | What it buys | Rough |
+|---|---|---|---|
+| **1 — It acts** | S1–S7 | A sentence becomes a pull request. **The only stage that is not optional.** | 9–11 days |
+| **2 — It is trustworthy** | S8–S11 | Review, grants, recovery, proven isolation | 7–8 days |
+| **3 — It is visible** | S12–S15 | A console that shows work and repairs credentials | 8–10 days |
+| **4 — The phone is reliable** | S16–S20 | A call you can depend on, and Jarvis calling you | 10–12 days |
+| **5 — It reaches** | S21–S25 | Onboarding, memory, Composio, MCP, scraping | 14–18 days |
+| **6 — It survives** | S26–S29 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S30 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**M1 in dependency order.** B9 and C1 are cheap and go first. B10 must land
-before A3 has an `AGENTS.md` to read. B1 and A1 are the critical path and are
-worth two agents if one stalls.
+**Total: roughly 60–75 working days** for one agent working sequentially, with
+testing done properly at every step rather than deferred.
 
-```
-B9 ─┐
-C1 ─┤
-B1 ─┼─→ B10 ─→ A3 ─→ A8   (A1 → A2 feed A3 in parallel)
-A1 ─┘
-```
+That number is honest rather than encouraging. Two things make it smaller:
+Stage 1 alone is already a usable Jarvis for engineering work, and Stages 3–6
+are each independently shippable — none of them has to be finished before the
+system is useful.
 
-Rough elapsed time for M1 with three agents working in parallel: **8–12 working
-days**, dominated by A3. Sequentially it is closer to five weeks — which is the
-argument for the three tracks.
+## The order is not arbitrary
 
-Everything before M1 that is not on the M1 list is a distraction. That includes
-voice, phone, and the weekly Improvement job — all specified, all real, all
-worthless attached to a system that cannot do work.
+- **S1 first** because every step after it is tested through the fake harness. Building it later means everything before it was built blind, which is exactly how the runner came to be written and never run.
+- **S2 and S3 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
+- **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
+- **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
+- **S30 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+
+## What "finished" means
+
+When S30 is green, this is true:
+
+> Enrique sends a voice note. Minutes later he gets one short message with a link
+> to a pull request that fixes what he described. He can call Jarvis and talk to
+> it, and it can call him when something genuinely needs him. Everything he has
+> ever dumped on it is searchable. It repairs itself, backs itself up, and can be
+> moved to another machine. Nothing he says is ever lost.
+
+There is no Stage 8. That is the product.
 
 ---
 
@@ -1012,3 +1151,9 @@ Every requirement from the planning transcript, and where it lives.
 | Project onboarding asks before assuming (15, 20) | B10 |
 | Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
+| Phone calls, both directions (06, 07, 15) | S16–S20 |
+| Jarvis can call me (06, 15) | S19 |
+| Five-second turn-taking on calls (01) | S17 |
+| WhatsApp voice notes (01, 15) | S30 |
+| Nothing I say is ever lost (15) | S2, S10, S30, Gate 2 |
+| Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
