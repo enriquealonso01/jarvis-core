@@ -119,6 +119,45 @@ no longer existed.
 **Lesson:** a bind-mounted directory is an inode, not a path. Anything that
 replaces it needs the container recreated.
 
+### The dev harness profile evaporated the first time the worker ran
+**Symptom:** the second half of the S4 recovery test failed with the task on
+`waiting_for_provider` — no usable subscription login — on a stack where the
+seed had just installed one.
+**Cause:** `detectHostLogins` reconciles every profile on every worker pass and
+clears `harness_auth_dir` unless a non-empty `.credentials.json` is present
+(`HOST_LOGIN_PROOF`). The dev seed created the directory but not that file, so
+the fixture was only ever valid because no worker had run in dev before. The
+first test that needed the watchdog also started the worker, and the heavy lane
+went unusable mid-suite.
+**Fix:** the seed writes a placeholder `.credentials.json` — a marker, not a
+credential; the fake harness never reads it.
+**Lesson:** a fixture that satisfies the code you happen to be testing is not a
+fixture. Reconcilers run on everything, so the seed has to satisfy the
+reconciler, not just the reader.
+
+### A failed harness run was recorded with a blank summary
+**Symptom:** none in production yet — found by doing what the plan says and
+capturing one real `claude -p --output-format stream-json` run before trusting
+the parser.
+**Cause:** a failing run exits 1 and emits
+`{"type":"result","subtype":"error_max_turns","is_error":true,"result":""}`.
+The runner did `outcome.result ?? \`harness exited ${code}\``, and `??` does not
+fire on an empty string — so the fallback never ran and the task's summary, the
+issue evidence and the notification all carried nothing at all. A failure nobody
+can explain without opening the transcript, which is the one thing the required
+action tells you to do.
+**Fix:** the failure explanation is built in descending order of usefulness —
+the result text, else the `subtype`, else the stderr tail, else the exit code —
+and an empty string counts as nothing at every step. `subtype` and `is_error` are
+now parsed and land on the checkpoint. `is_error` is checked alongside the exit
+code, so a harness that ever reports an error while exiting 0 is not recorded as
+a success. Covered by the `fake:errorresult` variant, which replays the captured
+shape byte for byte.
+**Lesson:** `??` is not `||`. For a field that a real producer can send as `""`,
+they are different fixes and only one of them is right. And the plan was right
+that the event shape had to be captured rather than assumed — the happy path was
+exactly as expected, and the failure path was not.
+
 ### The runner had no memory ceiling
 **Symptom:** none yet — found by audit before it bit.
 **Cause:** ADR 015 moved the heavy worker out of Docker onto the host. Every

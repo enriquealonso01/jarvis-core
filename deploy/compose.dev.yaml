@@ -66,6 +66,17 @@ services:
     profiles: ["tools"]
     command: ["node", "--import", "tsx", "scripts/dev-seed.ts"]
 
+  # The system worker. It carries the watchdog, which is what turns a killed
+  # runner into a requeued task instead of lost work (plan S4 test 2).
+  worker:
+    <<: *app
+    profiles: ["tools"]
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *app-env
+      WORKER_ID: dev-system-1
+      JARVIS_STALL_SECONDS: ${JARVIS_STALL_SECONDS:-90}
+
   # One-shot by default so a test can run a single variant and read the result.
   # JARVIS_HARNESS picks the variant: fake, fake:crash, fake:slow, fake:runaway,
   # fake:noop, fake:escape.

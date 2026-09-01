@@ -253,6 +253,8 @@ async function runHarness(args: {
   result: string | null;
   events: number;
   escape: string | null;
+  subtype: string | null;
+  isError: boolean;
 }> {
   await fs.mkdir(path.dirname(args.transcriptPath), { recursive: true });
   const sink = createWriteStream(args.transcriptPath, { flags: "a" });
@@ -287,8 +289,15 @@ async function runHarness(args: {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let sessionId: string | null = null;
-  let result: string | null = null;
+  // Held on an object, not as plain `let`s: they are only ever assigned inside
+  // the stdout callback, which TypeScript's control-flow analysis cannot see, so
+  // as locals it narrows every one of them to its initialiser.
+  const seen: { sessionId: string | null; result: string | null; subtype: string | null; isError: boolean } = {
+    sessionId: null,
+    result: null,
+    subtype: null,
+    isError: false,
+  };
   let events = 0;
   let buf = "";
   let escape: string | null = null;
@@ -308,8 +317,17 @@ async function runHarness(args: {
       } catch {
         continue;
       }
-      if (typeof event.session_id === "string") sessionId = event.session_id;
-      if (event.type === "result" && typeof event.result === "string") result = event.result;
+      if (typeof event.session_id === "string") seen.sessionId = event.session_id;
+      if (event.type === "result") {
+        // Observed from a real `claude -p --output-format stream-json` run
+        // (S4 Debug, "capture one raw run and read it"): a failing result has
+        // `is_error: true`, a `subtype` naming the failure, and `result: ""`.
+        // The empty string is the trap — it is not nullish, so `??` never fired
+        // and a failed task was recorded with a blank summary.
+        if (typeof event.result === "string") seen.result = event.result;
+        if (typeof event.subtype === "string") seen.subtype = event.subtype;
+        if (typeof event.is_error === "boolean") seen.isError = event.is_error;
+      }
       if (!escape) {
         const out = escapedPath(args.cwd, event);
         if (out) {
@@ -339,8 +357,25 @@ async function runHarness(args: {
   args.signal.removeEventListener("abort", onAbort);
   await new Promise((r) => sink.end(r));
 
-  if (code !== 0 && !result && stderrTail) result = `harness stderr: ${stderrTail.trim()}`;
-  return { code, sessionId, result, events, escape };
+  // Build the failure explanation from whatever the run actually left behind,
+  // in descending order of usefulness. An empty string counts as nothing.
+  if (!seen.result || !seen.result.trim()) {
+    seen.result =
+      seen.subtype && seen.subtype !== "success"
+        ? `harness reported ${seen.subtype}`
+        : stderrTail.trim()
+          ? `harness stderr: ${stderrTail.trim()}`
+          : null;
+  }
+  return {
+    code,
+    sessionId: seen.sessionId,
+    result: seen.result,
+    events,
+    escape,
+    subtype: seen.subtype,
+    isError: seen.isError,
+  };
 }
 
 
@@ -626,6 +661,8 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       transcript: relTranscript,
       events: outcome.events,
       exit_code: outcome.code,
+      result_subtype: outcome.subtype,
+      is_error: outcome.isError,
       stop_reason: stopReason,
       escape_attempt: outcome.escape,
       changed,
@@ -678,14 +715,17 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       return;
     }
 
-    if (stopReason || outcome.code !== 0) {
+    // `is_error` is checked alongside the exit code, not instead of it. The
+    // capture showed them agreeing, but a harness that ever reports an error and
+    // still exits 0 would otherwise be recorded as a success.
+    if (stopReason || outcome.code !== 0 || outcome.isError) {
       const errorClass = stopReason === "silent" ? "process.stuck" : stopReason === "timeout" ? "agent.loop" : "harness.crash";
       const summary =
         stopReason === "silent"
           ? `no harness output for ${humanMs(SILENCE_LIMIT_MS)}`
           : stopReason === "timeout"
             ? `exceeded the ${humanMs(RUN_LIMIT_MS)} run limit`
-            : (outcome.result ?? `harness exited ${outcome.code}`).slice(0, 300);
+            : (outcome.result?.trim() || `harness exited ${outcome.code}`).slice(0, 300);
       await pool.query(
         `UPDATE task_attempts SET ended_at = now(), error_class = $3, summary = $4 WHERE task_id = $1 AND n = $2`,
         [taskId, n, errorClass, summary],

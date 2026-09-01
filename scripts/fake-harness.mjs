@@ -22,6 +22,7 @@
  *   noop     — talk, change nothing, exit 0               -> succeeded, empty diff
  *   escape   — try to write outside the worktree          -> blocked and audited
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
+ *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -143,6 +144,25 @@ async function main() {
     process.exit(0);
   }
 
+  if (variant === "errorresult") {
+    // Reproduces exactly what a real `claude -p --output-format stream-json`
+    // run emitted when it hit --max-turns: exit 1, is_error true, a subtype
+    // naming the failure, and result: "" — the empty string that used to slip
+    // past `??` and record a failed task with a blank summary.
+    init();
+    assistantText("Working.");
+    emit({
+      type: "result",
+      subtype: "error_max_turns",
+      session_id: sessionId,
+      is_error: true,
+      duration_ms: 900,
+      num_turns: 2,
+      result: "",
+    });
+    process.exit(1);
+  }
+
   if (variant === "context") {
     // Waits for the runner to hand it something, the way a real long run would
     // notice a file appear in its worktree. Proves S3c end to end: not "a row
@@ -164,6 +184,15 @@ async function main() {
         /* the directory does not exist until the runner writes into it */
       }
       assistantText("still working, nothing new yet");
+      await sleep(1000);
+    }
+    // Keep working after the context arrives, so a test can interrupt a run that
+    // has already done something worth losing (S4 test 2). Zero by default: the
+    // S3c test wants this variant to finish as soon as it has read the context.
+    const hold = Number(process.env.JARVIS_FAKE_CONTEXT_HOLD_MS ?? 0);
+    const holdUntil = Date.now() + hold;
+    while (Date.now() < holdUntil) {
+      assistantText("still working after reading the new context");
       await sleep(1000);
     }
     const out = path.join(cwd, "CONTEXT_SEEN.md");

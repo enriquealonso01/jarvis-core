@@ -39,7 +39,7 @@ run_variant() {
     runner >/tmp/s1-runner.log 2>&1
 }
 
-VARIANTS="${*:-ok crash slow runaway noop escape}"
+VARIANTS="${*:-ok crash slow runaway noop escape errorresult}"
 
 for v in $VARIANTS; do
   echo
@@ -50,6 +50,7 @@ for v in $VARIANTS; do
     noop)    run_variant "fake:noop" ;;
     crash)   run_variant "fake:crash" ;;
     escape)  run_variant "fake:escape" ;;
+    errorresult) run_variant "fake:errorresult" ;;
     slow)    run_variant "fake:slow" 6000 ;;
     runaway) run_variant "fake:runaway" 60000 8000 ;;
   esac
@@ -63,6 +64,7 @@ for v in $VARIANTS; do
   branch=$(q "SELECT COALESCE(branch,'') FROM tasks WHERE id = '$id';")
   arts=$(q "SELECT count(*) FROM artifacts WHERE path LIKE '%${id:0:8}%';")
 
+  ec_state="$state"
   echo "  state=$state path=$path error_class=$ec changed=$changed audits=$audits"
   echo "  summary=$summary"
 
@@ -94,6 +96,16 @@ for v in $VARIANTS; do
     runaway)
       check "task fails terminally" "failed_terminal" "$state"
       check "error class" "agent.loop" "$ec"
+      ;;
+    errorresult)
+      # The real claude emits is_error with result:"" — a blank summary here
+      # means a failed task nobody can explain without opening the transcript.
+      check "task fails terminally" "failed_terminal" "$ec_state"
+      check "error class" "harness.crash" "$ec"
+      if [ -n "$summary" ]; then ok "the failure has a summary at all"; else bad "the failure has a summary at all" "non-empty" "(empty)"; fi
+      contains "and it names what the harness reported" "error_max_turns" "$summary"
+      check "the checkpoint records the subtype" "error_max_turns"         "$(q "SELECT COALESCE(payload->>'result_subtype','') FROM task_checkpoints WHERE task_id = '$id' ORDER BY at DESC LIMIT 1;")"
+      check "and records is_error" "true"         "$(q "SELECT COALESCE(payload->>'is_error','') FROM task_checkpoints WHERE task_id = '$id' ORDER BY at DESC LIMIT 1;")"
       ;;
     escape)
       check "task fails terminally" "failed_terminal" "$state"
