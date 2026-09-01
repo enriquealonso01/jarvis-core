@@ -149,6 +149,17 @@ async function main(): Promise<void> {
   // rather than substituted still runs for real.
   const authDir = path.join(HARNESS_AUTH_DIR, "anthropic_personal");
   await fs.mkdir(authDir, { recursive: true, mode: 0o700 });
+  // The system worker reconciles this profile on every pass and clears it unless
+  // a non-empty `.credentials.json` is present (worker.ts HOST_LOGIN_PROOF). The
+  // seed used to create only the directory, so the fixture looked fine until the
+  // first time the worker ran in dev — at which point the heavy lane went
+  // `waiting_for_provider` mid-suite. This is a marker, not a credential: the
+  // fake harness never reads it and there is no secret in it.
+  await fs.writeFile(
+    path.join(authDir, ".credentials.json"),
+    JSON.stringify({ note: "dev fixture, not a credential; the fake harness ignores it" }, null, 2),
+    { mode: 0o600 },
+  );
   await pool.query(
     `UPDATE auth_profiles SET harness_auth_dir = $1, health = 'healthy' WHERE id = 'anthropic_personal'`,
     [authDir],

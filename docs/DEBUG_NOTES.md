@@ -119,6 +119,22 @@ no longer existed.
 **Lesson:** a bind-mounted directory is an inode, not a path. Anything that
 replaces it needs the container recreated.
 
+### The dev harness profile evaporated the first time the worker ran
+**Symptom:** the second half of the S4 recovery test failed with the task on
+`waiting_for_provider` — no usable subscription login — on a stack where the
+seed had just installed one.
+**Cause:** `detectHostLogins` reconciles every profile on every worker pass and
+clears `harness_auth_dir` unless a non-empty `.credentials.json` is present
+(`HOST_LOGIN_PROOF`). The dev seed created the directory but not that file, so
+the fixture was only ever valid because no worker had run in dev before. The
+first test that needed the watchdog also started the worker, and the heavy lane
+went unusable mid-suite.
+**Fix:** the seed writes a placeholder `.credentials.json` — a marker, not a
+credential; the fake harness never reads it.
+**Lesson:** a fixture that satisfies the code you happen to be testing is not a
+fixture. Reconcilers run on everything, so the seed has to satisfy the
+reconciler, not just the reader.
+
 ### A failed harness run was recorded with a blank summary
 **Symptom:** none in production yet — found by doing what the plan says and
 capturing one real `claude -p --output-format stream-json` run before trusting

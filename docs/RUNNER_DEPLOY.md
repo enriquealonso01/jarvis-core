@@ -84,6 +84,23 @@ sudo systemctl restart jarvis-runner    # mid-run
 
 leaves the task recovered rather than lost.
 
+## What the recovery test already settled
+
+The plan's second on-box test — *"`systemctl restart jarvis-runner` mid-run →
+watchdog stalls, recovers, requeues from checkpoint"* — was run in dev first,
+because systemd is only the thing that kills the process; the behaviour under
+test belongs to the watchdog. `scripts/s4-recovery-test.sh` kills the runner
+outright (harder than a clean restart: no draining) and asserts what survives.
+
+Observed, 18/18: the task goes `running → stalled → recovering → queued`, the
+dead runner's lease is released, the checkpoint and the undelivered task context
+both survive, a `worker.crash:heavy` issue is raised and then resolved, and a
+second runner finishes the work on attempt 2 with the commit really in the repo.
+
+So the on-box run of this test should confirm systemd's part, not discover the
+watchdog's. One change came out of it: `JARVIS_STALL_SECONDS` (default 90) makes
+the threshold testable in seconds.
+
 ## What the event-shape capture already settled
 
 `src/runner.ts` had never met the real `claude`. One run was captured locally

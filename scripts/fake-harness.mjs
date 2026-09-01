@@ -186,6 +186,15 @@ async function main() {
       assistantText("still working, nothing new yet");
       await sleep(1000);
     }
+    // Keep working after the context arrives, so a test can interrupt a run that
+    // has already done something worth losing (S4 test 2). Zero by default: the
+    // S3c test wants this variant to finish as soon as it has read the context.
+    const hold = Number(process.env.JARVIS_FAKE_CONTEXT_HOLD_MS ?? 0);
+    const holdUntil = Date.now() + hold;
+    while (Date.now() < holdUntil) {
+      assistantText("still working after reading the new context");
+      await sleep(1000);
+    }
     const out = path.join(cwd, "CONTEXT_SEEN.md");
     fs.writeFileSync(out, found.length ? found.join("\n---\n") : "NO CONTEXT ARRIVED\n");
     assistantToolUse("Write", { file_path: out, content: "what the runner handed me" });
