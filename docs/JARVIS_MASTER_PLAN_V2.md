@@ -68,6 +68,22 @@ This document inverts that weighting permanently.
 - Discover a week later that something he said was silently dropped.
 - Read maintenance chatter to find the one thing that needs him.
 
+## 0.45 What V1 deliberately is not
+
+Listed because an eager builder will otherwise add several of these, each
+defensible on its own, and together they are how a focused system becomes a
+sprawling one. None of them ship unless implementation reveals a compelling need
+and an ADR records it:
+
+- Multiple human users, public registration, team roles, social login. **One user. Build session auth and project isolation, not an identity system.**
+- Complex customisable dashboards, a theme marketplace, multiple polished visual themes. One good theme, dark and light, done properly.
+- Netlify or Supabase holding authoritative data. Postgres on the box is the source of truth.
+- Any browser-side access to OpenClaw administrative credentials.
+- Hidden chain-of-thought display. Show what it *did* — tools, phases, outputs — never a performance of what it was thinking.
+- **Fake progress indicators.** A bar that moves because time passed rather than because work completed is a lie with a nice animation. This binds the S13b build progress bar: every segment of it must correspond to something that actually happened.
+- Any workflow that requires Enrique to SSH into the box to add a normal credential or connection. If a routine action needs a terminal, that action is not finished.
+- Web push notifications. WhatsApp is the pager.
+
 ## 0.5 Where things stand today
 
 Read this before writing a line. A large amount already exists and is good; the
@@ -2041,6 +2057,9 @@ below come from the planning conversation and are the point of the exercise.
 - **S13** the console leads with work, not health
 - **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
 - An output can be rejected with a note, revised, and the versions compared, without leaving the console (S17)
+- **Expired connection**: expire a GitHub credential → **one** deduplicated issue, and **every affected task links to it**. Reauthenticating closes the issue and resumes all of them, not just the one that hit it first
+- **Stuck worker, visible**: hang a worker deliberately → the task timeline in the console shows stalled → recovering → resumed. The watchdog's intervention must be legible in the UI, not only in the database
+- **Client security**: inspect browser traffic and client storage → no provider secret, no OpenClaw admin token, no database credential, no secret value in logs or analytics
 
 ## Gate 5 — The phone is dependable
 - **Ten consecutive calls**, three with a forced provider failure, all ending cleanly with a stored transcript
@@ -2052,7 +2071,7 @@ below come from the planning conversation and are the point of the exercise.
 
 ## Gate 6 — It survives
 - **Provider exhaustion across an entire role**: force rate limiting on *every* model in one role → approved fallbacks take over, then Jarvis asks for help. It does not silently stop and it does not enable billing to rescue itself
-- **L4** model failover with conversational continuity — same conversation id, no metered enablement
+- **L4** model failover with conversational continuity — same conversation id, no metered enablement. **An issue is raised only if the role is materially degraded**, never for a routine failover that the fallback absorbed. A ticket per failover trains Enrique to ignore tickets
 - **Backup**: destroy a disposable test installation entirely and restore from backup → projects, conversations, schedules, credentials, queue metadata and configuration all return. **Destroy, not simulate** (L15)
 - **L14** schedules: no duplicate fires across a restart
 - **N7** self-repair at 03:00 without waking him
