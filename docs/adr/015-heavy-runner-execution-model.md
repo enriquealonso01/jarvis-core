@@ -1,6 +1,6 @@
 # ADR 015 — Heavy runner execution model
 
-- Status: proposed — awaiting Enrique's approval (isolation posture change)
+- Status: accepted
 - Date: 2026-09-01
 - Plan sections: §4, §20.2, §27, §67; resolves the ambiguity ADR 006 left open
 - Affects isolation / billing / always-confirm: yes (isolation — see Consequences)
@@ -82,6 +82,6 @@ threat being defended against.
 
 ## User approval required
 
-Yes — not yet given. This narrows the sandbox around the coding harness from
-"container" to "unprivileged host user + broker-gated credentials", which is an
-isolation posture change. Do not implement until Enrique accepts.
+Yes — given by Enrique on 2026-09-01. This narrows the sandbox around the coding
+harness from "container" to "unprivileged host user + broker-gated credentials",
+which is an isolation posture change.
