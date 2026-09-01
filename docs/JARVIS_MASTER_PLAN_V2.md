@@ -805,17 +805,62 @@ someone's opinion.
 **Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
 
 ## S25 — Memory and knowledge
-*Size: 3–4 days.*
+*Size: 4–5 days. Write ADR 017 first — but the recommendation below is the starting position, not an open question.*
 
-**Build** Everything Enrique dumps — documents, pasted logs, transcripts, forwarded threads — chunked, indexed, searchable forever. Scoped per project with a global tier for Supervisor memory. Answers cite their source.
+Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
+it. I will be able to ask questions about anything at any time."
 
-Decide and record the retrieval architecture in an ADR: embeddings local or hosted, which model, and how it obeys the RAM policy (embeddings never run while heavy work is active). This is the one genuinely open architectural question left.
+### The architecture, decided
 
-**Test** N2: dump a long thread and three PDFs, ask a specific question three weeks later (clock-shifted), get a cited answer. Survive a reboot. Ask about project A and confirm project B's documents are not in the answer.
+**Postgres full-text search first. Embeddings only when it proves insufficient.**
 
-**Debug** Wrong or missing answers are usually retrieval, not the model: log what chunks were retrieved before blaming the reply. If chunks from another project appear, that is an isolation bug and stops other work. If recall is poor across a reboot, check the index survived — an in-memory index that silently rebuilds empty answers confidently and wrongly.
+The instinct is to reach for a vector store. Resist it here, for three reasons
+specific to this machine:
 
-**Done when:** N2 passes across a restart with correct citations and no cross-project leakage.
+- Postgres is already running, already backed up, already restored by the drill, and already inside the isolation model. A separate vector store is a second thing to back up, secure, scope per project, and restore — and `docs/GAP_ANALYSIS.md` exists because v1 built infrastructure ahead of need.
+- ADR 007 gives embeddings 1024 MB **and forbids them while heavy work is active**. An embedding tier that can only run when the box is idle is a poor foundation for "ask me anything at any time".
+- The corpus is one person's documents and chat history, and most real queries are lexical — a name, a client, a project, an error string. `tsvector` with good chunking answers those well.
+
+So: `knowledge_chunks` with a `tsvector` column, GIN index, chunked with overlap,
+ranked with `ts_rank_cd`, scoped by `project_id` with a global tier for
+Supervisor memory. Every answer cites the chunk and the artifact it came from.
+
+**Add embeddings when, and only when, a measured recall failure demands it.**
+Keep a file of queries that returned the wrong thing; when lexical search is
+demonstrably the cause of several, that is the evidence for ADR 017b and a local
+embedding model on the system lane. Not before.
+
+### Build
+
+- Ingest anything: documents, pasted logs, transcripts, forwarded threads, call transcripts, PDFs. Chunk with overlap; keep the source artifact.
+- Scope every chunk to a project, or to the global Supervisor tier. **The project filter is applied in the query, not in post-processing** — a cross-project chunk must never be retrievable in the first place.
+- Answers cite: which artifact, which chunk, when it arrived.
+- A `memory_search` path the Supervisor and the harness both use, so a coding task can consult what Enrique said about the project three weeks ago.
+
+### Test
+
+- **N2 end to end**: dump a long thread and three PDFs, then ask a specific question with the clock shifted three weeks forward. The answer is correct and cited.
+- Survive a reboot — then survive a **restore from backup**, which is the test that actually matters and the one v1's backups would have failed.
+- Ask about project A; assert project B's chunks are not in the retrieved set. Not absent from the answer — absent from the **retrieval**.
+- Ask something genuinely not in the corpus → it says it does not know. **A confident answer from nothing is the worst possible failure here**, and it is the one this design is most exposed to.
+- Ingest the same document twice → no duplicate chunks, no doubled ranking.
+- A 200-page PDF and a 3-word note both ingest without special-casing.
+
+### Debug
+
+Wrong or missing answers are nearly always retrieval, not the model: **log the
+retrieved chunks before blaming the reply.** If chunks from another project
+appear, that is an isolation bug and it stops other work until closed.
+
+Poor recall after a restart means the index did not survive — an index that
+silently rebuilds empty will answer confidently and wrongly, which is worse than
+erroring. Assert on chunk count after boot.
+
+If ranking looks random, check the chunking before the ranking. Chunks split
+mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
+
+**Done when:** N2 passes across a restore from backup, with correct citations, no
+cross-project leakage, and an honest "I don't know" when the answer is not there.
 
 ## S26 — Composio and MCP
 *Size: 4–5 days. After S5, so there is something to use them.*
