@@ -23,6 +23,7 @@
  *   escape   — try to write outside the worktree          -> blocked and audited
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
  *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
+ *   workflow  — the S6 engineering loop, phase by phase   -> JARVIS_FAKE_WORKFLOW picks the outcome
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -84,6 +85,24 @@ function git(args, opts = {}) {
   return spawnSync("git", args, { cwd, encoding: "utf8", ...opts });
 }
 
+/**
+ * Every variant that reaches the end of a run writes an outcome file.
+ *
+ * S6 made the verdict a separate claim from the exit code: a heavy run that
+ * says nothing about what it achieved is incomplete, not successful. These
+ * fixtures predate that protocol, so they were all being held for review —
+ * correctly, by the new rule. Speaking the protocol is the fixture catching
+ * up, not the rule being softened.
+ */
+function writeOutcome(verdict = "completed", extra = {}) {
+  const dir = path.join(cwd, ".jarvis");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "outcome.json"),
+    JSON.stringify({ reproduced: true, verdict, guess: false, confidence: "high", notes: "fake harness", ...extra }, null, 2),
+  );
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
@@ -121,6 +140,7 @@ async function main() {
   if (variant === "noop") {
     init();
     assistantText("I read the code and it already does what was asked. No changes needed.");
+    writeOutcome("completed", { notes: "no change was needed" });
     result("success", "No changes were necessary.");
     process.exit(0);
   }
@@ -141,6 +161,61 @@ async function main() {
     }
     await sleep(500);
     result("success", `escape attempt ${wrote ? "SUCCEEDED (filesystem did not stop it)" : "blocked"}`);
+    process.exit(0);
+  }
+
+  // --- S6: the engineering loop, announced phase by phase ---------------
+  if (variant.startsWith("workflow")) {
+    // workflow        -> all phases, verdict completed
+    // workflow:norepro-> stops at reproduce, verdict not_reproducible
+    // workflow:guess  -> all phases but guess: true
+    // workflow:scope  -> declines, verdict out_of_scope
+    // workflow:prefail-> verdict pre_existing_failure
+    // workflow:silent -> does the work but writes NO outcome.json
+    // workflow:halt   -> stops partway, for the resume test
+    const mode = (process.env.JARVIS_FAKE_WORKFLOW ?? "full");
+    init();
+    const jdir = path.join(cwd, ".jarvis");
+    fs.mkdirSync(jdir, { recursive: true });
+    const announce = (phase, note) => {
+      fs.appendFileSync(path.join(jdir, "phases.jsonl"), JSON.stringify({ phase, note }) + "\n");
+      assistantText(`entering ${phase}: ${note}`);
+    };
+    const ALL = ["preserve","context","reproduce","inspect","root_cause","plan","change","tests","checks","commit","push"];
+    const stopAfter = { norepro: "reproduce", scope: "context", prefail: "checks", halt: "inspect" }[mode];
+    const resumeAt = process.env.JARVIS_FAKE_RESUME_AT || null;
+    const start = resumeAt ? Math.max(0, ALL.indexOf(resumeAt)) : 0;
+    for (let i = start; i < ALL.length; i += 1) {
+      const ph = ALL[i];
+      announce(ph, `fake harness at ${ph}`);
+      await sleep(150);
+      if (ph === "change" && mode !== "scope" && mode !== "norepro") {
+        fs.writeFileSync(path.join(cwd, "FIX.md"), `fixed by the fake harness (${mode})\n`);
+      }
+      if (stopAfter && ph === stopAfter) break;
+    }
+    const outcome = {
+      full:    { reproduced: true,  verdict: "completed",            guess: false, confidence: "high",   notes: "found the cause and fixed it" },
+      guess:   { reproduced: false, verdict: "completed",            guess: true,  confidence: "low",    notes: "changed something plausible but I am not sure" },
+      norepro: { reproduced: false, verdict: "not_reproducible",     guess: false, confidence: "medium", notes: "could not make it happen", attempted: ["ran the suite","tried the described steps"], missing: ["the exact input"] },
+      scope:   { reproduced: false, verdict: "out_of_scope",         guess: false, confidence: "high",   notes: "this asks for a change in a different system" },
+      prefail: { reproduced: true,  verdict: "pre_existing_failure",  guess: false, confidence: "high",   notes: "the suite was already red before I touched it" },
+      halt:    null,
+      silent:  null,
+    }[mode];
+    if (outcome) fs.writeFileSync(path.join(jdir, "outcome.json"), JSON.stringify(outcome, null, 2));
+    if (mode === "halt") {
+      process.stderr.write("fake-harness: halted partway on purpose\n");
+      process.exit(1);
+    }
+    // A run that declined or could not reproduce has nothing to commit.
+    const commits = mode !== "scope" && mode !== "norepro";
+    const inRepoW = commits && git(["rev-parse", "--is-inside-work-tree"]).status === 0;
+    if (inRepoW) {
+      git(["add", "-A"]);
+      git(["-c", "user.email=fake@jarvis.local", "-c", "user.name=Fake Harness", "commit", "-m", `fake: ${mode}`]);
+    }
+    result("success", `workflow ${mode}`);
     process.exit(0);
   }
 
@@ -203,6 +278,7 @@ async function main() {
       git(["add", "-A"]);
       git(["-c", "user.email=fake@jarvis.local", "-c", "user.name=Fake Harness", "commit", "-m", "fake: acted on mid-run context"]);
     }
+    writeOutcome();
     result("success", found.length ? `acted on ${found.length} piece(s) of new context` : "no context arrived");
     process.exit(0);
   }
@@ -227,6 +303,7 @@ async function main() {
     }
   }
   await sleep(200);
+  writeOutcome();
   result("success", `Wrote JARVIS_FAKE_RUN.md and committed it${inRepo ? "" : " (no repo, file only)"}.`);
   process.exit(0);
 }

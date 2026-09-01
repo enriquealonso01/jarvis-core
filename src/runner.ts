@@ -9,6 +9,15 @@ import { claimTask, transitionTask, writeCheckpoint } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { sseBroadcast } from "./sse.js";
 import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
+import {
+  completedPhases,
+  drainPhases,
+  nextPhase,
+  readOutcome,
+  VERDICTS_THAT_ASK,
+  VERDICTS_THAT_SUCCEED,
+  workflowPrompt,
+} from "./workflow.js";
 
 /**
  * The heavy-lane runner (ADR 015, plan §20.2, §27).
@@ -205,6 +214,22 @@ async function prepareWorkspace(
   await git(repo, ["branch", "-D", branch]).catch(() => undefined);
   await git(repo, ["fetch", "--quiet", "origin", base]).catch(() => undefined);
   await git(repo, ["worktree", "add", "-b", branch, dir, `origin/${base}`]);
+  // Jarvis's own scratch must be invisible to git. Without this, `.jarvis/`
+  // shows as untracked, so a run that deliberately changed NOTHING still reads
+  // as "changed", and `git add -A` would commit Jarvis's bookkeeping into
+  // Enrique's repository. info/exclude rather than .gitignore: it is per-clone
+  // and never appears in the diff.
+  // NOTE: in a worktree, `.git` is a FILE pointing at the real gitdir, not a
+  // directory. Writing to `<worktree>/.git/info/exclude` therefore fails with
+  // ENOTDIR and — because the failure was caught and ignored — the exclude was
+  // silently never written. Ask git where its directory actually is.
+  const gitDir = await git(dir, ["rev-parse", "--absolute-git-dir"]).catch(() => null);
+  if (gitDir) {
+    await fs.mkdir(path.join(gitDir, "info"), { recursive: true }).catch(() => undefined);
+    await fs
+      .appendFile(path.join(gitDir, "info", "exclude"), `${NEWLINE}.jarvis/${NEWLINE}`)
+      .catch(() => undefined);
+  }
   const baseSha = await git(dir, ["rev-parse", "HEAD"]).catch(() => null);
   return { dir, branch, isRepo: true, baseSha, checkoutError };
 }
@@ -621,6 +646,9 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
           // context is noticed too — no second timer, no signal handler, and
           // nothing that has to reach a process mid-call.
           if (workspace && !stopReason) {
+            // Same boundary, same reason: the console should see the loop while
+            // it is happening, and a killed run should know where it got to.
+            await drainPhases(pool, taskId, workspace.dir, phasesSeen).catch(() => undefined);
             const delivered = await deliverPendingContext(pool, taskId, workspace.dir, n);
             if (delivered) {
               await writeCheckpoint(pool, taskId, {
@@ -646,7 +674,24 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     }, HEARTBEAT_MS);
 
     const relTranscript = path.join(project?.slug ?? "unscoped", `task-${task.id.slice(0, 8)}-attempt-${n}.jsonl`);
-    const objective = (task.objective ?? task.title).trim();
+
+    // S6: the harness is not handed a bare objective any more. It gets the
+    // senior-engineer loop, this project's AGENTS.md, and — if a previous
+    // attempt got partway — the phase to resume at, so a killed run does not
+    // start over.
+    const done = await completedPhases(pool, taskId);
+    const resumeFrom = nextPhase(done);
+    const agentsMd = await fs
+      .readFile(path.join(workspace.dir, "AGENTS.md"), "utf8")
+      .catch(() => null);
+    const objective = workflowPrompt({
+      title: task.title,
+      objective: (task.objective ?? task.title).trim(),
+      agentsMd,
+      resumeFrom,
+      completed: done,
+    });
+    const phasesSeen = new Set<string>(done);
 
     const outcome = await runHarness({
       cwd: workspace.dir,
@@ -669,6 +714,12 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = null;
 
+    // Drain before ANY branching. The phases a run reached are the most useful
+    // thing it leaves behind when it fails, and a final drain that only ran on
+    // the success path lost exactly the ones worth having — a crashed run
+    // recorded nothing, so a resumed run had no phase to resume from.
+    await drainPhases(pool, taskId, workspace.dir, phasesSeen).catch(() => undefined);
+
     await registerArtifact(pool, task.project_id, relTranscript).catch(() => undefined);
     if (outcome.sessionId) {
       await pool.query(`UPDATE tasks SET external_session_id = $2 WHERE id = $1`, [taskId, outcome.sessionId]);
@@ -684,8 +735,13 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     // read the code, decided nothing was needed and stopped is a legitimate
     // outcome, but it has to be reported as one rather than shown to Enrique as
     // a finished task with an invisible result.
+    // `.jarvis/` is Jarvis's own scratch — phases and the outcome file — not the
+    // project's work. Excluded by pathspec as well as by info/exclude, because
+    // one mechanism silently failing (it did: a worktree's .git is a file, so
+    // the exclude was never written) should not make an untouched repo look
+    // changed.
     const dirty = workspace.isRepo
-      ? await git(workspace.dir, ["status", "--porcelain"]).catch(() => "")
+      ? await git(workspace.dir, ["status", "--porcelain", "--", ".", ":(exclude).jarvis"]).catch(() => "")
       : "";
     const changed = workspace.isRepo
       ? Boolean(dirty) || (head !== null && workspace.baseSha !== null && head !== workspace.baseSha)
@@ -796,6 +852,66 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
         evidence: { exit_code: outcome.code, events: outcome.events, transcript: relTranscript, stop_reason: stopReason },
         requiredAction: "Read the run transcript artifact before retrying.",
       });
+      return;
+    }
+
+    // S6: the exit code says the process ended; the outcome file says what it
+    // achieved. They are different claims and only one of them is about the bug.
+    const outcome2 = await readOutcome(workspace.dir);
+    if (outcome2) {
+      await pool
+        .query(
+          `UPDATE task_attempts SET reproduced = $3, verdict = $4, confidence = $5
+           WHERE task_id = $1 AND n = $2`,
+          [taskId, n, outcome2.reproduced, outcome2.verdict.slice(0, 60), outcome2.confidence.slice(0, 20)],
+        )
+        .catch(() => undefined);
+    }
+
+    // A guess is never a success, however clean the exit. Neither is a verdict
+    // that says the work was not done. Both go back to Enrique as a report
+    // rather than being filed as a fix nobody asked to review.
+    const honestStop =
+      !outcome2
+        ? "the run finished without writing .jarvis/outcome.json, so what it achieved is unknown"
+        : outcome2.guess
+          ? `the harness reported this as a GUESS, not an understood fix: ${outcome2.notes.slice(0, 240)}`
+          : VERDICTS_THAT_ASK.has(outcome2.verdict)
+            ? `${outcome2.verdict}: ${outcome2.notes.slice(0, 240)}`
+            : !VERDICTS_THAT_SUCCEED.has(outcome2.verdict)
+              ? `unrecognised verdict "${outcome2.verdict}"`
+              : null;
+
+    if (honestStop) {
+      await pool
+        .query(
+          `UPDATE task_attempts SET ended_at = now(), summary = $3 WHERE task_id = $1 AND n = $2`,
+          [taskId, n, honestStop.slice(0, 300)],
+        )
+        .catch(() => undefined);
+      await pool
+        .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, honestStop.slice(0, 500)])
+        .catch(() => undefined);
+      await transitionTask(pool, taskId, "waiting_for_user", honestStop.slice(0, 300), "runner", "lease_until = NULL");
+      await raiseIssue(pool, {
+        category: "supervisor",
+        service: "harness",
+        owner: "user",
+        status: "waiting_for_user",
+        title: `[review] ${task.title.slice(0, 70)}`,
+        dedupeKey: `workflow.report:${taskId}`,
+        taskId,
+        projectId: task.project_id,
+        evidence: {
+          verdict: outcome2?.verdict ?? "none",
+          reproduced: outcome2?.reproduced ?? null,
+          guess: outcome2?.guess ?? null,
+          attempted: outcome2?.attempted ?? [],
+          missing: outcome2?.missing ?? [],
+          transcript: relTranscript,
+        },
+        requiredAction: "Read what it reported. It did not claim to have fixed this.",
+      }).catch(() => undefined);
       return;
     }
 
