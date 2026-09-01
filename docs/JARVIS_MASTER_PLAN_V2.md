@@ -668,7 +668,62 @@ On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.m
 
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
-## S23 — Memory and knowledge
+## S23 — Configuration by conversation
+*Size: 2 days.*
+
+Transcript msg 17: telling Jarvis to change how Jarvis works must work from
+wherever Enrique happens to be, including about a project he is not currently
+talking about.
+
+**Build** "Stop doing X", "always do Y in project Z", "change Alpha's deploy
+policy", "use this connection for Beta from now on" become **configuration
+tasks**: interpreted, validated, versioned in `config_versions` and
+`project_instructions_versions`, applied, audited, and reversible. They may
+reach into any project's instructions, connections, schedules, model routing,
+queue policy, and tool permissions.
+
+What they may **never** touch without an explicit approval is the immutable list
+(§59): isolation, authentication, audit, backups, spend ceilings, the
+always-confirm list, secret scope, and the authority of the system projects.
+
+**Test**
+- A spoken instruction changes another project's `AGENTS.md`, and the change is versioned with the conversation that caused it.
+- "What changed in Alpha's policy last week?" answers correctly from the version history.
+- Roll a change back and confirm the previous version is restored exactly.
+- An instruction that would weaken isolation or raise a spend ceiling → refused, approval raised, nothing applied.
+- A garbled or ambiguous instruction → one clarifying question, no partial application. **A half-applied config change is worse than none.**
+
+**Debug** If a change applies but does not show in history, the write is bypassing the versioning path. Every config write goes through one function; find the one that does not.
+
+**Done when:** a sentence changes a different project's behaviour, is auditable a week later, and can be rolled back.
+
+## S24 — The engineering evaluation suite
+*Size: 3–4 days.*
+
+Transcript msg 09: Jarvis runs its own quality testing and picks its primary and
+backup models from the results. It does not take a vendor's word, and neither do
+we.
+
+**Build** A private benchmark built from issues already solved in these repos —
+real bugs with known-good fixes. Every harness/model pair is scored on:
+reproduction, root-cause accuracy, correctness, hidden tests, regression safety,
+test quality, tool reliability, scope control, code quality, PR quality,
+unnecessary escalation, and quota consumed.
+
+Results land in `benchmarks`. A model **earns** the `senior_engineer` role by
+winning the suite, and `route_order` follows from the scores rather than from
+someone's opinion.
+
+**Test**
+- Run two harnesses through it and confirm the winner is what routing actually uses afterwards.
+- Feed it a deliberately bad model and confirm it scores badly rather than passing on fluency — a suite that everything passes measures nothing.
+- Re-run the same pair twice: scores should be close. Wild variance means the suite is measuring noise and needs more cases before anyone trusts it.
+
+**Debug** If every candidate scores the same, the cases are too easy. Add cases from bugs that actually took real time to solve.
+
+**Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
+
+## S25 — Memory and knowledge
 *Size: 3–4 days.*
 
 **Build** Everything Enrique dumps — documents, pasted logs, transcripts, forwarded threads — chunked, indexed, searchable forever. Scoped per project with a global tier for Supervisor memory. Answers cite their source.
@@ -679,7 +734,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Done when:** N2 passes across a restart with correct citations and no cross-project leakage.
 
-## S24 — Composio and MCP
+## S26 — Composio and MCP
 *Size: 4–5 days. After S5, so there is something to use them.*
 
 **Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
@@ -688,7 +743,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
-## S25 — Browser and scraping
+## S27 — Browser and scraping
 *Size: 4–5 days. Named in the very first planning message and still at zero.*
 
 **Build** Project-scoped browser profiles (never shared), headless control, and a scraping toolkit good enough for real sites — retries, rate limiting, honest user agents, structured extraction. Write the ADR first; this has never been designed.
@@ -701,7 +756,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 # STAGE 6 — MAKE IT SURVIVE
 
-## S26 — Notification policy
+## S28 — Notification policy
 *Size: 2 days.*
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
@@ -710,7 +765,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Done when:** a day of normal use produces only messages worth reading.
 
-## S27 — Schedules, maintenance, improvement
+## S29 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
@@ -719,7 +774,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
-## S28 — Backup, restore, export
+## S30 — Backup, restore, export
 *Size: 2–3 days.*
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
@@ -730,7 +785,7 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 **Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
 
-## S29 — Full acceptance
+## S31 — Full acceptance
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
@@ -743,10 +798,10 @@ Decide and record the retrieval architecture in an ADR: embeddings local or host
 
 # STAGE 7 — THE LAST THING
 
-## S30 — WhatsApp
+## S32 — WhatsApp
 *Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
 
-When S29 is done, this is the only work left between here and a finished Jarvis.
+When S31 is done, this is the only work left between here and a finished Jarvis.
 
 **Build now, before the number exists**
 - The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
@@ -962,7 +1017,7 @@ on Linux — which is why v1's never was.
 stack. Manual is checklisted per stage and its evidence goes in the commit.
 
 ## Gate 1 — It acts *(blocks everything else)*
-- **N1** the fix, end to end — console first, then voice note at S30
+- **N1** the fix, end to end — console first, then voice note at S32
 - **S7** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
@@ -1113,11 +1168,11 @@ shared working tree.
 | **2 — It is trustworthy** | S8–S11 | Review, grants, recovery, proven isolation | 7–8 days |
 | **3 — It is visible** | S12–S15 | A console that shows work and repairs credentials | 8–10 days |
 | **4 — The phone is reliable** | S16–S20 | A call you can depend on, and Jarvis calling you | 10–12 days |
-| **5 — It reaches** | S21–S25 | Onboarding, memory, Composio, MCP, scraping | 14–18 days |
-| **6 — It survives** | S26–S29 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S30 | The last thing. Voice note in, PR back. | 2–3 days |
+| **5 — It reaches** | S21–S27 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
+| **6 — It survives** | S28–S31 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S32 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 60–75 working days** for one agent working sequentially, with
+**Total: roughly 65–80 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
@@ -1131,11 +1186,11 @@ system is useful.
 - **S2 and S3 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
 - **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
 - **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
-- **S30 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+- **S32 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
 
 ## What "finished" means
 
-When S30 is green, this is true:
+When S32 is green, this is true:
 
 > Enrique sends a voice note. Minutes later he gets one short message with a link
 > to a pull request that fixes what he described. He can call Jarvis and talk to
@@ -1188,6 +1243,12 @@ Every requirement from the planning transcript, and where it lives.
 | Phone calls, both directions (06, 07, 15) | S16–S20 |
 | Jarvis can call me (06, 15) | S19 |
 | Five-second turn-taking on calls (01) | S17 |
-| WhatsApp voice notes (01, 15) | S30 |
-| Nothing I say is ever lost (15) | S2, S10, S30, Gate 2 |
+| WhatsApp voice notes (01, 15) | S32 |
+| Nothing I say is ever lost (15) | S2, S10, S32, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
+| Jarvis tests models and picks its own primaries (09) | S24 |
+| Change any project's setup from any channel (17) | S23 |
+| Weekly scan of the AI world, one-tap approve (17) | S29 |
+| Maintenance project that heals the system (17) | S29 |
+| Dump anything, ask about it later (01) | S25, N2 |
+| Never mix connections between projects (01, 20) | S4, S11, S26 |
