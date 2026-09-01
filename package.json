@@ -10,7 +10,11 @@
     "worker": "node dist/worker.js",
     "runner": "node dist/runner.js",
     "dev": "node --import tsx src/index.ts",
-    "migrate": "node dist/migrate.js"
+    "migrate": "node dist/migrate.js",
+    "dev:up": "docker compose -f deploy/compose.dev.yaml up -d --build",
+    "dev:down": "docker compose -f deploy/compose.dev.yaml down -v",
+    "dev:seed": "docker compose -f deploy/compose.dev.yaml run --rm seed",
+    "dev:test": "bash scripts/s1-harness-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

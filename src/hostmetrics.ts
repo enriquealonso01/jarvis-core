@@ -1,5 +1,6 @@
 import fsp from "node:fs/promises";
 import os from "node:os";
+import { JARVIS_ROOT } from "./paths.js";
 
 /**
  * Plan §39 asks the Command Center to show CPU/RAM/disk/I/O.
@@ -65,7 +66,7 @@ export async function hostMetrics(): Promise<HostMetrics> {
 
   let disk: HostMetrics["disk"] = null;
   try {
-    const st = await fsp.statfs("/var/lib/jarvis");
+    const st = await fsp.statfs(JARVIS_ROOT);
     const bsize = Number(st.bsize);
     const totalBytes = Number(st.blocks) * bsize;
     const freeBytes = Number(st.bfree) * bsize; // includes root-reserved blocks

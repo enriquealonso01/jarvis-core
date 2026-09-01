@@ -1,0 +1,8 @@
+# Anything that is executed by Linux keeps LF, whatever the checkout platform
+# does. A CRLF in a Dockerfile RUN line or a shell shebang fails in ways that
+# look like the script itself is wrong.
+*.sh text eol=lf
+*.mjs text eol=lf
+Dockerfile* text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

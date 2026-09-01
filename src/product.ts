@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
+import { ARTIFACTS_DIR, BROWSERS_DIR, WORKTREES_DIR } from "./paths.js";
 import { requireUser } from "./auth.js";
 import { ingestUserMessage } from "./inbox.js";
 import { checksum } from "./supervisor.js";
@@ -701,14 +702,14 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     );
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
-    const root = "/var/lib/jarvis/worktrees";
+    const root = WORKTREES_DIR;
     const worktree = path.resolve(root, b.slug);
     if (!worktree.startsWith(root + path.sep)) {
       return reply.code(400).send({ error: "invalid slug" });
     }
     await fs.mkdir(worktree, { recursive: true, mode: 0o750 });
-    await fs.mkdir(`/var/lib/jarvis/artifacts/${r.rows[0].id}`, { recursive: true, mode: 0o750 });
-    await fs.mkdir(`/var/lib/jarvis/browsers/${r.rows[0].id}`, { recursive: true, mode: 0o750 });
+    await fs.mkdir(path.join(ARTIFACTS_DIR, r.rows[0].id), { recursive: true, mode: 0o750 });
+    await fs.mkdir(path.join(BROWSERS_DIR, r.rows[0].id), { recursive: true, mode: 0o750 });
     return { project: r.rows[0] };
   });
 
@@ -1158,7 +1159,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     const path = await import("node:path");
 
     // artifacts.path is data, so it is contained before it reaches the disk.
-    const root = "/var/lib/jarvis/artifacts";
+    const root = ARTIFACTS_DIR;
     const full = path.resolve(root, artifact.path);
     if (!full.startsWith(root + path.sep)) {
       await pool.query(

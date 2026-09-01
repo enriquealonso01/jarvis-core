@@ -92,8 +92,8 @@ two-tier agent keeping the line responsive. Two hard bugs are already fixed and
 documented in `docs/DEBUG_NOTES.md`. Stage 4 makes this *dependable* and gives it
 the ability to act and to dial out — it does not rebuild it.
 
-**Built but never executed**
-- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns `claude -p`, streams a transcript, heartbeats, honours cancel/silence/timeout. Typechecks. **Has never been run.** S1 and S4 exist to change that, and expect the `stream-json` parsing and the worktree setup to need real fixes on first contact.
+**Built and executed against a fake harness (S1 done, 2026-09-01)**
+- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns the harness, streams a transcript, heartbeats, honours cancel/silence/timeout. Now runs end to end in `deploy/compose.dev.yaml` against `scripts/fake-harness.mjs`: all six variants observed (`ok`, `crash`, `slow`, `runaway`, `noop`, `escape`). It has still never met the real `claude` binary — that is S3, and the `stream-json` shapes should be captured raw before the parser is trusted.
 
 **Exists as an endpoint, unreachable by Jarvis**
 - `src/github.ts` — create repo, provision deploy key, open PR, merge PR. All four work, all four are behind `requireUser`, so only a human clicking a button can call them. They are not Supervisor tools and nothing pushes a branch for them to open a PR against. S5 and S7 wire them up.

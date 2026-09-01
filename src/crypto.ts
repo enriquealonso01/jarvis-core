@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import nodePath from "node:path";
+import { KEYS_DIR } from "./paths.js";
 
 const GCM_NONCE_LEN = 12;
 const GCM_TAG_LEN = 16;
 
-export function loadMasterKey(path = process.env.MASTER_KEY_PATH ?? "/var/lib/jarvis/keys/master.key"): Buffer {
+export function loadMasterKey(path = process.env.MASTER_KEY_PATH ?? nodePath.join(KEYS_DIR, "master.key")): Buffer {
   const key = fs.readFileSync(path);
   if (key.length !== 32) {
     throw new Error("master.key must be 32 bytes");

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type pg from "pg";
+import { ARTIFACTS_DIR, BROWSERS_DIR, WORKTREES_DIR } from "./paths.js";
 import { readJsonCredential } from "./credentials.js";
 import { classifyRouteFailure, markRouteHealth, routesForRole, setProbeTools, type ModelRole } from "./catalog.js";
 import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
@@ -395,14 +396,14 @@ async function runTool(
       const path = await import("node:path");
       // validSlug already rejects traversal; resolve and re-check so the mkdir
       // cannot escape its root even if the rule above is ever loosened.
-      const root = "/var/lib/jarvis/worktrees";
+      const root = WORKTREES_DIR;
       const worktree = path.resolve(root, a.slug);
       if (!worktree.startsWith(root + path.sep)) {
         return "refusing to create a worktree outside its root";
       }
       await fs.mkdir(worktree, { recursive: true, mode: 0o750 });
-      await fs.mkdir(`/var/lib/jarvis/artifacts/${inserted.rows[0].id}`, { recursive: true, mode: 0o750 });
-      await fs.mkdir(`/var/lib/jarvis/browsers/${inserted.rows[0].id}`, { recursive: true, mode: 0o750 });
+      await fs.mkdir(path.join(ARTIFACTS_DIR, inserted.rows[0].id), { recursive: true, mode: 0o750 });
+      await fs.mkdir(path.join(BROWSERS_DIR, inserted.rows[0].id), { recursive: true, mode: 0o750 });
     } catch {
       /* ignore if permission or dir exists */
     }
