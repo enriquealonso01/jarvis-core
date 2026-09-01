@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "b02f8f8fb679254e277ce12c7bba4270386edad4",
+  "plan_sha": "4cfd4d4a21a958ce6f2498d3b815671f56d2cf2b",
   "total_steps": 37,
-  "updated_at": "2026-09-01T22:41:08.858Z",
-  "current_step": "S5",
+  "updated_at": "2026-09-01T23:04:14.554Z",
+  "current_step": "S6",
   "steps": [
     {
       "id": "S1",
@@ -49,7 +49,8 @@
       "id": "S6",
       "title": "The engineering workflow",
       "stage": 1,
-      "state": "not_started"
+      "state": "partial",
+      "evidence": "the loop, phases, resume and all four honesty verdicts observed (29/29) against the fake harness; the real-bug run is next"
     },
     {
       "id": "S7",

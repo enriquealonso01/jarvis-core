@@ -212,6 +212,11 @@ async function main(): Promise<void> {
   );
 
   console.log("\n=== the checkout really lands on disk ===");
+  // Own the state: a checkout left by an earlier run makes ensureProjectCheckout
+  // take the fetch path, and "the clone is audited" then asserts a clone that
+  // legitimately did not happen.
+  await fs.rm(repoDir(aSlug), { recursive: true, force: true });
+  await pool.query(`DELETE FROM audit_events WHERE action='project.checkout.clone' AND project_id=$1`, [aId]);
   // JARVIS_GIT_URL_TEMPLATE points the checkout at the local SSH host.
   const aOut = await ensureProjectCheckout(pool, aId);
   console.log(`  ${JSON.stringify(aOut)}`);

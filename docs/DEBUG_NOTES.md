@@ -135,6 +135,34 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### A worktree's `.git` is a file, so the exclude was never written
+**Symptom:** a run that deliberately changed nothing still recorded
+`changed: true`, and the "declined, made no commit" assertion failed.
+**Cause:** the runner appends `.jarvis/` to `<worktree>/.git/info/exclude` so its
+own scratch never enters the project's diff. In a **worktree**, `.git` is a FILE
+pointing at the real gitdir, not a directory — so the `mkdir` failed with
+ENOTDIR, the failure was swallowed by a `.catch()`, and the exclude silently did
+not exist. Jarvis's bookkeeping then showed as untracked, and `git add -A` would
+have committed it into Enrique's repository.
+**Fix:** ask git where its directory is (`rev-parse --absolute-git-dir`) instead
+of assuming, and additionally exclude `.jarvis` by pathspec when computing the
+diff, so one mechanism failing cannot make an untouched repo look changed.
+**Lesson:** `.git` is only a directory in the main clone. Any path built as
+`<dir>/.git/...` is wrong in a worktree, a submodule, or a separate-gitdir
+checkout — and a swallowed `.catch()` turns that into a silent no-op rather than
+an error.
+
+### Phases were recorded only on the success path, so crashes lost them
+**Symptom:** the S6 resume test found zero phases after a run that had announced
+four of them, so there was nothing to resume from.
+**Cause:** the final drain of `.jarvis/phases.jsonl` sat after the failure
+branches. A run that exited non-zero returned before reaching it, and anything
+announced between the last heartbeat and the exit was dropped — which is exactly
+the run whose phases matter most.
+**Fix:** drain immediately after the harness returns, before any branching.
+**Lesson:** cleanup that only runs on the happy path is not cleanup. Put it
+where the control flow cannot route around it.
+
 ### A two-phase key test regenerated the keys between the phases
 **Symptom:** the S5 isolation test's cross-project assertion passed, but so did
 its control — alpha could not reach its OWN repo either. A test where everything
