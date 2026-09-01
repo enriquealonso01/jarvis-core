@@ -1935,9 +1935,51 @@ does not enable billing to rescue itself.
 # PART VII — OPERATIONS
 
 ## VII.1 Health and observability
+
 Per-service health with incident history — a flapping service must not look
-identical to one that never broke. Host CPU, RAM, disk, I/O. Backup age.
-Request IDs end to end. Unknown is `unknown`.
+identical to one that never broke. Request IDs end to end. Unknown renders
+`unknown`, never a plausible number.
+
+**System Health shows the current condition; the activity feed shows history.**
+Keeping those separate is what makes "is it healthy *now*" answerable at a
+glance.
+
+### What is monitored
+
+| Group | Services |
+|---|---|
+| Core | OpenClaw gateway, Jarvis API, PostgreSQL, queue, scheduler, watchdog, backup |
+| Execution | Supervisor, heavy runner, browser workers, coding harnesses, worktree manager, transcription |
+| Communication | WhatsApp, Telnyx, ElevenLabs, the console |
+
+**Per model provider**, all six: authentication state, availability, current
+errors, rate-limit and quota state, **which roles depend on it**, and whether a
+fallback is currently active. "Which roles depend on it" is the field that turns
+a provider outage from a curiosity into a prediction of what is about to break.
+
+**Infrastructure**: CPU, memory, disk, **disk-growth forecast**, I/O pressure,
+network, containers and processes. A forecast rather than a level, because
+S18's `resource_metrics` exists precisely so Maintenance can act before a
+threshold rather than after it.
+
+**Throughput**, which says whether the system is healthy in the sense that
+matters: queue wait time, task throughput, worker restarts, provider failures.
+A box with perfect CPU and a queue nothing has left in an hour is not healthy.
+
+**Data protection**: latest successful backup, off-server backup status, last
+restoration test, encryption and key health, log-redaction health. The last two
+are the ones nobody checks until they matter.
+
+**Security**: failed login attempts, project-isolation test results, unexpected
+secret access, unexpected outbound network activity, pending security updates.
+
+### Incident timeline
+
+Every incident records: start and end, severity, affected projects and services,
+recovery actions taken, whether Enrique was involved, a root-cause summary, and
+the related issue. An incident with no recovery actions recorded is
+indistinguishable afterwards from one that resolved itself, and those need very
+different responses.
 
 ## VII.2 Self-healing (Maintenance project, seeded at boot)
 Watches resources, database, queue, workers, browsers, harnesses, schedules,
