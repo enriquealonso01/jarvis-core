@@ -853,6 +853,49 @@ async function chatCompletionWithFailover(
   throw new Error(`Supervisor failover exhausted: ${errors.join("; ")}`);
 }
 
+/**
+ * One tool-less completion on the fastest healthy route.
+ *
+ * This is tier 1 of the call agent: no tools, no history, no memory injection,
+ * reasoning off. Measured on Fireworks that configuration answers in 341-622ms
+ * every time, where the same model with five tool schemas occasionally spent
+ * 1.7s deciding which one to reach for. Nothing here may be added to without
+ * re-measuring — the consistency IS the feature.
+ */
+export async function quickCompletion(
+  pool: pg.Pool,
+  system: string,
+  user: string,
+): Promise<string | null> {
+  const candidates = await getProviderCandidates(pool, "supervisor");
+  for (const c of candidates) {
+    try {
+      const res = await fetch(c.url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: c.model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          temperature: 0.3,
+          max_tokens: 200,
+          ...(c.provider === "fireworks" ? { reasoning_effort: "none" } : {}),
+        }),
+      });
+      if (!res.ok) continue;
+      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = json.choices?.[0]?.message?.content;
+      if (text) return text;
+    } catch {
+      /* try the next route */
+    }
+  }
+  return null;
+}
+
+
 export async function runSupervisorTurn(
   pool: pg.Pool,
   args: {

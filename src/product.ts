@@ -20,7 +20,8 @@ import { inQuietHours, isAlwaysConfirm, validEnum, validSlug } from "./policy.js
 import { transitionTask } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { cronNextRun } from "./cron.js";
-import { audioDir, handleCallEvent, type TelnyxEvent } from "./callcontrol.js";
+import { audioDir, handleCallEvent, renderSpeech, type TelnyxEvent } from "./callcontrol.js";
+import { delegateToDesk, triage } from "./callagent.js";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
@@ -1580,6 +1581,72 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     } catch {
       return reply.code(404).send({ error: "not found" });
     }
+  });
+
+  /**
+   * Tier 1 of the call agent: what to say back, immediately.
+   *
+   * Returns in well under a second because it is tool-less by design. When it
+   * delegates, the caller hears the acknowledgement while the desk works — the
+   * client then calls /api/call/desk for the real answer. Splitting the two is
+   * what lets a browser or a phone line fill the gap with sound instead of
+   * silence.
+   */
+  app.post("/api/call/turn", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
+    const said = String((req.body as { text?: string })?.text ?? "").trim();
+    if (!said) return reply.code(400).send({ error: "text required" });
+
+    const conv = await pool.query<{ id: string }>(
+      `SELECT id FROM conversations WHERE project_id IS NULL ORDER BY created_at LIMIT 1`,
+    );
+    const conversationId = conv.rows[0]?.id ?? null;
+
+    // Persist-first: what was said is recorded before any model sees it.
+    const inbox = await pool.query<{ id: string }>(
+      `INSERT INTO inbox_events
+         (channel, sender, raw_text, checksum, capture_state, processing_state, conversation_id)
+       VALUES ('voice', 'enrique', $1, $2, 'persisted', 'pending', $3)
+       RETURNING id`,
+      [said.slice(0, 8000), checksum(said), conversationId],
+    );
+
+    const t0 = Date.now();
+    const verdict = await triage(pool, said);
+    const tTriage = Date.now();
+    const audio = await renderSpeech(pool, verdict.say).catch(() => null);
+    return {
+      mode: verdict.mode,
+      say: verdict.say,
+      audio_url: audio,
+      // Split so a slow turn can be attributed rather than guessed at: a fresh
+      // phrase pays ElevenLabs, a repeated one is served from cache.
+      timing: { triage_ms: tTriage - t0, tts_ms: Date.now() - tTriage },
+      inbox_id: inbox.rows[0].id,
+      conversation_id: conversationId,
+    };
+  });
+
+  /** Tier 2: the full Supervisor, with every tool. No latency budget. */
+  app.post("/api/call/desk", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
+    const b = (req.body ?? {}) as { text?: string; inbox_id?: string; conversation_id?: string };
+    const request = String(b.text ?? "").trim();
+    if (!request || !b.inbox_id || !b.conversation_id) {
+      return reply.code(400).send({ error: "text, inbox_id and conversation_id required" });
+    }
+    const answer = await delegateToDesk(pool, {
+      conversationId: b.conversation_id,
+      inboxId: b.inbox_id,
+      request,
+    }).catch(() => null);
+    const spoken = answer ?? "The desk could not reach a model just then, sir. Your request is saved.";
+    const audio = await renderSpeech(pool, spoken).catch(() => null);
+    return { say: spoken, audio_url: audio, ok: Boolean(answer) };
   });
 
   app.post("/webhooks/telnyx", async (req, reply) => {

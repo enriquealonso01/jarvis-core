@@ -129,7 +129,11 @@ async function upsertModel(
        (provider, model_id, role_assignments, health, approval_state,
         route_order, auth_profile_id, endpoint_url, last_checked_at, last_error,
         open_weights, license, input_cost_per_mtok, output_cost_per_mtok)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), $9, $10, $11, $12, $13)
+     -- coalesce on insert: open_weights is NOT NULL DEFAULT false, and passing an
+     -- explicit null overrides the default rather than falling back to it, so
+     -- every candidate that did not declare economics failed the whole upsert —
+     -- and with it the entire catalog verification, silently.
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), $9, coalesce($10, false), $11, $12, $13)
      ON CONFLICT (provider, model_id) DO UPDATE SET
        role_assignments = EXCLUDED.role_assignments,
        health = EXCLUDED.health,
@@ -141,7 +145,7 @@ async function upsertModel(
        last_error = EXCLUDED.last_error,
        -- coalesce: a candidate that omits economics must not blank what is
        -- already recorded for that row.
-       open_weights = coalesce(EXCLUDED.open_weights, model_registry.open_weights),
+       open_weights = coalesce(EXCLUDED.open_weights, model_registry.open_weights, false),
        license = coalesce(EXCLUDED.license, model_registry.license),
        input_cost_per_mtok = coalesce(EXCLUDED.input_cost_per_mtok, model_registry.input_cost_per_mtok),
        output_cost_per_mtok = coalesce(EXCLUDED.output_cost_per_mtok, model_registry.output_cost_per_mtok)`,
