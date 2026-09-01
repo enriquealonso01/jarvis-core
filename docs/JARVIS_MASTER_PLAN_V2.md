@@ -915,17 +915,20 @@ smuggled inside a feature is how a whole stage becomes unrevertable.
 ## IV.1 Schema
 37 tables, already migrated. The task table already carries `worktree_path`,
 `branch`, `head_sha`, `harness`, `external_session_id`, `auth_profile_id` — the
-data model anticipated the executor even though the code never arrived. New
-columns go in a track's reserved migration range and are announced as a seam
-change.
+data model anticipated the executor even though the code never arrived. New columns get the next migration number and a note in the commit saying what
+depends on them. **Never edit an applied migration** — it has already run on the
+box, and `schema_migrations` will not re-run it, so the file and the live schema
+silently diverge. Always add a new one.
 
 ## IV.2 Task and issue state machines
 As in `docs/STATE_MACHINES.md`. Illegal transitions are a 409 plus an audit row.
 
 ## IV.3 Error taxonomy
 As in `docs/ERROR_TAXONOMY.md`: every failure class maps to severity, whether a
-retry can help, a retry limit, and a notification level. New classes are a seam
-change, not a local invention.
+retry can help, a retry limit, and a notification level. A new class is a deliberate
+addition to the taxonomy, with its severity, retryability, limit and notify level
+chosen on purpose — never a string invented at a call site, which is how a
+failure ends up silent.
 
 ## IV.4 Credential broker
 Check order: connection exists → project allowlist → role allowlist →
@@ -934,8 +937,10 @@ denial is audited. Secrets are decrypted at point of use and never logged.
 
 ## IV.5 Events
 SSE names are a closed set: `health`, `task.updated`, `queue.updated`,
-`issue.updated`, `approval.updated`, `conversation.message`, `heartbeat`. Adding
-one is a seam change.
+`issue.updated`, `approval.updated`, `conversation.message`, `heartbeat`. Adding one
+means updating the union in `sse.ts`, `docs/API_AND_EVENTS.md`, and the console
+together — a new event name that only one of the three knows about is a feature
+that works on your machine and nowhere else.
 
 ## IV.6 Authorization levels
 - **Baseline autonomous**: read, analyse, branch, test, write artifacts, open PRs on non-production personal projects.
