@@ -77,7 +77,12 @@ export function fakeCompletion(messages: Msg[]): {
   const user = [...messages].reverse().find((m) => m.role === "user");
   const text = textOf(user).toLowerCase();
   const turns = isRouter ? script.classifier : script.supervisor;
-  const turn = turns.find((t) => text.includes(t.match.toLowerCase()));
+  // Longest match wins, not first. With `find`, a fixture keyed on "how does our
+  // deploy work" silently swallowed a longer message that merely contained that
+  // phrase, and the test that caught it looked like a routing bug.
+  const turn = turns
+    .filter((t) => text.includes(t.match.toLowerCase()))
+    .sort((x, y) => y.match.length - x.match.length)[0];
 
   if (!turn) {
     // The router must fail closed: no scripted verdict means no verdict, and

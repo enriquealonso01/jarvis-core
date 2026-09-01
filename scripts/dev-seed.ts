@@ -83,6 +83,17 @@ async function main(): Promise<void> {
     RESTART IDENTITY CASCADE
   `);
 
+  // Projects are fixture, not test data - but only the ones this script creates.
+  // A test (or a sabotage) that creates a project left it behind, because the
+  // truncate list above is all work tables, and the next run then had a project
+  // in it that nobody had asked for. "Reset to a known state" has to mean the
+  // projects too, or one test silently changes the world the next one runs in.
+  await pool.query(
+    `DELETE FROM projects
+     WHERE is_system = false AND slug <> ALL($1::text[])`,
+    [[PROJECT_SLUG, "alpha-web", "alpha-mobile"]],
+  );
+
   // The console's own thread: unscoped, so nothing pre-selects a project for the
   // Supervisor. That is the case worth testing.
   const conversation = await pool.query<{ id: string }>(

@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { quickCompletion } from "./supervisor.js";
+import { createTask, resolveProject } from "./work.js";
 
 /**
  * Deciding what Enrique meant (plan S3a, S3b).
@@ -44,6 +45,15 @@ export type RouteDecision = {
   category: Category | "mixed";
   reason: string;
   model: string;
+  /**
+   * Did a router actually answer with something usable?
+   *
+   * "The router said it cannot tell" and "there is no router" both come out as
+   * `ambiguous`, and they must not be treated the same. The first is a decision
+   * and is answered with one short question; the second is degradation, and the
+   * message falls through to the Supervisor exactly as it did before S3.
+   */
+  available: boolean;
 };
 
 /** The marker the fake model keys on, and a reminder that this prompt is not the Supervisor's. */
@@ -119,7 +129,10 @@ function str(value: unknown): string | null {
  * this fails badly in. Anything unrecognised becomes `ambiguous`, which asks
  * rather than acts.
  */
-export function parseDecision(raw: string, fallbackText: string): Omit<RouteDecision, "model"> {
+export function parseDecision(
+  raw: string,
+  fallbackText: string,
+): Omit<RouteDecision, "model"> {
   const parsed = extractJson(raw);
   const list = Array.isArray(parsed)
     ? parsed
@@ -140,6 +153,7 @@ export function parseDecision(raw: string, fallbackText: string): Omit<RouteDeci
       ],
       category: "ambiguous",
       reason: topReason || "unparseable router reply",
+      available: false,
     };
   }
 
@@ -163,7 +177,7 @@ export function parseDecision(raw: string, fallbackText: string): Omit<RouteDeci
 
   const distinct = new Set(segments.map((s) => s.category));
   const category = distinct.size === 1 ? ([...distinct][0] as Category) : "mixed";
-  return { segments, category, reason: topReason };
+  return { segments, category, reason: topReason, available: true };
 }
 
 /**
@@ -188,6 +202,7 @@ export async function classifyInbox(
     category: "ambiguous",
     reason,
     model,
+    available: false,
   });
 
   let decision: RouteDecision;
@@ -227,4 +242,239 @@ export async function classifyInbox(
     .catch(() => undefined);
 
   return decision;
+}
+
+/** What one segment actually became, so the reply can say so and a test can assert it. */
+export type Destination = {
+  category: Category;
+  projectSlug: string | null;
+  conversationId: string | null;
+  taskId: string | null;
+  memoryId: string | null;
+  /** Set when the segment could not be acted on; becomes the one short question. */
+  question: string | null;
+  summary: string;
+};
+
+export type RouteOutcome = {
+  destinations: Destination[];
+  /** Segments that need the Supervisor to answer them rather than file them. */
+  questions: string[];
+  /** True when nothing was actionable and the Supervisor should handle the message as before. */
+  passthrough: boolean;
+};
+
+/**
+ * A thread for this project to hang the work off.
+ *
+ * Reuses the project's existing thread when it has one - a memo about Alpha Web
+ * belongs in the Alpha Web conversation, not in a new thread every time he
+ * mentions it. A thread created here records the inbox event it came from, so
+ * the trail back to the original message survives even though the message
+ * itself never moves.
+ */
+async function threadForProject(
+  pool: pg.Pool,
+  projectId: string,
+  slug: string,
+  inboxId: string,
+): Promise<string> {
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM conversations WHERE project_id = $1 ORDER BY last_activity_at DESC LIMIT 1`,
+    [projectId],
+  );
+  if (existing.rows[0]) return existing.rows[0].id;
+  const created = await pool.query<{ id: string }>(
+    `INSERT INTO conversations (project_id, title, channel, created_from_inbox_id)
+     VALUES ($1, $2, 'web', $3) RETURNING id`,
+    [projectId, slug, inboxId],
+  );
+  return created.rows[0].id;
+}
+
+/**
+ * Execute a route decision (plan S3b).
+ *
+ * The source is never moved and never edited. Every destination points back at
+ * the original inbox event, so a three-way split leaves one message and three
+ * things that know where they came from - "splitting never destroys the
+ * source".
+ *
+ * Nothing here guesses. A work segment naming a project that does not resolve
+ * becomes a question, not a task on the nearest match.
+ */
+export async function applyRoute(
+  pool: pg.Pool,
+  args: { inboxId: string; sourceConversationId: string; decision: RouteDecision },
+): Promise<RouteOutcome> {
+  const { decision } = args;
+
+  // No router, or a reply we could not read: this is degradation, not a
+  // decision. Hand the message to the Supervisor exactly as before S3 rather
+  // than inventing a verdict for it.
+  if (!decision.available) {
+    return { destinations: [], questions: [], passthrough: true };
+  }
+
+  const destinations: Destination[] = [];
+  const questions: string[] = [];
+
+  const unclear = (question: string, summary: string): Destination => ({
+    category: "ambiguous",
+    projectSlug: null,
+    conversationId: null,
+    taskId: null,
+    memoryId: null,
+    question,
+    summary,
+  });
+
+  for (const segment of decision.segments) {
+    if (segment.category === "question") {
+      questions.push(segment.text);
+      destinations.push({
+        category: "question",
+        projectSlug: null,
+        conversationId: args.sourceConversationId,
+        taskId: null,
+        memoryId: null,
+        question: null,
+        summary: "answered here",
+      });
+      continue;
+    }
+
+    if (segment.category === "ambiguous") {
+      destinations.push(
+        unclear(
+          segment.reason || "I could not tell what this was about.",
+          `asked about: ${segment.text.slice(0, 60)}`,
+        ),
+      );
+      continue;
+    }
+
+    // Everything below wants a project when the segment named one. An
+    // unresolvable name is a question, never a best guess.
+    let projectId: string | null = null;
+    let slug: string | null = null;
+    if (segment.project) {
+      const resolved = await resolveProject(pool, segment.project);
+      if ("error" in resolved) {
+        destinations.push(unclear(resolved.error, `could not place: ${segment.text.slice(0, 60)}`));
+        continue;
+      }
+      projectId = resolved.id;
+      slug = resolved.slug;
+    }
+
+    if (segment.category === "capture") {
+      const stored = await pool.query<{ id: string }>(
+        `INSERT INTO memory_items (project_id, kind, body, source_inbox_id)
+         VALUES ($1, 'note', $2, $3) RETURNING id`,
+        [projectId, segment.text, args.inboxId],
+      );
+      destinations.push({
+        category: "capture",
+        projectSlug: slug,
+        conversationId: null,
+        taskId: null,
+        memoryId: stored.rows[0].id,
+        question: null,
+        summary: `remembered: ${segment.text.slice(0, 60)}`,
+      });
+      continue;
+    }
+
+    if (segment.category === "instruction") {
+      // A change to how Jarvis behaves is work on Jarvis, filed against the
+      // Improvement project on the system lane. S24 turns these into real config
+      // versions; until then the record of the request is what matters.
+      const sys = await pool.query<{ id: string }>(
+        `SELECT id FROM projects WHERE slug = 'jarvis-improvement'`,
+      );
+      const target = sys.rows[0]?.id ?? null;
+      const conversationId = target
+        ? await threadForProject(pool, target, "jarvis-improvement", args.inboxId)
+        : args.sourceConversationId;
+      const taskId = await createTask(pool, {
+        projectId: target,
+        conversationId,
+        originInboxId: args.inboxId,
+        title: (segment.title ?? segment.text).slice(0, 200),
+        objective:
+          segment.objective
+          ?? `Standing instruction from Enrique: ${segment.text}. Apply it from now on and record it in configuration.`,
+        lane: "system",
+        priority: "normal",
+        cause: "route:instruction",
+      });
+      destinations.push({
+        category: "instruction",
+        projectSlug: "jarvis-improvement",
+        conversationId,
+        taskId,
+        memoryId: null,
+        question: null,
+        summary: `config task: ${segment.text.slice(0, 60)}`,
+      });
+      continue;
+    }
+
+    // work
+    if (!projectId || !slug) {
+      destinations.push(
+        unclear(`Which project is this for? "${segment.text.slice(0, 80)}"`, "work with no project"),
+      );
+      continue;
+    }
+    const conversationId = await threadForProject(pool, projectId, slug, args.inboxId);
+    const taskId = await createTask(pool, {
+      projectId,
+      conversationId,
+      originInboxId: args.inboxId,
+      title: (segment.title ?? segment.text).slice(0, 200),
+      objective: segment.objective ?? segment.text,
+      lane: "heavy",
+      priority: "normal",
+      cause: "route:work",
+    });
+    destinations.push({
+      category: "work",
+      projectSlug: slug,
+      conversationId,
+      taskId,
+      memoryId: null,
+      question: null,
+      summary: `task in ${slug}: ${(segment.title ?? segment.text).slice(0, 60)}`,
+    });
+  }
+
+  await pool
+    .query(`UPDATE inbox_events SET processing_state = 'routed' WHERE id = $1`, [args.inboxId])
+    .catch(() => undefined);
+
+  return { destinations, questions, passthrough: false };
+}
+
+/**
+ * What to say back.
+ *
+ * One line per destination so he can see the split happened, and at most ONE
+ * question however many segments were unclear - the plan is explicit that
+ * ambiguity produces one short question, not a list of them.
+ */
+export function summariseRoute(outcome: RouteOutcome): string {
+  const acted = outcome.destinations.filter((d) => !d.question && d.category !== "question");
+  const unclear = outcome.destinations.filter((d) => d.question);
+  const blocks: string[] = [];
+  if (acted.length) blocks.push(acted.map((d) => `- ${d.summary}`).join("\n"));
+  if (unclear.length === 1) {
+    blocks.push(unclear[0].question as string);
+  } else if (unclear.length > 1) {
+    blocks.push(
+      `${unclear[0].question as string} (${unclear.length - 1} other part of that message needs placing too.)`,
+    );
+  }
+  return blocks.join("\n\n");
 }

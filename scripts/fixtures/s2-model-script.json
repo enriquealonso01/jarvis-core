@@ -128,6 +128,10 @@
     {
       "match": "what time is it",
       "content": "I do not have a clock, but nothing needed doing there."
+    },
+    {
+      "match": "how does our deploy work",
+      "content": "We deploy by zipping the app folder and pushing it to Elastic Beanstalk."
     }
   ],
   "classifier": [
@@ -251,6 +255,68 @@
             "project": null,
             "text": "invented category",
             "reason": "made up"
+          }
+        ]
+      }
+    },
+    {
+      "match": "two unclear things at once",
+      "json": {
+        "reason": "two segments, neither placeable",
+        "segments": [
+          {
+            "category": "work",
+            "project": null,
+            "text": "the first unclear thing",
+            "title": "Unclear one",
+            "objective": "Not enough to go on.",
+            "reason": "work but he named no project"
+          },
+          {
+            "category": "work",
+            "project": null,
+            "text": "the second unclear thing",
+            "title": "Unclear two",
+            "objective": "Not enough to go on.",
+            "reason": "work but he named no project"
+          }
+        ]
+      }
+    },
+    {
+      "match": "mixed message",
+      "json": {
+        "reason": "one thing to do and one thing to answer",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "alpha web needs the search box fixed",
+            "title": "Fix the search box",
+            "objective": "The search box returns nothing. Find the broken query, fix it, open a PR.",
+            "reason": "explicit work in a named project"
+          },
+          {
+            "category": "question",
+            "project": null,
+            "text": "how does our deploy work",
+            "reason": "he wants an answer"
+          }
+        ]
+      }
+    },
+    {
+      "match": "ship the dashboard in hindenburg",
+      "json": {
+        "reason": "clear work, but the project he named is not one I have",
+        "segments": [
+          {
+            "category": "work",
+            "project": "hindenburg",
+            "text": "ship the dashboard in hindenburg",
+            "title": "Ship the dashboard",
+            "objective": "Build and release the dashboard page.",
+            "reason": "he named Hindenburg as the project"
           }
         ]
       }

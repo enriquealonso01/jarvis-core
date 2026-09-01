@@ -148,6 +148,35 @@ prerequisite. If the application needs a directory, the application should
 create it — otherwise "works on the server" is the only environment there is.
 
 
+### The seed did not reset what a test had created, so tests changed each other
+**Symptom:** after a routing sabotage was reverted and the suites re-run, S2 and
+S3b both failed on project counts, and S3b reported `task in hindenburg` — a
+project no fixture defines.
+**Cause:** `dev-seed.ts` truncated the work tables but never `projects`. A
+sabotage round had created a project as part of proving an assertion could fail;
+it survived every subsequent seed, and from then on the world each test ran in
+was not the world the fixture described.
+**Fix:** the seed deletes every non-system project that is not one of its own
+three fixtures.
+**Lesson:** "reset to a known state" has to include the tables a test can write
+to, not just the ones it is expected to. Anything a test can create, the seed
+must be able to remove — otherwise the first test to leave a trace silently
+becomes part of every later test's setup.
+
+### A fixture keyed on a phrase swallowed every longer message containing it
+**Symptom:** a message asking for work *and* a question routed as a pure
+question, and the work half vanished. It read exactly like a segmentation bug in
+the router.
+**Cause:** the fake model matched fixtures with `Array.find`, so the first
+fixture whose `match` appeared anywhere in the message won. A fixture keyed on
+"how does our deploy work" matched a longer sentence that merely contained it.
+**Fix:** longest match wins, and test sentences avoid containing another
+fixture's key verbatim. The rule helps but does not remove the hazard: a longer
+key can still be a substring of a shorter test message's superset.
+**Lesson:** substring-matched fixtures are order- and length-sensitive in ways
+that look like product bugs. When a routing test fails in a way the code cannot
+explain, check which fixture actually matched before reading the code.
+
 ### TRUNCATE CASCADE quietly deleted every conversation
 **Symptom:** after the S2 seed ran, `POST /api/conversations//messages` — with an
 empty id — 500'd with `invalid input syntax for type uuid: ""`. It read like a
