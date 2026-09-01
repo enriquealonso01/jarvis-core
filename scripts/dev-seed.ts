@@ -126,9 +126,16 @@ async function main(): Promise<void> {
   const work = await seedRepo();
 
   const project = await pool.query<{ id: string }>(
+    // Deliberately NOT github-linked. dev-sandbox has a local origin, not a
+    // GitHub one, and claiming otherwise made every successful run try to open
+    // a pull request against a repository that does not exist — so every heavy
+    // task parked for a missing API credential instead of succeeding. A fixture
+    // that lies about what it is connected to produces failures that look like
+    // product bugs.
     `INSERT INTO projects (slug, name, project_type, confidentiality, github_owner, github_repo, default_branch)
-     VALUES ($1, 'Dev Sandbox', 'personal', 'normal', 'jarvis-dev', $1, 'main')
-     ON CONFLICT (slug) DO UPDATE SET default_branch = 'main', archived_at = NULL
+     VALUES ($1, 'Dev Sandbox', 'personal', 'normal', NULL, NULL, 'main')
+     ON CONFLICT (slug) DO UPDATE SET default_branch = 'main', archived_at = NULL,
+       github_owner = NULL, github_repo = NULL
      RETURNING id`,
     [PROJECT_SLUG],
   );

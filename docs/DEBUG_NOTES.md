@@ -135,6 +135,22 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### A fixture that lied about being GitHub-linked parked every successful run
+**Symptom:** the moment S7 wired pull-request opening into the runner's success
+path, four suites regressed: every heavy task that had been reaching `succeeded`
+now sat at `waiting_for_provider`, blaming a missing GitHub API credential.
+**Cause:** not the new code. `dev-seed` created dev-sandbox with
+`github_owner='jarvis-dev'`, a made-up value, so the project looked GitHub-linked
+while its real origin was a local bare repo. Every completed run therefore tried
+to open a pull request against a repository that does not exist, and correctly
+parked for the credential it would have needed.
+**Fix:** the fixture stops pretending — dev-sandbox has no `github_owner` or
+`github_repo`, because it has a local origin. The park path is still exercised,
+by iso-alpha, which is genuinely linked to the local SSH host.
+**Lesson:** placeholder values in a fixture are claims. A field filled in "so it
+looks realistic" is indistinguishable from a real one to the code reading it, and
+the failure surfaces far from the fixture, looking like a product bug.
+
 ### `info/exclude` lives in the COMMON dir, and the first real run proved it
 **Symptom:** the first successful real-bug run committed `.jarvis/outcome.json`
 and `.jarvis/phases.jsonl` into the project's history — Jarvis's own bookkeeping,

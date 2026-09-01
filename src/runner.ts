@@ -958,6 +958,25 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       `UPDATE task_attempts SET ended_at = now(), summary = $3 WHERE task_id = $1 AND n = $2`,
       [taskId, n, successSummary],
     );
+    // S7: a finished run becomes a pull request. Never fatal — a task that did
+    // the work and could not open the PR is a completed piece of work with a
+    // reason attached, not a crash, and the reason is already recorded by
+    // openPullRequestForTask.
+    if (changed && workspace.isRepo) {
+      const { openPullRequestForTask } = await import("./pullrequest.js");
+      const pr = await openPullRequestForTask(pool, taskId).catch((err: unknown) => ({
+        ok: false as const,
+        reason: `pull request failed: ${err instanceof Error ? err.message : String(err)}`,
+        parked: false,
+      }));
+      if (pr.ok) {
+        console.log(`task ${taskId} -> ${pr.url}${pr.created ? "" : " (already open)"}`);
+      } else if (pr.parked) {
+        // park() already moved the task and raised the issue.
+        return;
+      }
+    }
+
     await transitionTask(
       pool,
       taskId,
