@@ -5,6 +5,8 @@ import { readJsonCredential } from "./credentials.js";
 import { classifyRouteFailure, markRouteHealth, routesForRole, setProbeTools, type ModelRole } from "./catalog.js";
 import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
 import { metadataOnlyPayload } from "./redaction.js";
+import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
+import { FAKE_MODEL, fakeCompletion } from "./fakemodel.js";
 import {
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
@@ -15,6 +17,49 @@ import {
 } from "./policy.js";
 
 const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "task_create",
+      description:
+        "Create a unit of work. Call this whenever Enrique asks for something to be DONE - "
+        + "code changed, a bug fixed, a pull request opened, a site deployed, data gathered, "
+        + "a page built. Do NOT call it for something to be REMEMBERED (use memory_upsert), "
+        + "for a question you can answer in this reply, or for a preference or a fact. "
+        + "Creating work nobody asked for is as wrong as failing to create work he did ask for. "
+        + "Heavy engineering work needs a project: if you cannot tell which one he means, ask "
+        + "him in one short question instead of guessing.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: {
+            type: "string",
+            description: "Project slug or name. Required for lane 'heavy'.",
+          },
+          title: {
+            type: "string",
+            description: "One short imperative line, as it will read in the Work view.",
+          },
+          objective: {
+            type: "string",
+            description:
+              "What 'done' means, written for whoever picks this up with none of this "
+              + "conversation in front of them. Not a copy of his message - say what has to "
+              + "change and how it will be recognised as finished.",
+          },
+          lane: {
+            type: "string",
+            description: "heavy for engineering work (the default), system for maintenance.",
+          },
+          priority: {
+            type: "string",
+            description: "critical, high, normal (the default), low or background.",
+          },
+        },
+        required: ["title", "objective"],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -242,6 +287,7 @@ async function getProfileKey(pool: pg.Pool, profileId: string): Promise<string |
  * failed on every real turn while still passing a simpler catalog probe.
  */
 const WIRE_TO_CANONICAL: Record<string, string> = {
+  task_create: "task.create",
   memory_upsert: "memory.upsert",
   memory_search: "memory.search",
   project_list: "project.list",
@@ -261,9 +307,77 @@ async function runTool(
   inboxId: string,
   rawName: string,
   args: Record<string, string>,
+  userText: string,
 ): Promise<string> {
   // Accept either spelling: a model that echoes the documented name still works.
   const name = WIRE_TO_CANONICAL[rawName] ?? rawName;
+  if (name === "task.create") {
+    const title = (args.title ?? "").trim();
+    const objective = (args.objective ?? "").trim();
+    if (!title) return "ERROR: task_create needs a title. No task was created.";
+    if (!objective) {
+      return "ERROR: task_create needs an objective saying what done looks like. No task was created.";
+    }
+    // An objective that is the message verbatim carries no judgement forward: the
+    // heavy lane gets the same sentence the Supervisor already had, minus the
+    // conversation it came from. Refuse it rather than file work nobody can pick
+    // up cold.
+    if (normalise(objective) === normalise(userText) && normalise(userText).length > 0) {
+      return "ERROR: the objective is a copy of his message. Say what has to change and how "
+        + "it will be recognised as finished. No task was created.";
+    }
+
+    const lane = (args.lane ?? "heavy").toLowerCase() || "heavy";
+    const priority = (args.priority ?? "normal").toLowerCase() || "normal";
+
+    // The conversation's own project wins over anything the model names: it is a
+    // fact about where this thread lives, not a guess about what was meant.
+    const conv = await pool.query<{ project_id: string | null }>(
+      `SELECT project_id FROM conversations WHERE id = $1`,
+      [conversationId],
+    );
+    let projectId = conv.rows[0]?.project_id ?? null;
+    if (!projectId && (args.project ?? "").trim()) {
+      const resolved = await resolveProject(pool, args.project as string);
+      if ("error" in resolved) return `ERROR: ${resolved.error}`;
+      projectId = resolved.id;
+    }
+    if (lane === "heavy" && !projectId) {
+      const all = await pool.query<{ slug: string }>(
+        `SELECT slug FROM projects WHERE archived_at IS NULL AND is_system = false ORDER BY slug LIMIT 10`,
+      );
+      return "ERROR: heavy work needs a project. Ask him which one in one short question - "
+        + `existing projects: ${all.rows.map((p) => p.slug).join(", ") || "(none yet)"}. `
+        + "No task was created.";
+    }
+
+    // Provenance is taken from the turn, never from the model: it is the only
+    // link back from a task to the sentence that caused it, and a model that
+    // invents an id breaks the trail silently.
+    const taskId = await createTask(pool, {
+      projectId,
+      conversationId,
+      originInboxId: inboxId || null,
+      title,
+      objective,
+      lane,
+      priority,
+      cause: "task_create",
+    });
+    const slug = await projectSlug(pool, projectId);
+    const stored = await pool.query<{ lane: string; priority: string }>(
+      `SELECT lane, priority FROM tasks WHERE id = $1`,
+      [taskId],
+    );
+    return JSON.stringify({
+      task_id: taskId,
+      project: slug,
+      lane: stored.rows[0]?.lane,
+      priority: stored.rows[0]?.priority,
+      state: "queued",
+      title,
+    });
+  }
   if (name === "memory.upsert") {
     // An empty body would persist a row that says nothing and still report
     // success, so it is refused rather than written.
@@ -691,6 +805,9 @@ async function chatCompletionWithFailover(
   messages: ChatMsg[],
   ctx: { conversationId: string; inboxId: string; role?: ModelRole; brief?: boolean },
 ): Promise<ChatMsg> {
+  // Test-only, and gated on an env var no deployment sets. See src/fakemodel.ts
+  // for why it exists and what it does not prove.
+  if (FAKE_MODEL) return fakeCompletion(messages) as ChatMsg;
   const candidates = await getProviderCandidates(pool, ctx.role ?? "supervisor");
   if (!candidates.length) {
     throw new Error(
@@ -867,7 +984,17 @@ export async function quickCompletion(
   pool: pg.Pool,
   system: string,
   user: string,
+  opts: { maxTokens?: number } = {},
 ): Promise<string | null> {
+  // The router is a quickCompletion too, so the fake model has to reach here or
+  // routing cannot be tested offline at all.
+  if (FAKE_MODEL) {
+    const reply = fakeCompletion([
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
+    return reply.content ?? null;
+  }
   const candidates = await getProviderCandidates(pool, "supervisor");
   for (const c of candidates) {
     try {
@@ -881,7 +1008,7 @@ export async function quickCompletion(
             { role: "user", content: user },
           ],
           temperature: 0.3,
-          max_tokens: 200,
+          max_tokens: opts.maxTokens ?? 200,
           ...(c.provider === "fireworks" ? { reasoning_effort: "none" } : {}),
         }),
       });
@@ -986,12 +1113,18 @@ How this system actually works — answer from these facts, never from generic i
   Composio. The browser never receives raw secrets. Call connection.list before advising on any
   connection so you describe what is actually stored, not what you assume.
 - Work runs as tasks in lanes (supervisor, heavy, system) and is visible in the Control Center under Work and Queue.
+  You create that work with task_create. Anything he asks to be DONE - a bug fixed, a PR opened, a page built,
+  data gathered, something deployed - is a task, and heavy engineering work goes in lane 'heavy' against a
+  project. Anything he asks to be REMEMBERED - a preference, a fact, a decision - is memory_upsert and is NOT
+  a task. If a request could belong to two projects, ask which one in a single short question and create
+  nothing until he answers.
 - Anything you cannot do yourself becomes an Issue with issue.create, so it shows on the Issues page.
 - Conversations are threads. Use conversation.create to open a new thread, optionally inside a project.
 
 Rules:
-- Use tools for memory, threads and project creation. Do not claim you created a project or thread
-  unless the tool call actually returned success.
+- Use tools for work, memory, threads and project creation. Do not claim you created a task, project
+  or thread unless the tool call actually returned success. A tool result beginning ERROR means nothing
+  was created - say what you need from him, do not report it as done.
 - Seeing an earlier identical request in this thread does not satisfy a new one. If he asks again,
   call the tool again — memory_upsert is idempotent. Never answer "Stored" from history alone.
 - A professional project must answer confidentiality, production_status, customer_facing and
@@ -1111,7 +1244,14 @@ ${mem.rows.map((m) => `- [${m.kind}] ${m.body}`).join("\n") || "(none)"}`;
       } catch {
         parsed = {};
       }
-      const result = await runTool(pool, args.conversationId, args.inboxId, call.function.name, parsed);
+      const result = await runTool(
+        pool,
+        args.conversationId,
+        args.inboxId,
+        call.function.name,
+        parsed,
+        args.userText,
+      );
       toolsRan += 1;
       // Every Supervisor tool call is recorded. Without this there is no way to
       // tell a turn that used a tool from one that only claimed to — which is

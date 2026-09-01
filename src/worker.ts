@@ -51,18 +51,32 @@ async function fireDueSchedules(pool: ReturnType<typeof createPool>) {
   }
 }
 
+/**
+ * How long a missed heartbeat is tolerated before the task is considered lost.
+ *
+ * Env-overridable for the same reason the runner's timers are: at its real
+ * value this is a ninety-second wait per assertion, so the recovery path — the
+ * one thing standing between a killed runner and lost work — was never actually
+ * exercised. The default is the production value.
+ */
+const STALL_SECONDS = (() => {
+  const raw = Number(process.env.JARVIS_STALL_SECONDS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 90;
+})();
+
 async function watchdog(pool: ReturnType<typeof createPool>) {
   const stale = await pool.query<{ id: string; lane: string }>(
     `SELECT id, lane FROM tasks
      WHERE state IN ('running','preparing')
        AND heartbeat_at IS NOT NULL
-       AND heartbeat_at < now() - interval '90 seconds'`,
+       AND heartbeat_at < now() - make_interval(secs => $1)`,
+    [STALL_SECONDS],
   );
   for (const t of stale.rows) {
     const lane = t.lane;
     // STATE_MACHINES.md: stalled, then recovering, then back to the queue —
     // each step recorded so the Work view shows what the watchdog did.
-    await transitionTask(pool, t.id, "stalled", "heartbeat missed for 90s", "watchdog");
+    await transitionTask(pool, t.id, "stalled", `heartbeat missed for ${STALL_SECONDS}s`, "watchdog");
     // ERROR_TAXONOMY.md dedupes worker.crash by *lane*, not by task. Keying on
     // the task id meant every stall opened a ticket that nothing would ever
     // close — the same mistake the supervisor path had before tick 7.

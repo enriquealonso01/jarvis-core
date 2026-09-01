@@ -52,6 +52,11 @@ services:
       <<: *app-env
       HOST: 0.0.0.0
       PORT: "8080"
+      # Empty unless the caller sets it. `JARVIS_MODEL=fake docker compose ... up
+      # -d api` swaps the provider chain for a scripted stand-in so a Supervisor
+      # turn can complete with no credential and no network. See src/fakemodel.ts.
+      JARVIS_MODEL: ${JARVIS_MODEL:-}
+      JARVIS_FAKE_MODEL_SCRIPT: ${JARVIS_FAKE_MODEL_SCRIPT:-/app/scripts/fixtures/s2-model-script.json}
     ports:
       - "127.0.0.1:8080:8080"
 
@@ -60,6 +65,17 @@ services:
     <<: *app
     profiles: ["tools"]
     command: ["node", "--import", "tsx", "scripts/dev-seed.ts"]
+
+  # The system worker. It carries the watchdog, which is what turns a killed
+  # runner into a requeued task instead of lost work (plan S4 test 2).
+  worker:
+    <<: *app
+    profiles: ["tools"]
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *app-env
+      WORKER_ID: dev-system-1
+      JARVIS_STALL_SECONDS: ${JARVIS_STALL_SECONDS:-90}
 
   # One-shot by default so a test can run a single variant and read the result.
   # JARVIS_HARNESS picks the variant: fake, fake:crash, fake:slow, fake:runaway,

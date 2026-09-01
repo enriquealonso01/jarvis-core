@@ -2,6 +2,8 @@ import type pg from "pg";
 import { checksum, runSupervisorTurn } from "./supervisor.js";
 import { raiseIssue } from "./notify.js";
 import { looksConfidential } from "./redaction.js";
+import { applyRoute, summariseRoute, type RouteOutcome } from "./routing.js";
+import { classifyInbox } from "./routing.js";
 
 /**
  * A readable thread name taken from the first thing said in it.
@@ -11,6 +13,8 @@ import { looksConfidential } from "./redaction.js";
  * This runs on the first message of any channel — web, WhatsApp, phone — so
  * no thread anywhere is left sitting as "New thread".
  */
+const NL = "\n";
+
 export function deriveThreadTitle(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
   // An opener that addresses Jarvis says nothing about the thread.
@@ -128,6 +132,66 @@ export async function ingestUserMessage(
       [args.conversationId, inboxId, held],
     );
     return { inboxId, assistant: held };
+  }
+
+  // S3a: decide what he meant before anything acts on it, and write the verdict
+  // down. classifyInbox never throws - the message is already durable and a
+  // router that could take the turn down with it would be a new way to lose
+  // input. An unusable verdict is recorded as `ambiguous`, not guessed at.
+  const decision = await classifyInbox(pool, {
+    inboxId,
+    text,
+    conversationId: args.conversationId,
+  });
+
+  // S3b: act on the decision. One message can reach several destinations, and
+  // each of them points back at this inbox event.
+  //
+  // When the router handled it, the Supervisor is NOT also run over the same
+  // segments: it has task_create too, and both acting on one sentence is how
+  // you get two tasks for one request. Questions are the exception - they are
+  // what the Supervisor is for - so a memo that is part work and part question
+  // gets the work filed here and the question answered there.
+  let outcome: RouteOutcome = { destinations: [], questions: [], passthrough: true };
+  try {
+    outcome = await applyRoute(pool, {
+      inboxId,
+      sourceConversationId: args.conversationId,
+      decision,
+    });
+  } catch (err) {
+    // Routing failing must not cost the message. Fall back to the pre-S3 path.
+    await pool
+      .query(`UPDATE inbox_events SET routing_note = $2 WHERE id = $1`, [
+        inboxId,
+        `route application failed: ${err instanceof Error ? err.message : String(err)}`,
+      ])
+      .catch(() => undefined);
+    outcome = { destinations: [], questions: [], passthrough: true };
+  }
+
+  if (!outcome.passthrough) {
+    let assistant = summariseRoute(outcome);
+    if (outcome.questions.length) {
+      const answered = await runSupervisorTurn(pool, {
+        conversationId: args.conversationId,
+        inboxId,
+        userText: outcome.questions.join(NL),
+        payloadMode,
+        projectName: conv.rows[0].project_name,
+        confidentiality: conv.rows[0].confidentiality,
+      }).catch((err: unknown) => `I could not answer that part: ${err instanceof Error ? err.message : String(err)}`);
+      assistant = assistant ? [assistant, answered].join(NL + NL) : answered;
+    }
+    if (!assistant) assistant = "Nothing in that needed doing.";
+    await pool.query(
+      `INSERT INTO messages (conversation_id, inbox_event_id, role, body)
+       VALUES ($1, $2, 'jarvis', $3)`,
+      [args.conversationId, inboxId, assistant],
+    );
+    await pool.query(`UPDATE inbox_events SET processing_state = 'processed' WHERE id = $1`, [inboxId]);
+    await pool.query(`UPDATE conversations SET last_activity_at = now() WHERE id = $1`, [args.conversationId]);
+    return { inboxId, assistant };
   }
 
   try {
