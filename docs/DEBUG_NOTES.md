@@ -135,6 +135,39 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### `info/exclude` lives in the COMMON dir, and the first real run proved it
+**Symptom:** the first successful real-bug run committed `.jarvis/outcome.json`
+and `.jarvis/phases.jsonl` into the project's history — Jarvis's own bookkeeping,
+in Enrique's repository, in the diff a human is meant to review.
+**Cause:** the previous fix resolved the gitdir with `rev-parse
+--absolute-git-dir`, which for a worktree returns `.git/worktrees/<name>`. git
+does not read excludes from there. It reads `$GIT_COMMON_DIR/info/exclude` — the
+main `.git/info/exclude`. So the file was written, to a path git never consults,
+and the second fix failed exactly as silently as the first.
+**Fix:** `rev-parse --path-format=absolute --git-common-dir`, plus an assertion
+in the S6 suite that no path under `.jarvis/` appears in the branch's tree.
+**Lesson:** two wrong answers about where git keeps something, in a row, both
+silent. When a write "succeeds" but has no effect, the next question is not
+"did it write" but "does anything read that path" — and the test should assert
+the effect, not the write.
+
+### The harness could edit but not execute, so its loop could never finish
+**Symptom:** the first real engineering run reproduced the bug, found the root
+cause, wrote the fix AND the regression test — then stopped and reported itself
+blocked, having failed to run `node --test`, `node -e`, or even `node test/...`.
+**Cause:** the runner spawned `claude` with `--permission-mode acceptEdits`,
+which permits file edits but not command execution. A workflow whose `checks`
+phase runs the project's test command can never pass it.
+**Fix:** `bypassPermissions`, which is what the plan already implies — it says
+containment is the unix user and the config dir, "not this flag". To keep that
+true now that the harness can execute, the escape guard was widened to read Bash
+commands as well as path arguments, flagging absolute paths under JARVIS_ROOT
+that fall outside the worktree.
+**Lesson:** the honesty machinery worked perfectly and reported a real blocker —
+but the blocker was our own misconfiguration. When an agent says it cannot do
+something, check what you actually allowed it to do before believing the task is
+hard.
+
 ### A worktree's `.git` is a file, so the exclude was never written
 **Symptom:** a run that deliberately changed nothing still recorded
 `changed: true`, and the "declined, made no commit" assertion failed.
