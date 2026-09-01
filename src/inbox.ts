@@ -2,6 +2,7 @@ import type pg from "pg";
 import { checksum, runSupervisorTurn } from "./supervisor.js";
 import { raiseIssue } from "./notify.js";
 import { looksConfidential } from "./redaction.js";
+import { classifyInbox } from "./routing.js";
 
 /**
  * A readable thread name taken from the first thing said in it.
@@ -129,6 +130,12 @@ export async function ingestUserMessage(
     );
     return { inboxId, assistant: held };
   }
+
+  // S3a: decide what he meant before anything acts on it, and write the verdict
+  // down. classifyInbox never throws - the message is already durable and a
+  // router that could take the turn down with it would be a new way to lose
+  // input. An unusable verdict is recorded as `ambiguous`, not guessed at.
+  await classifyInbox(pool, { inboxId, text });
 
   try {
     const assistant = await runSupervisorTurn(pool, {

@@ -1031,7 +1031,17 @@ export async function quickCompletion(
   pool: pg.Pool,
   system: string,
   user: string,
+  opts: { maxTokens?: number } = {},
 ): Promise<string | null> {
+  // The router is a quickCompletion too, so the fake model has to reach here or
+  // routing cannot be tested offline at all.
+  if (FAKE_MODEL) {
+    const reply = fakeCompletion([
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
+    return reply.content ?? null;
+  }
   const candidates = await getProviderCandidates(pool, "supervisor");
   for (const c of candidates) {
     try {
@@ -1045,7 +1055,7 @@ export async function quickCompletion(
             { role: "user", content: user },
           ],
           temperature: 0.3,
-          max_tokens: 200,
+          max_tokens: opts.maxTokens ?? 200,
           ...(c.provider === "fireworks" ? { reasoning_effort: "none" } : {}),
         }),
       });
