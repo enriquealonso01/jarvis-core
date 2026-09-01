@@ -807,11 +807,58 @@ what is waiting on him.
 
 **Build** Audit every page against real API fields. Mobile first.
 
-**Test** L17's six journeys on a real phone: check health, add context to a running task, resolve an API-key issue, approve something, reprioritise the queue, open an artifact. Then every page against a project with **zero** data and one with a great deal — empty states and overflow are where consoles actually break.
+### The thirteen states
+
+Every important screen defines all of these, explicitly, rather than falling
+through to a blank panel:
+
+`loading` · `empty` · `healthy` · `degraded` · `offline` · `stale` ·
+`permission denied` · `waiting for user` · `waiting for provider` ·
+`recovering` · `failed` · `partially available`
+
+An empty queue says **"No work is currently queued. Jarvis is available."** — not
+an ambiguous blank. A blank panel is indistinguishable from a broken one, and
+after the second time it is broken, Enrique will assume every blank panel is a
+bug and stop trusting the page.
+
+`stale` and `partially available` are the two that get skipped and the two that
+matter most: a screen showing real numbers from twenty minutes ago, with no
+indication of that, is worse than a screen showing nothing.
+
+### Accessibility and mobile quality
+
+Not decoration — this console is used one-handed, on a phone, often outdoors,
+sometimes while doing something else:
+
+- Accessible contrast throughout.
+- Full keyboard navigation with a **visible** focus state.
+- Semantic labels, and screen-reader announcement of status changes — a task moving to `failed` must be announced, not only recoloured.
+- **No information conveyed by colour alone.** Every state carries a shape, an icon, or a word as well. This applies directly to the S13b progress bar, where `blocked` and `done` must be distinguishable without colour.
+- Touch targets large enough to hit while walking.
+- Responsive tables that become expandable cards on mobile rather than scrolling sideways.
+- No horizontal page overflow, anywhere.
+- Respect `prefers-reduced-motion` — the hatched in-progress states and any pulsing must stop.
+- **Installable as a PWA** so it lives on the phone home screen. Web push is explicitly **not** V1: WhatsApp is the pager, and a second notification channel is a science project that would compete with the one that works.
+
+**Test**
+- L17's six journeys on a real phone: check health, add context to a running task, resolve an API-key issue, approve something, reprioritise the queue, open an artifact.
+- Every page against a project with **zero** data and one with a great deal. Empty states and overflow are where consoles actually break.
+- **Every one of the thirteen states, on at least one screen each.** Force them: kill the API for `offline`, revoke a session for `permission denied`, freeze the clock for `stale`. A state you cannot force is a state you have not implemented.
+- Navigate the entire console with the keyboard alone, and confirm focus is visible at every stop.
+- Run it in greyscale. Every status must still be readable — this is the fastest possible test for colour-alone information and it takes one minute.
+- Turn on reduced-motion and confirm nothing pulses, hatches or animates.
+- Install it as a PWA on the phone and complete one full journey from the home-screen icon.
 
 **Debug** A page that renders in dev and breaks in production is almost always a field the API stopped returning; compare the live JSON against what the component destructures. If a number looks wrong rather than missing, find its source query before touching the component — v1's console under-reported for days because the count was capped upstream.
 
-**Done when:** all six journeys work on a phone and no page shows an invented number.
+**Debug** If a page looks fine but reads badly in greyscale, the state is
+encoded in a colour token rather than in content — fix the component, not the
+palette. If focus disappears mid-navigation, something is rendering a custom
+control without a real focusable element underneath it.
+
+**Done when:** all six journeys work on a phone, the console is fully navigable
+by keyboard, every status survives greyscale, and no page shows an invented
+number or an unexplained blank.
 
 ## S16 — The credential loop
 *Size: 2 days.*
