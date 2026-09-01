@@ -14,6 +14,24 @@ When the last step is finished, Jarvis is done.
 
 # PART 0 — WHAT JARVIS IS
 
+## 0.0 Start here
+
+If you are the agent building this, read in this order and then begin at S1.
+
+1. **This document, Parts 0 through III.** Part 0 is what Jarvis is and what already exists; Part III is your backlog.
+2. **`docs/GAP_ANALYSIS.md`** — why v1 ended up with a chassis and no engine. Twenty minutes that will stop you repeating it.
+3. **`docs/DEBUG_NOTES.md`** — eleven bugs already paid for. Read before you write, not after you break something.
+4. **`AGENTS.md`** — the non-negotiables. Persist before any model call; projects are security boundaries; never substitute an auth profile.
+5. **`docs/DATA_MODEL.md`, `docs/STATE_MACHINES.md`, `docs/ERROR_TAXONOMY.md`** — read-only law. The schema is already right; work with it rather than around it.
+
+Then S1. Not S2, and not "S1 but quickly so I can get to the interesting part" — S1 is what makes every step after it verifiable instead of hopeful.
+
+**The one thing to hold on to.** There is exactly one way this plan fails the way
+the last one did: you spend your time on the parts that are pleasant to build —
+the console, the taxonomy, the health checks, the elegant abstraction — and the
+thing that turns a sentence into a pull request stays one step away. If you are
+ever unsure what to do next, do whatever gets N1 working sooner.
+
 ## 0.1 The one-line test
 
 > Enrique sends a voice note from his phone. Some minutes later he gets one short
