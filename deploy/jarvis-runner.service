@@ -1,0 +1,56 @@
+[Unit]
+# Heavy-lane runner (ADR 015). Runs on the host, not in the Compose stack,
+# because the Claude Code subscription login is host-user filesystem state bound
+# to a config directory (ADR 006).
+Description=Jarvis heavy-lane runner
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+WorkingDirectory=/opt/jarvis/core
+
+# Postgres publishes on 127.0.0.1:5432 (deploy/compose.yaml). The in-container
+# default host `postgres` does not resolve out here, so the URL is explicit.
+# The password lives in /etc/jarvis/runner.env, which is 0640 root:jarvis and
+# contains ONLY DATABASE_URL — not the master key, not the compose env.
+EnvironmentFile=/etc/jarvis/runner.env
+Environment=RUNNER_ID=heavy-1
+Environment=JARVIS_ROOT=/var/lib/jarvis
+Environment=NODE_ENV=production
+
+ExecStart=/usr/bin/node /opt/jarvis/core/dist/runner.js
+
+# ADR 007 budgets the heavy worker 4 GB. Every other component is a container
+# with a mem_limit; this one is a host process, so without these two lines the
+# largest slice on the box is also the only unbounded one — and an OOM here
+# takes Postgres down with it. MemoryHigh throttles and reclaims first so a
+# merely-hungry run is slowed rather than killed.
+MemoryHigh=3584M
+MemoryMax=4096M
+# An OOM kill must not look like a clean restart: the task is left for the
+# watchdog to recover and the exit shows up in the journal.
+Restart=always
+RestartSec=5
+# Draining on SIGTERM lets an in-flight harness run finish its checkpoint; the
+# watchdog requeues anything still running when the timeout expires.
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# The runner needs the harness config dirs, worktrees and artifacts. It must not
+# reach /etc/jarvis beyond its own env file, and it never gets the Docker socket.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/jarvis
+InaccessiblePaths=-/var/run/docker.sock
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jarvis-runner
+
+[Install]
+WantedBy=multi-user.target
