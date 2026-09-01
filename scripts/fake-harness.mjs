@@ -22,6 +22,7 @@
  *   noop     — talk, change nothing, exit 0               -> succeeded, empty diff
  *   escape   — try to write outside the worktree          -> blocked and audited
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
+ *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -141,6 +142,25 @@ async function main() {
     await sleep(500);
     result("success", `escape attempt ${wrote ? "SUCCEEDED (filesystem did not stop it)" : "blocked"}`);
     process.exit(0);
+  }
+
+  if (variant === "errorresult") {
+    // Reproduces exactly what a real `claude -p --output-format stream-json`
+    // run emitted when it hit --max-turns: exit 1, is_error true, a subtype
+    // naming the failure, and result: "" — the empty string that used to slip
+    // past `??` and record a failed task with a blank summary.
+    init();
+    assistantText("Working.");
+    emit({
+      type: "result",
+      subtype: "error_max_turns",
+      session_id: sessionId,
+      is_error: true,
+      duration_ms: 900,
+      num_turns: 2,
+      result: "",
+    });
+    process.exit(1);
   }
 
   if (variant === "context") {
