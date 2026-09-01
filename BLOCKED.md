@@ -68,6 +68,9 @@ unblocked, finish it before starting anything new.
   key failing against project B's repo. That tests Jarvis's key handling, which
   is the part S5 owns. It does NOT test GitHub, so **S5 stays PARTIAL** and L6
   is not claimed until the token can create the two private repos.
+- **Also blocks:** S8's N1.5 — the acceptance case is written and 4 of its 5
+  assertions pass (the seeded test really goes red -> green on Jarvis's branch);
+  only "a pull request was opened for it" is red, and it is red because of this.
 - **Also blocks:** S7's first test ("a real PR on a real private repo"). The
   pull-request code is written and its three refusal paths are tested (21/21);
   only the live PR is missing. One run finishes it once the token works.

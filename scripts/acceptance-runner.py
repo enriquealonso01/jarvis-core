@@ -15,6 +15,8 @@ import http.cookiejar
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 BASE_URL = os.environ.get("JARVIS_URL", "https://jarvis.enriquecodes.com")
 ORIGIN = BASE_URL
 SECRET_PATH = Path(r"C:\Users\Enrique\.jarvis\secrets\control-center-login.txt")
@@ -1305,6 +1307,22 @@ class AcceptanceRunner:
 
         report_file.write_text("\n".join(lines), encoding="utf-8")
         print(f"\nReport written to {report_file}")
+
+    def test_n1_acceptance(self):
+        """N1 — the one-line test: a seeded failing test, and a PR that fixes it.
+
+        Lives here because the plan says it must ("Done when: it is in
+        scripts/acceptance-runner.py and green"), but it drives the dev compose
+        stack rather than the live API: the assertions are about a git diff and
+        a test going red to green, and neither is visible over HTTP.
+        """
+        try:
+            from s8_n1 import run_n1
+        except ImportError as err:
+            self.skip("N1", "acceptance", f"could not import s8_n1: {err}")
+            return
+        run_n1(self.record, self.skip)
+
 
 if __name__ == "__main__":
     runner = AcceptanceRunner()
