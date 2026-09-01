@@ -25,7 +25,8 @@
     "progress": "node scripts/progress-sync.mjs",
     "progress:publish": "bash scripts/progress-publish.sh",
     "dev:test:s5": "bash scripts/s5-isolation-test.sh",
-    "dev:test:s6": "bash scripts/s6-workflow-test.sh"
+    "dev:test:s6": "bash scripts/s6-workflow-test.sh",
+    "dev:test:s7": "bash scripts/s7-pullrequest-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
