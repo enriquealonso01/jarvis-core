@@ -1,6 +1,7 @@
 import type pg from "pg";
 import { readJsonCredential } from "./credentials.js";
 import { sseBroadcast } from "./sse.js";
+import { ARTIFACTS_DIR, JARVIS_ROOT } from "./paths.js";
 import { raiseIssue } from "./notify.js";
 import { reprobeDegradedRoutes } from "./catalog.js";
 
@@ -247,7 +248,7 @@ async function healthCheck(pool: pg.Pool) {
   let diskPct = 0;
   try {
     const { statfs } = await import("node:fs/promises");
-    const st = await statfs("/var/lib/jarvis");
+    const st = await statfs(JARVIS_ROOT);
     const total = Number(st.blocks) * Number(st.bsize);
     const free = Number(st.bavail) * Number(st.bsize);
     if (total > 0) diskPct = Math.round(((total - free) / total) * 100);
@@ -355,7 +356,7 @@ async function resolveHandledIssues(pool: pg.Pool): Promise<number> {
 async function retentionSweep() {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const root = "/var/lib/jarvis/artifacts";
+  const root = ARTIFACTS_DIR;
   const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
   try {
     const projects = await fs.readdir(root).catch(() => []);

@@ -4,9 +4,10 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type pg from "pg";
+import { ARTIFACTS_DIR, QUARANTINE_DIR } from "./paths.js";
 
-const QUARANTINE = "/var/lib/jarvis/quarantine";
-const ARTIFACTS = "/var/lib/jarvis/artifacts";
+const QUARANTINE = QUARANTINE_DIR;
+const ARTIFACTS = ARTIFACTS_DIR;
 
 /** Plan §: attachments are capped so one upload cannot fill the disk. */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;

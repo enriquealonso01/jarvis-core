@@ -131,6 +131,55 @@ every limit the old boundary was providing for free.
 
 ---
 
+## Test environment
+
+### The API could not start anywhere except the box
+**Symptom:** on a clean dev volume the API container exited immediately with
+`ENOENT: no such file or directory, open '/var/lib/jarvis/keys/login-once.txt'`.
+**Cause:** `ensureBootstrapUser` writes the first-login file into
+`JARVIS_ROOT/keys`, and nothing in the application ever created that directory —
+`scripts/phase0-host.sh` did, once, on Netcup. Every environment that was not
+the production box was therefore unbootable, and nobody had noticed because
+nobody had ever started it anywhere else.
+**Fix:** `fs.mkdirSync(path.dirname(oncePath), { recursive: true })` before the
+write.
+**Lesson:** a bootstrap step that lives in a provisioning script is a hidden
+prerequisite. If the application needs a directory, the application should
+create it — otherwise "works on the server" is the only environment there is.
+
+
+### A whole test run went red on a UUID that was perfectly valid
+**Symptom:** every assertion in the first S1 run failed with
+`invalid input syntax for type uuid: "1f40b83c-...-faa6a5941b1d
+INSERT 0 1"`.
+The id looked correct in the error message, which is what made it slow.
+**Cause:** `psql -tA` suppresses headers and alignment but NOT the command tag.
+`INSERT ... RETURNING id` prints the id and then `INSERT 0 1` on the next line,
+so the captured variable was two lines, not one.
+**Fix:** filter the value the test actually wants —
+`| grep -oiE '^[0-9a-f-]{36}$' | head -1` — rather than trusting `-tA` to
+produce one clean line.
+**Lesson:** when a value that looks right is rejected, print it with delimiters
+around it before doubting the parser.
+
+### A deliberate sabotage silently did nothing, and the test "passed"
+**Symptom:** during the see-it-fail pass for S1, the `ok` variant was sabotaged
+so the fake harness would write no file — and the test stayed green. Reading the
+green result as "the test cannot detect this" would have been wrong; reading it
+as "the assertion is decoration" would have been worse.
+**Cause:** the patch was applied by a Python snippet whose search string
+contained backslash escapes, and the surrounding shell heredoc had already
+consumed them. `str.replace` found nothing and returned the original text
+without complaining.
+**Fix:** every scripted edit asserts that its anchor was found before writing,
+and anchors avoid backslashes entirely.
+**Lesson:** a silent no-op patch is indistinguishable from a test that cannot
+fail. `str.replace` and `sed` both fail quietly; make the edit assert, then
+confirm the sabotage is present in the file before drawing a conclusion from the
+run.
+
+---
+
 ## Process
 
 ### Thirty-one overnight ticks produced no progress on the thing that mattered

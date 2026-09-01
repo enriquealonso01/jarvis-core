@@ -3,6 +3,8 @@ import fs from "node:fs";
 import argon2 from "argon2";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
+import path from "node:path";
+import { KEYS_DIR } from "./paths.js";
 
 const COOKIE = "jarvis_session";
 const IDLE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -21,7 +23,12 @@ export async function ensureBootstrapUser(pool: pg.Pool): Promise<{ created: boo
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   await pool.query("INSERT INTO users (email, password_hash) VALUES ($1, $2)", [email, passwordHash]);
 
-  const oncePath = process.env.LOGIN_ONCE_PATH ?? "/var/lib/jarvis/keys/login-once.txt";
+  const oncePath = process.env.LOGIN_ONCE_PATH ?? path.join(KEYS_DIR, "login-once.txt");
+  // The API refused to start on any host where JARVIS_ROOT/keys did not already
+  // exist, because only the Netcup bootstrap script ever created it. Found by
+  // cold-starting the dev stack on an empty volume (S1) — the first time this
+  // code had ever been run anywhere but the box.
+  fs.mkdirSync(path.dirname(oncePath), { recursive: true });
   fs.writeFileSync(oncePath, `email=${email}\npassword=${password}\n`, { mode: 0o600 });
   try {
     fs.chownSync(oncePath, 0, 0);

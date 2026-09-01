@@ -4,10 +4,11 @@ import { backoffSeconds, raiseIssue } from "./notify.js";
 import { cronMatches } from "./cron.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 
 const WORKER_ID = process.env.WORKER_ID ?? "system-1";
-const ARTIFACTS = "/var/lib/jarvis/artifacts";
-const WORKTREES = "/var/lib/jarvis/worktrees";
+const ARTIFACTS = ARTIFACTS_DIR;
+const WORKTREES = WORKTREES_DIR;
 
 async function fireDueSchedules(pool: ReturnType<typeof createPool>) {
   const now = new Date();
@@ -217,12 +218,12 @@ async function reapWorktrees(pool: ReturnType<typeof createPool>) {
 async function ensureDirs() {
   await fs.mkdir(ARTIFACTS, { recursive: true });
   await fs.mkdir(WORKTREES, { recursive: true });
-  await fs.mkdir("/var/lib/jarvis/projects", { recursive: true });
+  await fs.mkdir(PROJECTS_DIR, { recursive: true });
 
   // ADR 006: one host-login directory per auth profile, 0700, never shared
   // between profiles. The layout is created at boot so a harness login has
   // somewhere correct to land rather than the CLI choosing for itself.
-  const HARNESS_AUTH = "/var/lib/jarvis/harness-auth";
+  const HARNESS_AUTH = HARNESS_AUTH_DIR;
   await fs.mkdir(HARNESS_AUTH, { recursive: true, mode: 0o700 });
   for (const profile of ["anthropic_personal", "openai_codex_personal", "cursor_personal"]) {
     const dir = `${HARNESS_AUTH}/${profile}`;
@@ -255,7 +256,7 @@ const HOST_LOGIN_PROOF: Record<string, string> = {
 
 async function detectHostLogins(pool: ReturnType<typeof createPool>) {
   for (const [profile, proof] of Object.entries(HOST_LOGIN_PROOF)) {
-    const dir = `/var/lib/jarvis/harness-auth/${profile}`;
+    const dir = path.join(HARNESS_AUTH_DIR, profile);
     let signedIn = false;
     try {
       const st = await fs.stat(`${dir}/${proof}`);

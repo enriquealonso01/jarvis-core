@@ -6,8 +6,9 @@ import { readJsonCredential } from "./credentials.js";
 import { sitePin } from "./siteconfig.js";
 import { raiseIssue } from "./notify.js";
 import { runSupervisorTurn } from "./supervisor.js";
+import { ARTIFACTS_DIR } from "./paths.js";
 
-const ARTIFACTS = "/var/lib/jarvis/artifacts";
+const ARTIFACTS = ARTIFACTS_DIR;
 const TELNYX_API = "https://api.telnyx.com/v2";
 
 /** Raw call audio is deleted after 7 days; the transcript is what survives (§80.2 / L12). */

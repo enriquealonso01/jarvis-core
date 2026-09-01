@@ -12,3 +12,18 @@ This repository is the source of truth for **what to build** and **how it is wir
 4. [`AGENTS.md`](AGENTS.md) — rules for implementation agents
 
 Companion frontend: `jarvis-control-center` (separate private repository).
+
+## Running it locally
+
+No Claude subscription, no Linux box, no `/var/lib/jarvis` required (plan S1).
+
+```
+pnpm dev:up      # postgres + api, migrations applied
+pnpm dev:seed    # operator dev@jarvis.local / dev-password-1234, a throwaway repo
+pnpm dev:test    # drive every fake-harness variant through the real runner
+pnpm dev:down    # and forget all of it
+```
+
+`JARVIS_HARNESS=fake[:variant]` makes the runner spawn `scripts/fake-harness.mjs`
+instead of `claude`. Variants: `ok`, `crash`, `slow`, `runaway`, `noop`,
+`escape`.

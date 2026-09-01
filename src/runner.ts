@@ -8,6 +8,7 @@ import { createPool } from "./db.js";
 import { claimTask, transitionTask, writeCheckpoint } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { sseBroadcast } from "./sse.js";
+import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 
 /**
  * The heavy-lane runner (ADR 015, plan §20.2, §27).
@@ -24,17 +25,45 @@ import { sseBroadcast } from "./sse.js";
  */
 
 const RUNNER_ID = process.env.RUNNER_ID ?? "heavy-1";
-const ROOT = process.env.JARVIS_ROOT ?? "/var/lib/jarvis";
-const ARTIFACTS = path.join(ROOT, "artifacts");
-const WORKTREES = path.join(ROOT, "worktrees");
-const PROJECTS = path.join(ROOT, "projects");
+const ROOT = JARVIS_ROOT;
+const ARTIFACTS = ARTIFACTS_DIR;
+const WORKTREES = WORKTREES_DIR;
+const PROJECTS = PROJECTS_DIR;
 
+/** Rounding a 6-second test limit to "0 minutes" makes the failure message a lie. */
+function humanMs(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)} seconds`;
+  return `${Math.round(ms / 60_000)} minutes`;
+}
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * The three timers are env-overridable for one reason: the silence limit is ten
+ * minutes and the run limit is forty-five, so testing them at their production
+ * values costs an hour per run and nobody ever does it. S1's variants set them
+ * to seconds. The defaults are the production values, so the box is unaffected.
+ */
 /** The watchdog stalls a task after 90s without a heartbeat. Beat well inside that. */
-const HEARTBEAT_MS = 20_000;
+const HEARTBEAT_MS = envMs("JARVIS_HEARTBEAT_MS", 20_000);
 /** A harness that has emitted nothing for this long is stuck, not thinking. */
-const SILENCE_LIMIT_MS = 10 * 60_000;
+const SILENCE_LIMIT_MS = envMs("JARVIS_SILENCE_LIMIT_MS", 10 * 60_000);
 /** Hard ceiling on a single run, so a runaway agent cannot hold the lane forever. */
-const RUN_LIMIT_MS = 45 * 60_000;
+const RUN_LIMIT_MS = envMs("JARVIS_RUN_LIMIT_MS", 45 * 60_000);
+
+/**
+ * `JARVIS_HARNESS` selects what actually gets spawned. `claude` is the default
+ * and the only thing production ever uses; `fake` and `fake:<variant>` spawn
+ * `scripts/fake-harness.mjs`, which speaks the same stream-json protocol without
+ * a subscription or a network.
+ */
+const HARNESS_SPEC = process.env.JARVIS_HARNESS ?? "claude";
+const FAKE_HARNESS = HARNESS_SPEC === "fake" || HARNESS_SPEC.startsWith("fake:");
+const FAKE_VARIANT = FAKE_HARNESS ? (HARNESS_SPEC.split(":")[1] ?? "ok") : null;
 
 type Task = {
   id: string;
@@ -116,7 +145,7 @@ function isolationRefusal(project: Project | null): string | null {
 async function prepareWorkspace(
   task: Task,
   project: Project | null,
-): Promise<{ dir: string; branch: string | null; isRepo: boolean }> {
+): Promise<{ dir: string; branch: string | null; isRepo: boolean; baseSha: string | null }> {
   const slug = project?.slug ?? "unscoped";
   const short = task.id.slice(0, 8);
   const dir = path.join(WORKTREES, slug, short);
@@ -127,7 +156,7 @@ async function prepareWorkspace(
 
   if (!repo || !hasRepo) {
     await fs.mkdir(dir, { recursive: true });
-    return { dir, branch: null, isRepo: false };
+    return { dir, branch: null, isRepo: false, baseSha: null };
   }
 
   const branch = `jarvis/task-${short}`;
@@ -139,7 +168,8 @@ async function prepareWorkspace(
   await git(repo, ["branch", "-D", branch]).catch(() => undefined);
   await git(repo, ["fetch", "--quiet", "origin", base]).catch(() => undefined);
   await git(repo, ["worktree", "add", "-b", branch, dir, `origin/${base}`]);
-  return { dir, branch, isRepo: true };
+  const baseSha = await git(dir, ["rev-parse", "HEAD"]).catch(() => null);
+  return { dir, branch, isRepo: true, baseSha };
 }
 
 function git(cwd: string, args: string[]): Promise<string> {
@@ -167,6 +197,38 @@ async function cleanupWorkspace(project: Project | null, dir: string, isRepo: bo
   await git(repo, ["worktree", "remove", "--force", dir]).catch(() => undefined);
 }
 
+
+/**
+ * Did the harness just try to touch something outside its worktree?
+ *
+ * Claude Code announces every file it is about to touch as a `tool_use` block
+ * with a path in the input, so the escape is visible in the stream before its
+ * consequences are. This is detection, not containment: the kernel-level block
+ * is a per-project unix user (ADR 006 step 5, proved in S11), and until that
+ * exists the runner already refuses professional and confidential projects
+ * outright. What this adds is that a personal run which reaches outside its
+ * worktree is stopped, its branch is discarded, and the attempt is audited
+ * rather than silently succeeding.
+ */
+const PATH_INPUT_KEYS = ["file_path", "path", "notebook_path", "target_file", "edit_file_path"];
+
+export function escapedPath(cwd: string, event: Record<string, unknown>): string | null {
+  const message = event.message as { content?: unknown } | undefined;
+  const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+  for (const block of content) {
+    const b = block as { type?: string; input?: Record<string, unknown> };
+    if (b.type !== "tool_use" || !b.input) continue;
+    for (const key of PATH_INPUT_KEYS) {
+      const value = b.input[key];
+      if (typeof value !== "string" || value === "") continue;
+      const abs = path.resolve(cwd, value);
+      const rel = path.relative(cwd, abs);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) return abs;
+    }
+  }
+  return null;
+}
+
 /**
  * Spawn the harness and stream its events.
  *
@@ -183,42 +245,51 @@ async function runHarness(args: {
   transcriptPath: string;
   onEvent: (event: Record<string, unknown>) => void;
   signal: AbortSignal;
-}): Promise<{ code: number | null; sessionId: string | null; result: string | null; events: number }> {
+}): Promise<{
+  code: number | null;
+  sessionId: string | null;
+  result: string | null;
+  events: number;
+  escape: string | null;
+}> {
   await fs.mkdir(path.dirname(args.transcriptPath), { recursive: true });
   const sink = createWriteStream(args.transcriptPath, { flags: "a" });
 
-  const child = spawn(
-    "claude",
-    [
-      "-p",
-      args.prompt,
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      // The harness runs against a worktree it is meant to change, so it needs
-      // its own tools. What it must NOT get is a path out of the worktree or a
-      // credential the broker did not hand it; that is enforced by the unix user
-      // and the single config dir, not by this flag.
-      "--permission-mode",
-      "acceptEdits",
-    ],
-    {
-      cwd: args.cwd,
-      env: {
-        ...process.env,
-        CLAUDE_CONFIG_DIR: args.configDir,
-        // Never let the harness inherit Jarvis's own database handle.
-        DATABASE_URL: "",
-        POSTGRES_PASSWORD: "",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  const command = FAKE_HARNESS ? process.execPath : "claude";
+  const commandArgs = FAKE_HARNESS
+    ? [path.resolve(process.cwd(), "scripts/fake-harness.mjs"), args.prompt]
+    : [
+        "-p",
+        args.prompt,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        // The harness runs against a worktree it is meant to change, so it needs
+        // its own tools. What it must NOT get is a path out of the worktree or a
+        // credential the broker did not hand it; that is enforced by the unix user
+        // and the single config dir, not by this flag.
+        "--permission-mode",
+        "acceptEdits",
+      ];
+
+  const child = spawn(command, commandArgs, {
+    cwd: args.cwd,
+    env: {
+      ...process.env,
+      CLAUDE_CONFIG_DIR: args.configDir,
+      JARVIS_FAKE_VARIANT: FAKE_VARIANT ?? "",
+      // Never let the harness inherit Jarvis's own database handle.
+      DATABASE_URL: "",
+      POSTGRES_PASSWORD: "",
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   let sessionId: string | null = null;
   let result: string | null = null;
   let events = 0;
   let buf = "";
+  let escape: string | null = null;
 
   child.stdout.on("data", (chunk: Buffer) => {
     sink.write(chunk);
@@ -237,6 +308,13 @@ async function runHarness(args: {
       }
       if (typeof event.session_id === "string") sessionId = event.session_id;
       if (event.type === "result" && typeof event.result === "string") result = event.result;
+      if (!escape) {
+        const out = escapedPath(args.cwd, event);
+        if (out) {
+          escape = out;
+          child.kill("SIGKILL");
+        }
+      }
       args.onEvent(event);
     }
   });
@@ -260,7 +338,7 @@ async function runHarness(args: {
   await new Promise((r) => sink.end(r));
 
   if (code !== 0 && !result && stderrTail) result = `harness stderr: ${stderrTail.trim()}`;
-  return { code, sessionId, result, events };
+  return { code, sessionId, result, events, escape };
 }
 
 async function registerArtifact(
@@ -367,7 +445,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
   );
   const n = attempt.rows[0].n;
 
-  let workspace: { dir: string; branch: string | null; isRepo: boolean } | null = null;
+  let workspace: { dir: string; branch: string | null; isRepo: boolean; baseSha: string | null } | null = null;
   const controller = new AbortController();
   let heartbeat: NodeJS.Timeout | null = null;
   let lastEventAt = Date.now();
@@ -452,19 +530,70 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       if (head) await pool.query(`UPDATE tasks SET head_sha = $2 WHERE id = $1`, [taskId, head]);
     }
 
+    // "It ran and exited 0" is not the same as "it did something". A harness that
+    // read the code, decided nothing was needed and stopped is a legitimate
+    // outcome, but it has to be reported as one rather than shown to Enrique as
+    // a finished task with an invisible result.
+    const dirty = workspace.isRepo
+      ? await git(workspace.dir, ["status", "--porcelain"]).catch(() => "")
+      : "";
+    const changed = workspace.isRepo
+      ? Boolean(dirty) || (head !== null && workspace.baseSha !== null && head !== workspace.baseSha)
+      : true;
+
     await writeCheckpoint(pool, taskId, {
       harness: "claude_code",
       attempt: n,
       profile: profile.id,
       worktree: workspace.dir,
       branch: workspace.branch,
+      base_sha: workspace.baseSha,
       head_sha: head,
       transcript: relTranscript,
       events: outcome.events,
       exit_code: outcome.code,
       stop_reason: stopReason,
-      outcome: outcome.code === 0 && !stopReason ? "completed" : "failed",
+      escape_attempt: outcome.escape,
+      changed,
+      outcome: outcome.escape ? "blocked" : outcome.code === 0 && !stopReason ? "completed" : "failed",
     });
+
+    if (outcome.escape) {
+      // Blocked: the run was killed the moment the path appeared in the stream,
+      // and its branch is thrown away so nothing it produced can reach a PR.
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+         VALUES ('runner', 'harness.escape_blocked', $1, $2, $3)`,
+        [outcome.escape, task.project_id, JSON.stringify({
+          task_id: taskId,
+          worktree: workspace.dir,
+          attempted_path: outcome.escape,
+          branch: workspace.branch,
+          transcript: relTranscript,
+        })],
+      );
+      if (workspace.branch && project) {
+        await git(path.join(PROJECTS, project.slug, "repo"), ["worktree", "remove", "--force", workspace.dir]).catch(() => undefined);
+        await git(path.join(PROJECTS, project.slug, "repo"), ["branch", "-D", workspace.branch]).catch(() => undefined);
+      }
+      const summary = `harness reached outside its worktree: ${outcome.escape}`;
+      await pool.query(
+        `UPDATE task_attempts SET ended_at = now(), error_class = 'security.isolation', summary = $3 WHERE task_id = $1 AND n = $2`,
+        [taskId, n, summary.slice(0, 300)],
+      );
+      await transitionTask(pool, taskId, "failed_terminal", summary.slice(0, 300), "runner", "lease_until = NULL");
+      await raiseIssue(pool, {
+        category: "security.isolation",
+        service: "harness",
+        title: `[isolation] harness wrote outside the worktree on ${task.title.slice(0, 60)}`,
+        dedupeKey: `security.isolation:${taskId}`,
+        taskId,
+        projectId: task.project_id,
+        evidence: { attempted_path: outcome.escape, worktree: workspace.dir, transcript: relTranscript },
+        requiredAction: "Read the transcript. The branch was discarded; do not retry until the cause is understood.",
+      });
+      return;
+    }
 
     if (stopReason === "cancelled") {
       await pool.query(
@@ -479,9 +608,9 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       const errorClass = stopReason === "silent" ? "process.stuck" : stopReason === "timeout" ? "agent.loop" : "harness.crash";
       const summary =
         stopReason === "silent"
-          ? `no harness output for ${Math.round(SILENCE_LIMIT_MS / 60_000)} minutes`
+          ? `no harness output for ${humanMs(SILENCE_LIMIT_MS)}`
           : stopReason === "timeout"
-            ? `exceeded the ${Math.round(RUN_LIMIT_MS / 60_000)} minute run limit`
+            ? `exceeded the ${humanMs(RUN_LIMIT_MS)} run limit`
             : (outcome.result ?? `harness exited ${outcome.code}`).slice(0, 300);
       await pool.query(
         `UPDATE task_attempts SET ended_at = now(), error_class = $3, summary = $4 WHERE task_id = $1 AND n = $2`,
@@ -501,11 +630,21 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       return;
     }
 
+    const successSummary = changed
+      ? (outcome.result ?? "completed").slice(0, 300)
+      : `no changes: ${(outcome.result ?? "the harness made no edits").slice(0, 260)}`;
     await pool.query(
       `UPDATE task_attempts SET ended_at = now(), summary = $3 WHERE task_id = $1 AND n = $2`,
-      [taskId, n, (outcome.result ?? "completed").slice(0, 300)],
+      [taskId, n, successSummary],
     );
-    await transitionTask(pool, taskId, "succeeded", "harness run completed", "runner", "lease_until = NULL");
+    await transitionTask(
+      pool,
+      taskId,
+      "succeeded",
+      changed ? "harness run completed" : "harness run completed with an empty diff",
+      "runner",
+      "lease_until = NULL",
+    );
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
     const message = err instanceof Error ? err.message : String(err);
@@ -555,16 +694,27 @@ async function main(): Promise<void> {
     });
   }
 
+  // `RUNNER_ONCE=1` claims one task, runs it, and exits. Only the test harness
+  // uses it: a daemon that never returns cannot be asserted on, and S1's whole
+  // purpose is that each variant produces one observable outcome.
+  const once = process.env.RUNNER_ONCE === "1";
+  const idleDeadline = Date.now() + envMs("RUNNER_IDLE_EXIT_MS", 30_000);
   while (!stopping) {
     try {
       const id = await claimTask(pool, "heavy", RUNNER_ID);
       if (!id) {
-        await new Promise((r) => setTimeout(r, 3000));
+        if (once && Date.now() > idleDeadline) {
+          console.log(`runner ${RUNNER_ID} idle, exiting (RUNNER_ONCE)`);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, once ? 500 : 3000));
         continue;
       }
       await runHeavyTask(pool, id);
+      if (once) break;
     } catch (err) {
       console.error(err);
+      if (once) break;
       await new Promise((r) => setTimeout(r, 5000));
     }
   }
