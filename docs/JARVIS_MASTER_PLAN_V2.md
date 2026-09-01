@@ -93,28 +93,28 @@ documented in `docs/DEBUG_NOTES.md`. Stage 4 makes this *dependable* and gives i
 the ability to act and to dial out — it does not rebuild it.
 
 **Built but never executed**
-- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns `claude -p`, streams a transcript, heartbeats, honours cancel/silence/timeout. Typechecks. **Has never been run.** S1 and S3 exist to change that, and expect the `stream-json` parsing and the worktree setup to need real fixes on first contact.
+- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns `claude -p`, streams a transcript, heartbeats, honours cancel/silence/timeout. Typechecks. **Has never been run.** S1 and S4 exist to change that, and expect the `stream-json` parsing and the worktree setup to need real fixes on first contact.
 
 **Exists as an endpoint, unreachable by Jarvis**
-- `src/github.ts` — create repo, provision deploy key, open PR, merge PR. All four work, all four are behind `requireUser`, so only a human clicking a button can call them. They are not Supervisor tools and nothing pushes a branch for them to open a PR against. S4 and S6 wire them up.
+- `src/github.ts` — create repo, provision deploy key, open PR, merge PR. All four work, all four are behind `requireUser`, so only a human clicking a button can call them. They are not Supervisor tools and nothing pushes a branch for them to open a PR against. S5 and S7 wire them up.
 
 **Exists as a page, degraded**
-- The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S12–S14 repair it rather than restart it.
+- The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S13–S15 repair it rather than restart it.
 
 **Does not exist at all**
 - Any way for a message to become work (`task_create`) — S2.
-- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S19.
-- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S26.
-- Browser control and scraping — S27.
-- Project onboarding and `AGENTS.md` authoring — S22.
-- Memory retrieval over dumped documents — S25.
-- Any test that asserts Jarvis did a piece of work — S7.
+- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S20.
+- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S27.
+- Browser control and scraping — S28.
+- Project onboarding and `AGENTS.md` authoring — S23.
+- Memory retrieval over dumped documents — S26.
+- Any test that asserts Jarvis did a piece of work — S8.
 - Any way to run the engineering loop without a paid subscription and a Linux box — S1.
 
 **Carrying weight for a dead constraint**
 The free-tier model chain. Migration 008 measured it: the nominal primary served
 9 turns of 153 and Gemini served 0. Fireworks is a paid route now. A large part
-of `catalog.ts` exists to survive a constraint that no longer applies — S21
+of `catalog.ts` exists to survive a constraint that no longer applies — S22
 removes it.
 
 ---
@@ -340,7 +340,7 @@ not a silent restart.
 
 # PART III — THE BUILD
 
-One agent. One step at a time. Thirty steps, in order.
+One agent. One step at a time. Thirty-three steps, in order.
 
 Each step is **Build → Test → Debug → Done when**. A step is not finished when
 the code compiles. It is finished when the "Done when" line has been *observed*.
@@ -412,7 +412,88 @@ and provenance (`conversation_id`, `origin_inbox_id`). Heavy work goes to
 
 **Done when:** a sentence in the console becomes a correctly-scoped heavy task, and a non-work sentence does not.
 
-## S3 — The runner, live on real hardware
+## S3 — Routing what Enrique says
+*Size: 3–4 days. This is the step that makes S2 usable rather than a tool nobody calls correctly.*
+
+`task_create` gives Jarvis the ability to make work. This step is the judgement
+about **when**, **where**, and **into what**. Three behaviours, all from the
+planning conversation, all currently absent.
+
+### 3a — Intent classification
+
+Every inbound item is one of: **capture** (remember this), **question** (answer
+it), **work** (do it), **instruction** (change how you behave), or **ambiguous**.
+Route to memory, an answer, a task, a config task, or one short question.
+
+Over-creating tasks is as broken as creating none. "Remember the client prefers
+Tuesdays" is not a task.
+
+### 3b — One input, several projects
+
+Enrique does not send tidy single-topic messages. A five-minute voice note says:
+*"TicketFlipping needs X… also for AIDP I thought of Y… oh, and next month we
+should Z."* That is one inbox event and **three** destinations — two projects and
+a scheduled reminder.
+
+```
+VOICE NOTE #9381
+   ├── TicketFlipping  → conversation + task
+   ├── AIDP            → conversation + task
+   └── Personal        → scheduled task
+```
+
+The original audio and transcript stay attached to the **original** inbox event.
+Splitting never destroys the source, and every derived conversation carries
+`origin_inbox_id` back to it.
+
+This is not an edge case. It is how he actually communicates, and a system that
+handles only single-topic messages will silently drop two thirds of a long one.
+
+### 3c — Feedback while a task is running
+
+He is watching a task and types: *"Also check whether this could affect the CSV
+export."*
+
+- **Save the message immediately.** Before any classification, before any model. It is his input and it is now durable.
+- **Then decide what it modifies.** If it belongs to the **running** task, attach it as new task context and signal the worker that context is available. If it belongs to a **different** task, create or update that queued task instead.
+- **Nothing interrupts incorrectly. Nothing disappears.**
+
+The worker picks up new context at its next checkpoint rather than being killed
+and restarted — a mid-flight interruption loses the work already done.
+
+### Build
+- A classifier producing an explicit route decision, logged on the inbox event so a wrong route can be diagnosed later.
+- Multi-destination splitting with `origin_inbox_id` provenance on every derived conversation and task.
+- A `task_context` path: append to a running task, signal the worker, and have the runner read pending context at each checkpoint boundary.
+- Ambiguity produces **one** short question, never a guess and never silence.
+
+### Test
+- **The five-minute memo.** One voice note naming three projects → three destinations, correct projects, one source artifact, provenance on all three. This is the headline test for this step.
+- A memo naming a project that does not exist → asks, does not invent a project.
+- "Remember X" → memory, no task. "Fix X" → task. "Always do X" → config task. "What is X?" → answer.
+- **Mid-run feedback**: with a task running, send context that belongs to it → attached, worker sees it at the next checkpoint, the run is not restarted. Then send context that belongs to a *different* task → queued there, running task untouched.
+- Send feedback in the second before a task completes → it lands somewhere retrievable rather than vanishing into a finished task.
+- Three messages in ten seconds about three projects → three tasks, none merged, none lost.
+
+### Debug
+Wrong routing is the failure mode here, and it is invisible unless you log the
+decision. **Record the classifier's verdict and its reasoning on the inbox
+event**, then read a day of them — the bug is almost always one category
+swallowing another (usually "work" swallowing "capture").
+
+If splitting drops a segment, log the segmentation before the routing; a
+three-way split that produced two destinations failed at the split, not the
+route.
+
+If mid-run context never reaches the worker, check the checkpoint boundary — the
+runner must look for pending context, not be told. A push-based signal to a
+process that is mid-harness-call has nowhere to land.
+
+**Done when:** a single long voice note produces correctly-scoped work in three
+places with the source intact, and feedback typed during a run reaches that run
+without restarting it.
+
+## S4 — The runner, live on real hardware
 *Size: 1 day. Critical path.*
 
 **Build**
@@ -433,7 +514,7 @@ user**. Confirm the memory ceilings are in force.
 
 **Done when:** a heavy task reaches `succeeded` on Netcup with a readable transcript, and a mid-run restart recovers instead of losing work.
 
-## S4 — Project checkouts and deploy keys
+## S5 — Project checkouts and deploy keys
 *Size: 2 days.*
 
 **Build**
@@ -452,7 +533,7 @@ provisioning to project create and to first use.
 
 **Done when:** L6 passes.
 
-## S5 — The engineering workflow
+## S6 — The engineering workflow
 *Size: 4–5 days. The largest step in the plan.*
 
 **Build**
@@ -480,7 +561,7 @@ labelled a guess.
 
 **Done when:** N1 passes end to end from a console-created task, and the unreproducible case is handled honestly.
 
-## S6 — The pull request
+## S7 — The pull request
 *Size: 1 day.*
 
 **Build**
@@ -498,8 +579,8 @@ credential: what changed, why, root cause, tests run and their output, linked ta
 
 **Done when:** a PR link arrives for work Jarvis did unattended.
 
-## S7 — The acceptance test that matters
-*Size: half a day. Do it the day S5 and S6 land.*
+## S8 — The acceptance test that matters
+*Size: half a day. Do it the day S6 and S7 land.*
 
 **Build**
 Seeded repo, one failing test. Assert Jarvis opens a PR that makes it pass.
@@ -518,7 +599,7 @@ autonomous loop is ever pointed at the suite again.
 
 # STAGE 2 — MAKE IT TRUSTWORTHY
 
-## S8 — Independent review
+## S9 — Independent review
 *Size: 2 days.*
 
 **Build** A second model — different family where policy allows — reviews the diff before the PR opens. Findings and responses attach to the task; valid findings are addressed and verification re-runs.
@@ -529,7 +610,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** a planted bug is caught and corrected before the PR exists, and a clean change passes without invented findings.
 
-## S9 — Grants, merge, deploy
+## S10 — Grants, merge, deploy
 *Size: 2–3 days.*
 
 **Build** Task grants per IV.6 with all eight invalidation conditions. Merge and deploy broker-gated. Production on professional projects needs a live approval and defaults off.
@@ -540,7 +621,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** all eight conditions verified one by one, and N6 refuses.
 
-## S10 — Recovery under failure
+## S11 — Recovery under failure
 *Size: 2 days.*
 
 **Build** Map every harness failure onto the taxonomy: subscription limit → `provider.cred_expired`, park and notify; silence → `process.stuck`; run limit → `agent.loop`; dirty exit → `harness.crash`. Retry within taxonomy limits, resume from checkpoint, never from the start.
@@ -551,7 +632,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** five distinct mid-run failures each recover correctly and none loses work.
 
-## S11 — Isolation, proved
+## S12 — Isolation, proved
 *Size: 1 day.*
 
 **Build** Nothing new. This step exists to *prove* what earlier steps claimed.
@@ -566,7 +647,7 @@ autonomous loop is ever pointed at the suite again.
 
 # STAGE 3 — MAKE IT VISIBLE
 
-## S12 — The console leads with work
+## S13 — The console leads with work
 *Size: half a day.*
 
 **Build** Home shows the running task, the queue, and what needs Enrique. Health collapses to a strip. System lane hidden by default.
@@ -577,18 +658,18 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** disk percentage is no longer the first thing on the page.
 
-## S13 — Live work detail
+## S14 — Live work detail
 *Size: 2–3 days.*
 
 **Build** Phases, live tool events over SSE, tests, review findings, artifacts, timers, checkpoints, PR links, originating inbox events. "Live updates paused" after 5s of SSE silence.
 
-**Test** Watch a complete S5 run from the console with no terminal access. Kill SSE mid-run → banner appears, then reconnects and catches up without losing events. Unknown renders `unknown`, never `0`.
+**Test** Watch a complete S6 run from the console with no terminal access. Kill SSE mid-run → banner appears, then reconnects and catches up without losing events. Unknown renders `unknown`, never `0`.
 
 **Debug** Events arriving but not rendering is usually the throttle, not the transport. Inspect the raw event stream in the browser.
 
 **Done when:** an entire engineering run is legible from a phone.
 
-## S14 — Repair the degraded console
+## S15 — Repair the degraded console
 *Size: 3–4 days.*
 
 **Build** Audit every page against real API fields. Mobile first.
@@ -599,7 +680,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Done when:** all six journeys work on a phone and no page shows an invented number.
 
-## S15 — The credential loop
+## S16 — The credential loop
 *Size: 2 days.*
 
 **Build** Jarvis needs a key → ticket + one link → action page with a masked field and a plain statement of purpose and cost → submitted to the broker → connection tested → ticket closed → parked task resumes.
@@ -624,12 +705,12 @@ conversation, it cannot do anything as a result of one, and it cannot ring
 Enrique. This stage fixes all three.
 
 Two bugs already cost real time and must never come back. Both are one-line
-comments in `callcontrol.ts` today and regression tests after S16:
+comments in `callcontrol.ts` today and regression tests after S17:
 
 - **Self-transcription.** Recording started with the greeting, so Whisper transcribed Jarvis's own voice back as if the caller had said it.
 - **The runaway loop.** Every reply's own `playback.ended` armed another recording, so one utterance produced several transcriptions, each producing a reply, each arming more sessions.
 
-## S16 — Call reliability hardening
+## S17 — Call reliability hardening
 *Size: 2–3 days. Do this before making it smarter — a clever agent on a flaky line is worse than a dull one on a solid line.*
 
 **Build**
@@ -653,7 +734,7 @@ comments in `callcontrol.ts` today and regression tests after S16:
 
 **Done when:** ten consecutive calls, including three with a forced provider failure, all end cleanly with a stored transcript.
 
-## S17 — Turn-taking and barge-in
+## S18 — Turn-taking and barge-in
 *Size: 2 days.*
 
 **Build**
@@ -667,7 +748,7 @@ comments in `callcontrol.ts` today and regression tests after S16:
 
 **Done when:** a two-minute natural conversation runs with no talking over each other in either direction.
 
-## S18 — The desk actually does the work
+## S19 — The desk actually does the work
 *Size: 3 days. This is what makes calling useful rather than pleasant.*
 
 Tier 1 keeps the line human; Tier 2 has every tool. Today Tier 2 answers.
@@ -689,7 +770,7 @@ It must **act**.
 
 **Done when:** a phone call produces a merged-ready PR without touching a keyboard.
 
-## S19 — Jarvis calls Enrique
+## S20 — Jarvis calls Enrique
 *Size: 2–3 days. Does not exist at all today — only the quiet-hours check does.*
 
 **Build**
@@ -710,7 +791,7 @@ It must **act**.
 
 **Done when:** a genuinely blocked task rings the phone during the day and stays silent at 21:00.
 
-## S20 — Voice memory and review
+## S21 — Voice memory and review
 *Size: 1–2 days.*
 
 **Build** Every call: recording (retention-classed like WhatsApp audio — 7 days, never past 10 unless marked permanent), transcript, summary, and any tasks it produced, all attached to a conversation and visible in the console.
@@ -725,7 +806,7 @@ It must **act**.
 
 # STAGE 5 — MAKE IT REACH
 
-## S21 — Shrink the model routing
+## S22 — Shrink the model routing
 *Size: 1 day. Do it early — it removes code every later step would otherwise inherit.*
 
 **Build** Cut to what is real: Fireworks open-weights primary plus one fallback for the Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT; ElevenLabs for TTS. Delete the dead free-tier chain. Authentication stays per **provider**, never per model.
@@ -736,8 +817,8 @@ It must **act**.
 
 **Done when:** every registered route has passed a real tool-enabled call.
 
-## S22 — Project onboarding and `AGENTS.md`
-*Size: 2–3 days. S5 reads this file; nothing currently writes it.*
+## S23 — Project onboarding and `AGENTS.md`
+*Size: 2–3 days. S6 reads this file; nothing currently writes it.*
 
 **Build** Creating a project is a conversation. Jarvis asks and does not guess: personal or professional; production and customer-facing status; confidentiality; exact GitHub owner/repo or permission to create a private one; which auth profiles may see this data; metered paid APIs and the ceiling; deploy environments and approval rules; required tests, review, backups, monitoring.
 
@@ -749,7 +830,7 @@ On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.m
 
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
-## S23 — Configuration by conversation
+## S24 — Configuration by conversation
 *Size: 2 days.*
 
 Transcript msg 17: telling Jarvis to change how Jarvis works must work from
@@ -778,7 +859,7 @@ always-confirm list, secret scope, and the authority of the system projects.
 
 **Done when:** a sentence changes a different project's behaviour, is auditable a week later, and can be rolled back.
 
-## S24 — The engineering evaluation suite
+## S25 — The engineering evaluation suite
 *Size: 3–4 days.*
 
 Transcript msg 09: Jarvis runs its own quality testing and picks its primary and
@@ -804,7 +885,7 @@ someone's opinion.
 
 **Done when:** the `senior_engineer` route was chosen by measurement, and rerunning the suite reproduces the ranking.
 
-## S25 — Memory and knowledge
+## S26 — Memory and knowledge
 *Size: 4–5 days. Write ADR 017 first — but the recommendation below is the starting position, not an open question.*
 
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
@@ -862,8 +943,8 @@ mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
 **Done when:** N2 passes across a restore from backup, with correct citations, no
 cross-project leakage, and an honest "I don't know" when the answer is not there.
 
-## S26 — Composio and MCP
-*Size: 4–5 days. After S5, so there is something to use them.*
+## S27 — Composio and MCP
+*Size: 4–5 days. After S6, so there is something to use them.*
 
 **Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
 
@@ -873,7 +954,7 @@ cross-project leakage, and an honest "I don't know" when the answer is not there
 
 **Done when:** a heavy task completes real work through a Composio connection, and cross-project access is denied and audited.
 
-## S27 — Browser and scraping
+## S28 — Browser and scraping
 *Size: 5–6 days. Named in the very first planning message and still at zero. Write ADR 016 before any code — this has never been designed.*
 
 Enrique's first message asked for an agent that is "extremely good with scraping,
@@ -900,7 +981,7 @@ The tier used is recorded on the task so a slow scrape can be explained later.
 - **A fetch/extract toolkit**: retries with backoff, per-domain rate limiting, structured extraction (CSS/XPath/JSON-path), pagination, and a saved snapshot of every page it parsed.
 - **Politeness by default**: honest user agent unless the project's `AGENTS.md` says otherwise, `robots.txt` respected unless explicitly overridden per project, and a per-domain request ceiling. Overriding either is a project-level decision recorded in the repo, not a per-task whim.
 - **Output is an artifact**, not a log line: structured data plus the raw pages it came from, so a wrong result can be diagnosed without re-scraping.
-- **A login flow that asks.** When a site needs credentials Jarvis does not have, it raises a `UserActionRequest` with a link — the same credential loop as S15. It never guesses at, stores, or reuses a login across projects.
+- **A login flow that asks.** When a site needs credentials Jarvis does not have, it raises a `UserActionRequest` with a link — the same credential loop as S16. It never guesses at, stores, or reuses a login across projects.
 
 ### Test
 
@@ -934,7 +1015,7 @@ see another project's session.
 
 # STAGE 6 — MAKE IT SURVIVE
 
-## S28 — Notification policy
+## S29 — Notification policy
 *Size: 2 days.*
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
@@ -945,7 +1026,7 @@ see another project's session.
 
 **Done when:** a day of normal use produces only messages worth reading.
 
-## S29 — Schedules, maintenance, improvement
+## S30 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
@@ -956,7 +1037,7 @@ see another project's session.
 
 **Done when:** the system runs a full week unattended and the only messages are ones worth reading.
 
-## S30 — Backup, restore, export
+## S31 — Backup, restore, export
 *Size: 2–3 days.*
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
@@ -967,7 +1048,7 @@ see another project's session.
 
 **Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
 
-## S31 — Full acceptance
+## S32 — Full acceptance
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
@@ -982,10 +1063,10 @@ see another project's session.
 
 # STAGE 7 — THE LAST THING
 
-## S32 — WhatsApp
+## S33 — WhatsApp
 *Size: 2–3 days. Deliberately last. The number connects tomorrow; build everything up to the pairing now.*
 
-When S31 is done, this is the only work left between here and a finished Jarvis.
+When S32 is done, this is the only work left between here and a finished Jarvis.
 
 **Build now, before the number exists**
 - The bridge already persists first and blocks OpenClaw's default agent. Verify that end of it against the local stack.
@@ -1052,9 +1133,64 @@ together — a new event name that only one of the three knows about is a featur
 that works on your machine and nowhere else.
 
 ## IV.6 Authorization levels
-- **Baseline autonomous**: read, analyse, branch, test, write artifacts, open PRs on non-production personal projects.
-- **Natural-language grant**: merge and deploy on non-production, bound to a SHA, invalidated when the SHA changes.
-- **Always-confirm** (§13.3): production deploys, repository deletion, isolation changes, spend increases, anything destructive. A stale grant never satisfies these.
+
+Three levels, fixed at planning time. **The model does not decide whether
+approval is required — the policy engine does.** That sentence is the whole
+control: a model asked to judge its own authority will, sooner or later, judge
+generously, and it only has to do so once.
+
+### Level 1 — Safe. Autonomous, always.
+
+Read files, search, scrape, research, write code, run tests, create branches,
+commit, open pull requests, read-only database analysis, produce artifacts.
+
+No approval, no notification unless something failed. This is where Jarvis
+should spend nearly all of its time.
+
+### Level 2 — External but reversible. Per project policy.
+
+Create a GitHub issue, send a draft, create a staging deployment, modify a dev
+database, post internally.
+
+Whether these need asking is a **project setting**, decided at onboarding (S23)
+and recorded in the project's `AGENTS.md`. A personal side project may allow all
+of them silently; a professional one may allow none.
+
+### Level 3 — Production. Always requires Enrique, every time.
+
+Merge to production, deploy to production, send external email, delete
+production data, modify a production database, purchase anything, publish social
+content, change infrastructure, rotate credentials.
+
+A natural-language grant does **not** satisfy Level 3. Nor does a previous
+approval for a similar action, nor a grant issued minutes earlier for the same
+task. Point-of-action confirmation, every time.
+
+The WhatsApp message for a Level 3 gate is short and complete:
+
+```
+TicketFlipping checkout fix is ready.
+Tests: 31/31 passed
+PR #814 · staging verified
+Production deployment requires approval.
+```
+
+with Approve and Reject. Everything needed to decide is in the message; the link
+is for the detail, not for the decision.
+
+### Natural-language grants (Level 2 only)
+
+"Fix this, PR it, merge it" pre-authorises named Level 1 and Level 2 actions for
+**that task, that repository, that commit, that environment**, with an expiry.
+It is invalidated by any of the eight conditions in S10. It can never reach
+Level 3.
+
+### Where this is enforced
+
+In the broker, before the action — not in the prompt, not in the UI, and never
+by asking the model to check itself. A Level 3 action reaching the broker without
+a live approval is refused and audited, whatever the task believed it had been
+told.
 
 ---
 
@@ -1206,8 +1342,8 @@ on Linux — which is why v1's never was.
 stack. Manual is checklisted per stage and its evidence goes in the commit.
 
 ## Gate 1 — It acts *(blocks everything else)*
-- **N1** the fix, end to end — console first, then voice note at S32
-- **S7** seeded failing test → passing PR, in the suite and proven able to go red
+- **N1** the fix, end to end — console first, then voice note at S33
+- **S8** seeded failing test → passing PR, in the suite and proven able to go red
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
 
@@ -1216,7 +1352,7 @@ stack. Manual is checklisted per stage and its evidence goes in the commit.
 - **L2** queue survives process restart and a full reboot, order preserved
 - **L3** killed harness recovers from its checkpoint, same worktree
 - **N3** two things at once, two threads, two tasks, neither lost
-- Five distinct mid-run failures (S10) each resumable
+- Five distinct mid-run failures (S11) each resumable
 
 ## Gate 3 — It stays inside its lines
 - **L6** two repos, distinct deploy-key fingerprints
@@ -1224,19 +1360,19 @@ stack. Manual is checklisted per stage and its evidence goes in the commit.
 - **L11** auth-profile isolation, denied before any HTTP leaves the box
 - **L8** always-confirm blocked
 - **N6** production deploy refused without a live approval
-- All eight grant-invalidation conditions (S9) verified individually
+- All eight grant-invalidation conditions (S10) verified individually
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
 - **L17** the six mobile journeys
-- **S12** the console leads with work, not health
+- **S13** the console leads with work, not health
 - **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
 
 ## Gate 5 — The phone is dependable
 - Ten consecutive calls, three with a forced provider failure, all ending cleanly with a stored transcript
 - The two historical bugs — self-transcription and the runaway recording loop — covered by permanent regression tests
 - Barge-in stops playback within a beat, at any point in a reply
-- A call produces a real task and a real PR (S18)
+- A call produces a real task and a real PR (S19)
 - **L13** outbound refused at 20:00 and allowed Saturday 10:00; the four calling reasons trigger, and nothing else does
 - **L12** raw call audio gone at 7 days, transcript retained
 
@@ -1267,7 +1403,7 @@ Read the step. Build it. **Test it, including the failure paths.** Debug until
 the "Done when" line is observed. Commit with the evidence in the message. Then,
 and only then, read the next step.
 
-Do not batch steps. Do not start S5 because S4 is "basically done". Basically
+Do not batch steps. Do not start S6 because S5 is "basically done". Basically
 done is how v1 accumulated a chassis with no engine.
 
 ## IX.2 The test discipline
@@ -1336,7 +1472,7 @@ or whether to write a test. Those are yours.
 - **Do not work on the frozen ops layer.** Error taxonomy, notification outbox, quiet-hours plumbing, backups, host metrics, health incidents, ADR conformance sweeps. They are finished and good. Every hour there is an hour Jarvis still cannot open a PR. This is the single trap that consumed v1's overnight run of 31 ticks.
 - **Do not add features not in this document.** If the gap is real, write an ADR.
 - **Do not mark a step done because a row was written.** Done means the effect happened.
-- **Do not point an autonomous loop at the acceptance suite until S7 exists.** A loop optimises what the suite measures; before S7 the suite measures plumbing.
+- **Do not point an autonomous loop at the acceptance suite until S8 exists.** A loop optimises what the suite measures; before S8 the suite measures plumbing.
 - **Do not refactor across steps.** A refactor spanning half-finished work is unreviewable and unrevertable.
 
 ## IX.7 The work already in flight
@@ -1353,15 +1489,15 @@ shared working tree.
 
 | Stage | Steps | What it buys | Rough |
 |---|---|---|---|
-| **1 — It acts** | S1–S7 | A sentence becomes a pull request. **The only stage that is not optional.** | 9–11 days |
-| **2 — It is trustworthy** | S8–S11 | Review, grants, recovery, proven isolation | 7–8 days |
-| **3 — It is visible** | S12–S15 | A console that shows work and repairs credentials | 8–10 days |
-| **4 — The phone is reliable** | S16–S20 | A call you can depend on, and Jarvis calling you | 10–12 days |
-| **5 — It reaches** | S21–S27 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
-| **6 — It survives** | S28–S31 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S32 | The last thing. Voice note in, PR back. | 2–3 days |
+| **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
+| **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
+| **3 — It is visible** | S13–S16 | A console that shows work and repairs credentials | 8–10 days |
+| **4 — The phone is reliable** | S17–S21 | A call you can depend on, and Jarvis calling you | 10–12 days |
+| **5 — It reaches** | S22–S28 | Routing, onboarding, config-by-voice, model evals, memory, Composio, MCP, scraping | 19–24 days |
+| **6 — It survives** | S29–S32 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
+| **7 — WhatsApp** | S33 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 65–80 working days** for one agent working sequentially, with
+**Total: roughly 70–85 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
@@ -1372,14 +1508,14 @@ system is useful.
 ## The order is not arbitrary
 
 - **S1 first** because every step after it is tested through the fake harness. Building it later means everything before it was built blind, which is exactly how the runner came to be written and never run.
-- **S2 and S3 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
+- **S2 and S4 next** because they are the critical path. Until a message can become a task and a task can spawn a harness, no other work can be demonstrated at all.
 - **Stage 2 before Stage 3** because a console showing untrustworthy work is worse than no console.
 - **Stage 4 after Stage 1** because the phone becomes genuinely useful only once the desk can *do* something. A reliable call to a system that cannot act is a pleasant dead end.
-- **S32 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
+- **S33 last** by request: the number connects tomorrow, and everything up to the pairing is built and tested before then.
 
 ## What "finished" means
 
-When S32 is green, this is true:
+When S33 is green, this is true:
 
 > Enrique sends a voice note. Minutes later he gets one short message with a link
 > to a pull request that fixes what he described. He can call Jarvis and talk to
@@ -1429,15 +1565,15 @@ Every requirement from the planning transcript, and where it lives.
 | Project onboarding asks before assuming (15, 20) | B10 |
 | Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
-| Phone calls, both directions (06, 07, 15) | S16–S20 |
-| Jarvis can call me (06, 15) | S19 |
-| Five-second turn-taking on calls (01) | S17 |
-| WhatsApp voice notes (01, 15) | S32 |
-| Nothing I say is ever lost (15) | S2, S10, S32, Gate 2 |
+| Phone calls, both directions (06, 07, 15) | S17–S21 |
+| Jarvis can call me (06, 15) | S20 |
+| Five-second turn-taking on calls (01) | S18 |
+| WhatsApp voice notes (01, 15) | S33 |
+| Nothing I say is ever lost (15) | S2, S11, S33, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S24 |
-| Change any project's setup from any channel (17) | S23 |
-| Weekly scan of the AI world, one-tap approve (17) | S29 |
-| Maintenance project that heals the system (17) | S29 |
-| Dump anything, ask about it later (01) | S25, N2 |
-| Never mix connections between projects (01, 20) | S4, S11, S26 |
+| Jarvis tests models and picks its own primaries (09) | S25 |
+| Change any project's setup from any channel (17) | S24 |
+| Weekly scan of the AI world, one-tap approve (17) | S30 |
+| Maintenance project that heals the system (17) | S30 |
+| Dump anything, ask about it later (01) | S26, N2 |
+| Never mix connections between projects (01, 20) | S5, S12, S27 |
