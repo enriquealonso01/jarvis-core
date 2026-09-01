@@ -71,12 +71,24 @@ async function main(): Promise<void> {
 
   // Work tables only. Migration 002's seeds (system projects, auth profiles,
   // schedules) are left alone — they are the fixture, not the test data.
+  //
+  // CASCADE reaches further than the list suggests: `conversations` has an FK to
+  // `inbox_events` (created_from_inbox_id), so truncating the inbox silently
+  // takes every thread with it, including the console thread migration 002
+  // seeds. Recreate it below rather than pretending the list is exhaustive.
   await pool.query(`
     TRUNCATE task_checkpoints, task_transitions, task_attempts, task_grants, task_dependencies,
              issue_events, issues, notifications_outbox, audit_events, artifacts, messages,
-             inbox_events, tasks, user_action_requests, approvals
+             inbox_events, tasks, user_action_requests, approvals, memory_items
     RESTART IDENTITY CASCADE
   `);
+
+  // The console's own thread: unscoped, so nothing pre-selects a project for the
+  // Supervisor. That is the case worth testing.
+  const conversation = await pool.query<{ id: string }>(
+    `INSERT INTO conversations (project_id, title, channel) VALUES (NULL, 'Supervisor', 'web')
+     RETURNING id`,
+  );
 
   for (const dir of ["artifacts", "worktrees", "projects", "browsers", "quarantine", "keys", "harness-auth", "dev-origins"]) {
     await fs.mkdir(path.join(JARVIS_ROOT, dir), { recursive: true });
@@ -106,6 +118,16 @@ async function main(): Promise<void> {
     [PROJECT_SLUG],
   );
 
+  // Two projects whose names share a prefix. Without them "ambiguous request
+  // matching two projects" (S2) cannot be tested at all, and the resolver would
+  // only ever be exercised on the easy path.
+  await pool.query(
+    `INSERT INTO projects (slug, name, project_type, confidentiality, default_branch)
+     VALUES ('alpha-web', 'Alpha Web', 'personal', 'normal', 'main'),
+            ('alpha-mobile', 'Alpha Mobile', 'personal', 'normal', 'main')
+     ON CONFLICT (slug) DO UPDATE SET archived_at = NULL`,
+  );
+
   // The heavy lane refuses to run without a completed host login. In dev there
   // is no subscription to log into, so point the profile at an empty config dir:
   // the fake harness ignores it, and the check that a profile must be *chosen*
@@ -122,6 +144,8 @@ async function main(): Promise<void> {
       "seeded:",
       `  operator   ${OPERATOR_EMAIL} / ${OPERATOR_PASSWORD}`,
       `  project    ${PROJECT_SLUG} (${project.rows[0].id})`,
+      "  projects   alpha-web, alpha-mobile (for the ambiguity test)",
+      `  thread     ${conversation.rows[0].id} (unscoped, channel web)`,
       `  repo       ${work}`,
       `  harness    ${process.env.JARVIS_HARNESS ?? "claude"}`,
       `  root       ${JARVIS_ROOT}`,

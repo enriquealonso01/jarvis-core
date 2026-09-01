@@ -1,0 +1,131 @@
+[
+  {
+    "match": "wire it end to end",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "dev-sandbox",
+          "title": "Wire it end to end",
+          "objective": "Prove a sentence in the console reaches the heavy lane: add a file to the sandbox repo and commit it on a branch.",
+          "lane": "heavy",
+          "priority": "high"
+        }
+      }
+    ]
+  },
+  {
+    "match": "fix the login button",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha-web",
+          "title": "Fix the login button",
+          "objective": "The login button on the sign-in page does nothing when clicked. Find why the click handler never fires, fix it, and open a pull request against main with a test that fails without the fix.",
+          "lane": "heavy",
+          "priority": "high"
+        }
+      }
+    ]
+  },
+  {
+    "match": "prefers tuesdays",
+    "tool_calls": [
+      {
+        "name": "memory_upsert",
+        "arguments": {
+          "kind": "preference",
+          "body": "The client prefers Tuesdays for calls."
+        }
+      }
+    ]
+  },
+  {
+    "match": "speed up the checkout",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha",
+          "title": "Speed up checkout",
+          "objective": "Checkout takes over four seconds. Profile it and get it under one second.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "tidy up the logs",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "title": "Tidy up the logs",
+          "objective": "Log lines are unstructured. Give them a consistent prefix and a level.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "make the header sticky",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha-web",
+          "title": "Sticky header",
+          "objective": "Make the header sticky.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "burst one",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha-web",
+          "title": "Burst one",
+          "objective": "First of three requests sent in quick succession. Rename the settings page.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "burst two",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha-web",
+          "title": "Burst two",
+          "objective": "Second of three requests sent in quick succession. Add a footer link.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "burst three",
+    "tool_calls": [
+      {
+        "name": "task_create",
+        "arguments": {
+          "project": "alpha-web",
+          "title": "Burst three",
+          "objective": "Third of three requests sent in quick succession. Fix the favicon.",
+          "lane": "heavy"
+        }
+      }
+    ]
+  },
+  {
+    "match": "what time is it",
+    "content": "I do not have a clock, but nothing needed doing there."
+  }
+]

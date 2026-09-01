@@ -27,3 +27,13 @@ pnpm dev:down    # and forget all of it
 `JARVIS_HARNESS=fake[:variant]` makes the runner spawn `scripts/fake-harness.mjs`
 instead of `claude`. Variants: `ok`, `crash`, `slow`, `runaway`, `noop`,
 `escape`.
+
+`JARVIS_MODEL=fake` swaps the provider chain for a scripted stand-in
+(`src/fakemodel.ts` + `scripts/fixtures/*.json`) so a Supervisor turn completes
+with no credential and no network:
+
+```
+JARVIS_MODEL=fake pnpm dev:up
+pnpm dev:seed
+bash scripts/s2-task-create-test.sh
+```

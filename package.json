@@ -14,7 +14,8 @@
     "dev:up": "docker compose -f deploy/compose.dev.yaml up -d --build",
     "dev:down": "docker compose -f deploy/compose.dev.yaml down -v",
     "dev:seed": "docker compose -f deploy/compose.dev.yaml run --rm seed",
-    "dev:test": "bash scripts/s1-harness-test.sh"
+    "dev:test": "bash scripts/s1-harness-test.sh",
+    "dev:test:s2": "bash scripts/s2-task-create-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

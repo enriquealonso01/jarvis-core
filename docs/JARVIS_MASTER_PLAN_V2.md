@@ -102,7 +102,7 @@ the ability to act and to dial out — it does not rebuild it.
 - The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S13–S15 repair it rather than restart it.
 
 **Does not exist at all**
-- Any way for a message to become work (`task_create`) — S2.
+- ~~Any way for a message to become work (`task_create`)~~ — S2 done 2026-09-01: `task.create` is a Supervisor tool, refuses heavy work with no project, refuses an ambiguous project, refuses an objective that only echoes the message, and its tasks are picked up by the runner.
 - Outbound calling. Only the quiet-hours *check* exists; nothing dials — S20.
 - `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S27.
 - Browser control and scraping — S28.

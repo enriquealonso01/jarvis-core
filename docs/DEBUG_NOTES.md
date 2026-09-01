@@ -148,6 +148,33 @@ prerequisite. If the application needs a directory, the application should
 create it — otherwise "works on the server" is the only environment there is.
 
 
+### TRUNCATE CASCADE quietly deleted every conversation
+**Symptom:** after the S2 seed ran, `POST /api/conversations//messages` — with an
+empty id — 500'd with `invalid input syntax for type uuid: ""`. It read like a
+routing or auth bug; the conversation table was simply empty.
+**Cause:** `conversations.created_from_inbox_id` has a foreign key to
+`inbox_events`. The seed truncates `inbox_events`, and `CASCADE` truncates every
+table referencing it — so wiping the inbox wiped every thread, including the one
+migration 002 seeds for the console.
+**Fix:** the seed recreates the console thread explicitly, and says so in a
+comment, rather than assuming the truncate list is the whole blast radius.
+**Lesson:** `TRUNCATE ... CASCADE` follows FKs *inbound*, so the tables it
+destroys are not the ones you named. Before trusting a truncate list, ask
+Postgres: `SELECT conrelid::regclass, pg_get_constraintdef(oid) FROM
+pg_constraint WHERE confrelid = '<table>'::regclass`.
+
+### The sabotage did not compile, so the build failed and the old image kept running
+**Symptom:** a deliberate break to `task_create`'s lane produced 24/24 green —
+the second time in two steps that a see-it-fail pass silently proved nothing.
+**Cause:** the sabotage was a type error, `pnpm build` failed inside the Docker
+build, and `docker compose up --build` was piped through `tail -1`, so the error
+scrolled past and the container came back up on the previous image.
+**Fix:** typecheck the sabotage before building, and grep the build output for
+`error` and `Built` instead of tailing it.
+**Lesson:** a see-it-fail pass has two ways to lie — the patch not applying, and
+the patched code not being what is running. Confirm the sabotage is in the file
+*and* in the artifact under test before believing a green result.
+
 ### A whole test run went red on a UUID that was perfectly valid
 **Symptom:** every assertion in the first S1 run failed with
 `invalid input syntax for type uuid: "1f40b83c-...-faa6a5941b1d
