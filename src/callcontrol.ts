@@ -268,7 +268,7 @@ async function greetingUrl(pool: pg.Pool): Promise<string | null> {
 }
 
 /** Render any line of speech in the pinned voice and return a playable URL. */
-async function renderSpeech(pool: pg.Pool, text: string): Promise<string | null> {
+export async function renderSpeech(pool: pg.Pool, text: string): Promise<string | null> {
   const voiceId = sitePin((c) => c.elevenlabs?.voice_id);
   const base = sitePin((c) => c.site?.public_url) ?? "https://jarvis.enriquecodes.com";
   if (!voiceId) return null;
