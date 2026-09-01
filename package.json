@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "worker": "node dist/worker.js",
+    "runner": "node dist/runner.js",
     "dev": "node --import tsx src/index.ts",
     "migrate": "node dist/migrate.js"
   },

@@ -177,6 +177,43 @@ async function audioRetention(pool: ReturnType<typeof createPool>) {
   }
 }
 
+/**
+ * Reap worktrees left behind by crashed harness runs (ADR 015 consequence).
+ *
+ * The runner removes its own worktree in a `finally`, but a killed process or a
+ * lost box skips that. On a machine this size an accumulation of abandoned
+ * checkouts is a disk-full incident waiting to happen, and disk-full takes
+ * everything with it.
+ *
+ * Only directories whose task has reached a terminal state are touched, so a
+ * long-running task is never robbed of the tree it is working in.
+ */
+async function reapWorktrees(pool: ReturnType<typeof createPool>) {
+  const projects = await fs.readdir(WORKTREES).catch(() => [] as string[]);
+  for (const slug of projects) {
+    const dir = path.join(WORKTREES, slug);
+    const runs = await fs.readdir(dir).catch(() => [] as string[]);
+    for (const short of runs) {
+      const full = path.join(dir, short);
+      const st = await fs.stat(full).catch(() => null);
+      if (!st?.isDirectory()) continue;
+      if (Date.now() - st.mtimeMs < 24 * 60 * 60 * 1000) continue;
+      // `short` is the first 8 characters of the task uuid the runner created it
+      // from. A directory that matches no terminal task is left alone.
+      const done = await pool.query(
+        `SELECT 1 FROM tasks
+         WHERE left(id::text, 8) = $1
+           AND state IN ('succeeded', 'failed_terminal', 'cancelled')
+         LIMIT 1`,
+        [short],
+      );
+      if (!done.rowCount) continue;
+      await fs.rm(full, { recursive: true, force: true }).catch(() => undefined);
+      console.log(`reaped abandoned worktree ${slug}/${short}`);
+    }
+  }
+}
+
 async function ensureDirs() {
   await fs.mkdir(ARTIFACTS, { recursive: true });
   await fs.mkdir(WORKTREES, { recursive: true });
@@ -273,62 +310,18 @@ async function main() {
       await watchdog(pool);
       await drainOutbox(pool);
       await audioRetention(pool);
+      await reapWorktrees(pool).catch(() => undefined);
       const id = await claimTask(pool, "system", WORKER_ID);
       if (id) {
         await runSystemTask(pool, id);
         continue;
       }
-      const heavy = await claimTask(pool, "heavy", WORKER_ID);
-      if (heavy) {
-        // The heavy lane still parks, but it must say why *truthfully*. The old
-        // message asked Enrique to complete a host CLI login; those are done, so
-        // it was sending him to do something already finished. What is actually
-        // missing is the runner: the CLIs live on the host and the worker is a
-        // container that mounts every profile dir as root, which is not the
-        // one-profile-one-worktree shape ADR 006 requires.
-        const logins = await pool.query<{ n: string }>(
-          `SELECT count(*)::text AS n FROM auth_profiles
-           WHERE auth_type = 'subscription_login' AND harness_auth_dir IS NOT NULL`,
-        );
-        const haveLogin = Number(logins.rows[0]?.n ?? 0) > 0;
-
-        // Both halves are constants chosen here, not interpolated from input:
-        // transitionTask takes a raw SQL fragment, and building that from a
-        // variable is a habit worth not starting.
-        const [reason, waitingSql] = haveLogin
-          ? [
-              "harness runner not built yet — host logins are connected",
-              "waiting_reason = 'harness runner not built yet', lease_until = NULL",
-            ]
-          : [
-              "ACP harness host login not on this box yet",
-              "waiting_reason = 'ACP harness host login not on this box yet', lease_until = NULL",
-            ];
-
-        await transitionTask(pool, heavy, "waiting_for_provider", reason, "worker", waitingSql);
-
-        await raiseIssue(pool, {
-          category: "harness.crash",
-          service: "harness",
-          owner: "user",
-          status: "waiting_for_user",
-          title: haveLogin
-            ? "[harness] heavy lane needs a harness runner"
-            : "[harness] heavy task waiting for Anthropic/Codex/Cursor host login",
-          // Keyed on which condition is blocking, so resolving the login does not
-          // leave the old ticket standing and does not silence the new one.
-          dedupeKey: haveLogin ? "setup.harness.runner" : "setup.harness",
-          taskId: heavy,
-          evidence: { task_id: heavy, host_logins_connected: haveLogin },
-          requiredAction: haveLogin
-            ? "Decide how the harness runs: the CLIs are installed on the host, "
-              + "while the worker is a container mounting every profile dir as root. "
-              + "ADR 006 wants one profile dir and one worktree per run."
-            : "Complete one of the host CLI logins on the VPS (ADR 006).",
-          notifyOverride: "whatsapp_blocker",
-        });
-        continue;
-      }
+      // The heavy lane belongs to `jarvis-runner` on the host now (ADR 015).
+      // This worker deliberately does not claim from it: both processes would
+      // claim with the same SKIP LOCKED query, so whichever won the race would
+      // decide the task's fate, and a share of every workload would be parked by
+      // a container that cannot spawn a harness instead of run by the process
+      // that can.
       await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       console.error(err);
