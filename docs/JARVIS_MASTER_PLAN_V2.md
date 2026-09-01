@@ -103,6 +103,12 @@ Sparing "sir" — never twice in a reply. Never sycophantic.
 - **Tier 1 — the voice.** No tools, reasoning off, one short reply, sub-second. Its only decision is *answer* or *hand over*. Because it has no tools it must never claim anything was done.
 - **Tier 2 — the desk.** The full Supervisor with every tool, running after the caller has already been answered. It does the actual work and reports back on the channel Enrique prefers.
 
+**When Jarvis calls, unprompted.** Rare by design. Only for: a task blocked on
+something only Enrique can unblock and idle over an hour; a production incident on
+a professional project; a destructive action awaiting approval past its window; a
+security or isolation event. Anything else waits for WhatsApp. Never inside quiet
+hours — a blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+
 ## I.3 The Control Center — the console
 
 Next.js, static-exported, served by Caddy at `https://jarvis.<domain>`. Session
@@ -232,6 +238,35 @@ A project is a security boundary. Concretely:
 - Professional and confidential projects get a dedicated unix user, created at project-create time. Until that exists, the heavy lane refuses them.
 - The Supervisor, Improvement, and Maintenance never use a project-owned auth profile.
 
+## II.6 Resource budget
+
+Target host ~16 GB. **Heavy concurrency is 1.** Browser QA and coding share that
+one slot.
+
+| Slice | MB |
+|---|---|
+| OS + page cache | 2500 |
+| PostgreSQL | 1024 |
+| OpenClaw | 1024 |
+| API + system worker | 768 |
+| Caddy | 128 |
+| **Heavy runner (harness + node + git)** | **4096** |
+| Browser worker (replaces part of heavy, never added) | 2048 |
+| Local embeddings (system lane, idle only) | 1024 |
+| Docker overhead | 1024 |
+| Headroom | ~2–3 GB |
+
+Embeddings never run while heavy work is active. Below 1536 MB `MemAvailable`,
+heavy work does not start: raise `resource.ram`, let Maintenance shed embeddings
+and idle browsers first.
+
+**ADR 015 opened a hole here and it must be closed.** Every other component is a
+container with a `mem_limit`. The runner is a host process with no cgroup, so the
+one slice with the largest budget is the only one that is unbounded — an OOM
+there takes Postgres with it. The unit therefore sets `MemoryHigh=3584M` and
+`MemoryMax=4096M`, and an OOM kill is a `resource.ram` issue against the task,
+not a silent restart.
+
 ---
 
 # PART III — THE THREE TRACKS
@@ -278,6 +313,8 @@ worktree, spawns `claude -p`, streams a transcript, heartbeats, and honours
 cancel/silence/timeout. It has never been run. It does not yet produce a PR.
 
 ### A1 — Prove the runner on real hardware
+*Size: 1 day. **Critical path.** Nothing in Track A proceeds until this is green on Netcup.*
+
 Deploy `jarvis-runner.service` to Netcup. Create `/etc/jarvis/runner.env` (0640
 root:jarvis, `DATABASE_URL` only). Run one heavy task end to end.
 
@@ -288,6 +325,8 @@ visible in Work detail, and the transcript is a registered artifact.
 `claude` binary's path and permissions under systemd.
 
 ### A2 — Project checkouts and deploy keys
+*Size: 2 days. Blocks A3.*
+
 A project with a linked GitHub repo gets a checkout at
 `/var/lib/jarvis/projects/<slug>/repo`, cloned over a **project-scoped deploy
 key** — never the personal admin credential. Key provisioning already exists in
@@ -297,6 +336,8 @@ key** — never the personal admin credential. Key provisioning already exists i
 project A cannot `git ls-remote` project B's repo (assert it).
 
 ### A3 — The engineering workflow
+*Size: 4–5 days. **The single biggest deliverable in the plan.***
+
 The full §27 loop inside a single run, with each phase written to `task_events`
 so Work detail can show it:
 
@@ -318,6 +359,8 @@ is a failure**, and it must be labelled.
 *Done when:* narrative **N1** passes end to end from a UI-created task.
 
 ### A4 — Independent review
+*Size: 2 days. After A3.*
+
 Before the PR is opened, a second model — different family where the project's
 policy allows one — reviews the diff. Valid findings are addressed and
 verification re-runs. Findings and responses attach to the task.
@@ -326,15 +369,38 @@ verification re-runs. Findings and responses attach to the task.
 before the PR exists.
 
 ### A5 — Merge and deploy under authority
-Merging and deploying are **broker-gated**. A natural-language grant ("fix it,
-PR it, merge it") satisfies a non-production personal project. Production on a
-professional project requires a live approval and defaults to off. A grant is
-invalidated when the commit SHA changes.
+*Size: 2–3 days. After A4.*
 
-*Done when:* **N6** refuses correctly, and the personal non-production path
-merges without a second click.
+
+Merging and deploying are broker-gated. A natural-language instruction ("fix it,
+PR it, merge it") creates a **task grant** scoped to the project, the task, the
+repository, the resulting commit, the named environment, and an expiry.
+
+Jarvis skips a redundant approval only when all of these hold: the instruction
+was unambiguous, the task stayed in scope, required tests and policies passed,
+the revision deploying is the one produced under the grant, and no new high-risk
+condition appeared.
+
+The grant is **invalidated** — and a fresh approval required — by any of:
+1. project or environment ambiguous
+2. scope materially expanded
+3. a destructive database migration appeared
+4. a security control would have to be weakened
+5. paid billing would have to be enabled
+6. secrets or permissions changed materially
+7. the branch or commit changed after validation
+8. the task resumed after the grant expired
+
+Store the reason in `task_grants.invalidate_reason`. Production on a professional
+project requires a live approval and defaults to off regardless of any grant.
+
+*Done when:* **N6** refuses correctly, the personal non-production path merges
+without a second click, and amending the commit after tests invalidates the grant
+and raises an approval (**L7**).
 
 ### A6 — Harness resilience
+*Size: 2 days. Can run alongside A4.*
+
 Map harness failure onto the taxonomy: subscription limit reached →
 `provider.cred_expired`, park and notify; silence → `process.stuck`; run limit →
 `agent.loop`; dirty exit → `harness.crash`. Retry within the taxonomy's limits;
@@ -344,16 +410,36 @@ resume from checkpoint, never from the beginning.
 `stalled → recovering → running → succeeded` trail with the same worktree (**L3**).
 
 ### A7 — Second harness adapter
+*Size: 2 days. Any time after A3.*
+
 Extract the harness call behind an interface and add Codex. Cursor stays
 registered and unbuilt until there is a reason.
 
 *Done when:* the same task runs on either harness by changing one field.
 
 ### A8 — The acceptance test that matters
+*Size: half a day. Do it the day A3 lands, not later.*
+
 A seeded repo with a failing test. Assert Jarvis opens a PR that makes it pass.
 
 *Done when:* it is in the suite and green — and **before any autonomous loop is
 pointed at the suite again**.
+
+### A9 — The engineering evaluation suite
+*Size: 3–4 days. Depends on A3.*
+
+Transcript msg 09: Jarvis picks its own primaries by testing them, not by reading
+vendor claims. Build a private benchmark from real issues already solved in these
+repos, and score each harness/model pair on: reproduction, root-cause accuracy,
+correctness, hidden tests, regression safety, test quality, tool reliability,
+scope control, code quality, PR quality, unnecessary escalation, and quota
+consumed.
+
+A model **earns** the `senior_engineer` role by winning this suite. Results land
+in `benchmarks`; the registry's `route_order` follows from them.
+
+*Done when:* two harnesses have run the suite and the winner is what routing
+actually uses.
 
 ---
 
@@ -368,6 +454,8 @@ self-referential tools work. `callagent.ts` (two-tier voice) is in progress.
 There is no way for a message to become work.
 
 ### B1 — `task_create` — the missing link
+*Size: half a day. **Critical path.** Highest value-per-hour in the plan.*
+
 A Supervisor tool that creates a task: project, title, objective, lane,
 priority, and the originating conversation and inbox event. Heavy work goes to
 `lane='heavy'`.
@@ -379,6 +467,8 @@ can do is reachable without it.
 chat produces a heavy task with the right project, objective, and provenance.
 
 ### B2 — Intent routing
+*Size: 3 days. After B1.*
+
 Classify every inbound item: capture / question / instruction / work /
 configuration change. Route to memory, to an answer, to a task, or to a config
 task. Ambiguity asks one short question rather than guessing.
@@ -387,6 +477,8 @@ task. Ambiguity asks one short question rather than guessing.
 correctly-scoped tasks.
 
 ### B3 — WhatsApp end to end
+*Size: 3–4 days. Independent of Track A.*
+
 Pair the dedicated number by QR. Bridge persists first and never lets OpenClaw's
 default agent answer. Text, voice, images, documents all ingest. Reconciliation
 backfills anything missed while the API was down.
@@ -395,6 +487,8 @@ backfills anything missed while the API was down.
 no drop.
 
 ### B4 — Voice notes
+*Size: 2 days. After B3.*
+
 Audio → artifact (`retention_class='raw_audio'`) → STT → transcript message
 linked to the original. Raw audio deleted at 7 days, never kept past 10 unless
 marked permanent.
@@ -402,6 +496,8 @@ marked permanent.
 *Done when:* **N1** starts from an actual voice note, and **L12** passes.
 
 ### B5 — Notification policy
+*Size: 2 days. After B3.*
+
 Implement §17 exactly: silence on trivial capture; one line on short work;
 ack-plus-result on long work; one message per blocker with a working link; the
 weekly report. Deduplicate — a repeated condition is a counter, not another page.
@@ -410,6 +506,8 @@ weekly report. Deduplicate — a repeated condition is a counter, not another pa
 long task produces exactly two.
 
 ### B6 — Phone, both directions
+*Size: 5–6 days. Largest Track B item; defer past M1.*
+
 Telnyx inbound and outbound. Quiet hours enforced at the call site, not in the
 UI. Five-second turn-taking, interruptible. ElevenLabs voice with the pinned
 `voice_id`. Tier 1 answers, Tier 2 acts.
@@ -418,6 +516,8 @@ UI. Five-second turn-taking, interruptible. ElevenLabs voice with the pinned
 refused and becomes a WhatsApp plus an Issue.
 
 ### B7 — Memory and knowledge
+*Size: 3–4 days.*
+
 Everything Enrique dumps is chunked, indexed, and searchable forever, scoped by
 project with a global tier for Supervisor memory. Answers cite what they came
 from.
@@ -425,6 +525,8 @@ from.
 *Done when:* **N2** passes across a restart.
 
 ### B8 — Configuration by conversation
+*Size: 2 days. After B2.*
+
 "Change Alpha's deploy policy", "stop doing X", "always Y" become versioned,
 validated, audited, reversible config tasks — from WhatsApp.
 
@@ -432,6 +534,8 @@ validated, audited, reversible config tasks — from WhatsApp.
 "what changed in this project's policy last week?" answers correctly.
 
 ### B9 — Model routing, shrunk
+*Size: 1 day. Do it early — it removes code the other items would otherwise inherit.*
+
 Cut to what is real: Fireworks open-weights primary plus one fallback for the
 Supervisor; Claude Code on subscription for the engineer; Groq Whisper for STT;
 ElevenLabs for TTS. Delete the dead free-tier chain — sixteen half-probed models
@@ -442,6 +546,28 @@ provider reuses the key and never asks Enrique again.
 
 *Done when:* `/api/models` shows two healthy supervisor routes and no `discovered`
 rows pretending to be routable.
+
+### B10 — Project onboarding
+*Size: 2–3 days. Blocks A3 — without it there is no `AGENTS.md` to read.*
+
+Creating a project is a conversation, not a form. Jarvis must ask, and must not
+guess: personal or professional; production and customer-facing status;
+confidentiality; the exact GitHub owner/repo or permission to create a new
+private one; which auth profiles may see this data; whether metered paid APIs are
+allowed and the ceiling if so; deploy environments and approval rules; required
+tests, review, backups, monitoring.
+
+On finalize, Jarvis **writes `AGENTS.md` into the repository** from the template
+in `docs/TEMPLATES.md` — classification, repo, approved auth profiles, setup/test/
+lint commands, environments, forbidden actions, PR and deploy gates, default queue
+priority. Every engineering task reads it. Changes are versioned in
+`project_instructions_versions`.
+
+Never bake a named customer or employer into the template; the professional
+policy is generic (§28.2).
+
+*Done when:* a project created by voice ends with a committed `AGENTS.md` whose
+values match the answers given in the thread.
 
 ---
 
@@ -454,6 +580,8 @@ rows pretending to be routable.
 its own database.
 
 ### C1 — Make the console lead with work
+*Size: half a day. Do it first; it is the fastest visible improvement.*
+
 Home shows what Jarvis is doing, what is queued, and what needs Enrique. Health
 becomes a collapsed strip. The system lane is hidden by default.
 
@@ -461,6 +589,8 @@ becomes a collapsed strip. The system lane is hidden by default.
 disk percentage.
 
 ### C2 — Repair the degraded UI
+*Size: 3–4 days. Ongoing alongside everything else.*
+
 Audit every page against real API fields. Any metric without a real source shows
 `unknown`. Fix the mobile journeys first — that is where it is actually used.
 
@@ -469,6 +599,8 @@ context to a task, resolve an API-key issue, approve something, reprioritise, an
 open an artifact.
 
 ### C3 — Live work detail
+*Size: 2–3 days. Needs A1 running to have anything to show.*
+
 The full Work view: phases, live tool events over SSE, tests, review findings,
 artifacts, timers, checkpoints, PR links, and the inbox events that caused it.
 "Live updates paused" when SSE drops for 5s.
@@ -476,6 +608,8 @@ artifacts, timers, checkpoints, PR links, and the inbox events that caused it.
 *Done when:* an entire A3 run is legible from the console with no log access.
 
 ### C4 — The credential loop
+*Size: 2 days. Needs B5 for the WhatsApp link.*
+
 The loop Enrique asked for repeatedly: Jarvis needs a key → ticket + one WhatsApp
 link → action page with a masked field, a statement of purpose and cost →
 submitted straight to the broker → connection tested → ticket closed → blocked
@@ -484,6 +618,8 @@ task resumes.
 *Done when:* **N4** and **L5** pass without a terminal.
 
 ### C5 — Composio
+*Size: 3 days. After A3.*
+
 The Composio adapter, so any Composio-supported service is reachable under
 project scope through the broker. Connection manifests declare kind, scopes, and
 permission schema.
@@ -492,6 +628,8 @@ permission schema.
 the same connection is denied to a second project.
 
 ### C6 — Generic MCP client
+*Size: 3 days. After C5.*
+
 Jarvis can attach any MCP server, scoped to a project, with its tools surfaced to
 the harness. Untrusted servers run in Docker, never on the host.
 
@@ -499,6 +637,8 @@ the harness. Untrusted servers run in Docker, never on the host.
 another.
 
 ### C7 — Browser and scraping
+*Size: 4–5 days. After A3.*
+
 Named in Enrique's first message and still at zero. A project-scoped browser
 profile, headless control, and a scraping toolkit good enough for real sites.
 Never shares a profile across projects.
@@ -507,6 +647,8 @@ Never shares a profile across projects.
 project artifact.
 
 ### C8 — Export and portability
+*Size: 2–3 days. Any time.*
+
 "Any day I want, I can move everything to another machine." One command produces
 an encrypted bundle: schema, rows, artifacts, credentials (re-encryptable),
 model registry, config, and the OpenClaw session. A documented restore brings it
@@ -563,6 +705,19 @@ one is a seam change.
 - **Files**: uploads scanned and quarantined; executables blocked; path traversal rejected; downloads gated through the API.
 - **Audit**: every broker decision, every approval, every config change, every model route, permanently.
 - **Immutable without approval** (§59): isolation, authentication, audit, backup, spend ceilings, the always-confirm list, secret scope, and the authority of system projects. Jarvis may recommend changes to these; it may never make them.
+
+## V.1 Host hardening
+
+Debian 13 (or Ubuntu LTS). Unix user `jarvis`; per-project users created at
+project-create time, none at boot. UFW default deny. Fail2ban. No password SSH
+and no public SSH at all — admin access is Tailscale only. Automatic security
+updates. Docker and Compose pinned. Caddy terminates TLS and is the only thing
+listening publicly; Postgres, the API, and the OpenClaw gateway bind to
+`127.0.0.1`. `/internal` is HMAC-only and Caddy deliberately does not proxy it.
+
+Layout is fixed (`docs/SERVER_LAYOUT.md`): `/var/lib/jarvis` for state,
+`/opt/jarvis` for checkouts and the built console, `/etc/jarvis` for
+configuration. Worktrees are disposable — GitHub is canonical.
 
 ---
 
@@ -633,6 +788,33 @@ silently activate a new provider, a paid plan, an untrusted repository, or a
 weakened policy.
 
 Output: one WhatsApp per week, each item one-tap approvable.
+
+## VII.5 Updating Jarvis itself
+
+With three tracks merging daily this matters more, not less. Jarvis is a
+production system for one user, and the one user is also its only operator.
+
+- Pin every version: base images, Node, Postgres, Caddy, the harness CLIs.
+- Version every configuration change in `config_versions`; validate before restart.
+- **Back up the database before any migration.** Migrations run inside a transaction with the file recorded in `schema_migrations`.
+- Health-check after deploy; if it fails, roll back rather than investigate live.
+- Keep the previous image and configuration available at all times.
+- Test backend changes in an isolated Compose stack before promoting.
+- Control-plane updates that touch isolation, auth, backups, or spend need an approval or a clearly scoped grant — never a bare autonomous deploy.
+
+**Deploying core** is `git pull` in `/opt/jarvis/core`, `docker compose build`,
+`up -d`, plus `systemctl restart jarvis-runner` — the runner is a separate unit
+and is the piece most likely to be forgotten. **Deploying the console** is
+`scripts/deploy-control-center.sh`, which syncs contents rather than replacing
+the directory, because replacing it swaps the inode under Caddy's bind mount.
+
+## VII.6 Logs and telemetry
+
+Structured logs with a request id threaded end to end. Never log secrets,
+credential values, or raw model payloads for a confidential project. Rotate and
+size-cap everything — a full disk takes the whole box down. Metrics are only
+those with a real source; a metric with no source renders `unknown` rather than a
+plausible number.
 
 ---
 
@@ -724,18 +906,67 @@ through them. If a track is idle, it helps with those.
 - Work on the frozen ops layer: error taxonomy, outbox, quiet-hours plumbing, backups, host metrics, health incidents, ADR conformance sweeps. These are finished and good. Every hour spent there is an hour Jarvis still cannot open a PR.
 - Mark something done because a row was written. Done means the effect happened.
 
+## IX.7 Local development and testing
+
+Every track hits this on day one, so it is settled here rather than three times.
+The runner could not be tested at all while it was being written, and that is not
+acceptable as a standing condition.
+
+- **`docker compose -f deploy/compose.dev.yaml up`** brings up Postgres and the API locally with migrations applied and a seeded operator. Track C owns this file (range `030-039` if it needs schema).
+- **`JARVIS_ROOT`** is already honoured by the runner; point it at a scratch directory so nothing needs `/var/lib/jarvis` on a dev box.
+- **A fake harness.** Track A ships `JARVIS_HARNESS=fake`, which emits a canned `stream-json` transcript and touches a file in the worktree. It makes the whole engineering loop testable with no subscription, no network, and no Claude CLI — and it is what A8 runs against in CI.
+- **Windows is not a target.** The runner spawns POSIX processes and manages unix permissions. Develop it in WSL, in a container, or on the Netcup box directly. Typecheck-only on Windows is fine; do not pretend a green `tsc` is a tested change.
+- No track marks a deliverable done on a typecheck. "Done when" means observed.
+
+## IX.8 Arbitration and blocking
+
+- Enrique decides scope, priority, and anything touching isolation, billing, or production. Nothing else waits on him.
+- A track blocked on another track for more than half a day says so rather than working around it — a workaround at a seam is how the file-ownership rule gets broken.
+- Two tracks wanting the same frozen file is a seam-change note (IX.4), never a negotiation between agents.
+- A track that believes the plan is wrong writes an ADR. It does not quietly diverge.
+
+## IX.9 The work already in flight
+
+At the time of writing there is uncommitted Track B work in the tree —
+`callagent.ts` plus edits to `supervisor.ts`, `catalog.ts`, `callcontrol.ts`, and
+`product.ts` — building the two-tier phone agent. Under this plan that is B6,
+which is deferred past M1.
+
+Before three agents start: commit it on `track/b-intake`, and let Track B decide
+whether to finish it or shelve it. Do not leave it uncommitted in a shared tree —
+that is the exact condition that produced two sessions editing one file sixty
+seconds apart.
+
+Note also that `product.ts` is Track C's file and `catalog.ts` is Track B's. That
+crossing is pre-existing and needs untangling on first contact, not preserving.
+
 ---
 
 # PART X — MILESTONES
 
 | Milestone | Contents | Gate |
 |---|---|---|
-| **M1 — It acts** | B1, A1, A2, A3, C1 | N1 green. **This is the milestone that matters.** |
+| **M1 — It acts** | B1, B9, B10, A1, A2, A3, A8, C1 | N1 green. **This is the milestone that matters.** |
 | **M2 — It is reachable** | B2, B3, B4, B5, C2, C3, C4 | Gates 2 and 4 |
 | **M3 — It is trustworthy** | A4, A5, A6, B8 | Gate 3 |
-| **M4 — It reaches out** | C5, C6, C7, A7 | Composio, MCP, and scraping live |
+| **M4 — It reaches out** | C5, C6, C7, A7, A9 | Composio, MCP, scraping; a harness that earned its role |
 | **M5 — It speaks** | B6, B7 | Phone and voice, N5 |
-| **M6 — It survives** | C8, VII.2, VII.4, A8 | Gate 5, then freeze |
+| **M6 — It survives** | C8, VII.2, VII.4, VII.5 | Gate 5, then freeze |
+
+**M1 in dependency order.** B9 and C1 are cheap and go first. B10 must land
+before A3 has an `AGENTS.md` to read. B1 and A1 are the critical path and are
+worth two agents if one stalls.
+
+```
+B9 ─┐
+C1 ─┤
+B1 ─┼─→ B10 ─→ A3 ─→ A8   (A1 → A2 feed A3 in parallel)
+A1 ─┘
+```
+
+Rough elapsed time for M1 with three agents working in parallel: **8–12 working
+days**, dominated by A3. Sequentially it is closer to five weeks — which is the
+argument for the three tracks.
 
 Everything before M1 that is not on the M1 list is a distraction. That includes
 voice, phone, and the weekly Improvement job — all specified, all real, all
@@ -777,3 +1008,7 @@ Every requirement from the planning transcript, and where it lives.
 | Exportable to another machine (01) | C8 |
 | Short WhatsApps, no chatter (19) | I.1, B5 |
 | Somewhere to dump everything and ask later (01) | B7, N2 |
+| Jarvis tests models and picks its own primaries (09) | A9 |
+| Project onboarding asks before assuming (15, 20) | B10 |
+| Move everything to another machine (01) | C8, VII.5 |
+| Never spend money without asking (01, 20) | VI, IV.6 |
