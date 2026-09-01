@@ -66,6 +66,18 @@ services:
     profiles: ["tools"]
     command: ["node", "--import", "tsx", "scripts/dev-seed.ts"]
 
+  # A real SSH git host, so deploy-key isolation can be tested without GitHub.
+  # Two users, one repo each, one authorized key each — the same shape a deploy
+  # key has. See deploy/Dockerfile.sshgit for why this is not a mock.
+  sshgit:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sshgit
+    profiles: ["tools"]
+    volumes:
+      - jarvis_root:/var/lib/jarvis
+      - sshgit_keys:/keys
+
   # The system worker. It carries the watchdog, which is what turns a killed
   # runner into a requeued task instead of lost work (plan S4 test 2).
   worker:
@@ -91,3 +103,4 @@ services:
 
 volumes:
   jarvis_root:
+  sshgit_keys:

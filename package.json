@@ -21,7 +21,10 @@
     "dev:rebuild": "bash scripts/dev-rebuild.sh",
     "dev:test:s3c": "bash scripts/s3c-context-test.sh",
     "dev:test:s4": "bash scripts/s4-recovery-test.sh",
-    "dev:test:s4drain": "bash scripts/s4-drain-test.sh"
+    "dev:test:s4drain": "bash scripts/s4-drain-test.sh",
+    "progress": "node scripts/progress-sync.mjs",
+    "progress:publish": "bash scripts/progress-publish.sh",
+    "dev:test:s5": "bash scripts/s5-isolation-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

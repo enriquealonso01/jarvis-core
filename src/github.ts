@@ -58,6 +58,45 @@ export async function githubCreatePrivateRepo(
   };
 }
 
+
+/**
+ * An ed25519 keypair in OpenSSH format, plus its real SHA256 fingerprint.
+ *
+ * Shelling out to ssh-keygen rather than hand-encoding the OpenSSH private key
+ * format: the format is fiddly, getting it subtly wrong fails at `git clone`
+ * rather than at generation, and this is exactly the kind of code that should
+ * not have a clever version.
+ */
+async function generateOpenSshKey(
+  comment: string,
+): Promise<{ publicKey: string; privateKey: string; fingerprint: string } | { error: string }> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const fsp = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const run = promisify(execFile);
+
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "jarvis-key-"));
+  const file = path.join(dir, "id_ed25519");
+  try {
+    await run("ssh-keygen", ["-t", "ed25519", "-N", "", "-C", comment, "-f", file, "-q"]);
+    const privateKey = await fsp.readFile(file, "utf8");
+    const publicKey = (await fsp.readFile(`${file}.pub`, "utf8")).trim();
+    const { stdout } = await run("ssh-keygen", ["-lf", `${file}.pub`]);
+    // "256 SHA256:abc... comment (ED25519)" -> "SHA256:abc..."
+    const fingerprint = stdout.trim().split(/\s+/)[1] ?? "";
+    if (!fingerprint.startsWith("SHA256:")) {
+      return { error: `could not read the key fingerprint: ${stdout.trim().slice(0, 120)}` };
+    }
+    return { publicKey, privateKey, fingerprint };
+  } catch (err) {
+    return { error: `ssh-keygen failed: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function githubProvisionDeployKey(
   pool: pg.Pool,
   projectId: string,
@@ -71,15 +110,16 @@ export async function githubProvisionDeployKey(
     return { error: err instanceof Error ? err.message : "admin token error" };
   }
 
-  // Generate an ED25519 SSH keypair
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519", {
-    publicKeyEncoding: { type: "spki", format: "pem" },
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  });
-
-  // Calculate SSH fingerprint prefix
-  const rawPub = crypto.createHash("sha256").update(publicKey).digest("hex").slice(0, 12);
-  const fingerprint = `deploy:ed25519:${rawPub}`;
+  // Generate a real OpenSSH keypair.
+  //
+  // This used to be `crypto.generateKeyPairSync` with PEM/SPKI encoding, which
+  // produces something GitHub will not accept as a deploy key and `ssh -i` will
+  // not use. `ssh-keygen` produces both halves in the only formats that matter
+  // here, and reports the fingerprint GitHub itself shows — so "two projects,
+  // two different fingerprints" is comparing the same thing a human would.
+  const gen = await generateOpenSshKey(`jarvis-${projectId.slice(0, 8)}`);
+  if ("error" in gen) return gen;
+  const { publicKey, privateKey, fingerprint } = gen;
 
   // Register public deploy key on GitHub repo
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/keys`, {
@@ -104,7 +144,10 @@ export async function githubProvisionDeployKey(
   const master = loadMasterKey();
   const dek = newDek();
   const wrapped = wrapDek(master, dek);
-  const payload = { private_key: privateKey, public_key: publicKey };
+  const payload = {
+    private_key_openssh: privateKey,
+    public_key_openssh: publicKey,
+  };
   const { nonce, ciphertext } = encryptGcm(dek, Buffer.from(JSON.stringify(payload), "utf8"));
 
   const client = await pool.connect();
