@@ -1221,6 +1221,22 @@ configuration. Worktrees are disposable — GitHub is canonical.
 
 # PART VI — MODELS, ROUTING, COST
 
+## VI.0 The model principle
+
+**Open-weights models, hosted by a provider we pay. Not self-deployed, and not
+free tiers.**
+
+Both halves matter, and both are corrections of earlier plans:
+
+- **Open weights, not closed.** The weights for the Supervisor and utility roles are publicly available, so the provider is a convenience rather than a dependency. If Fireworks doubles its price, disappears, or degrades, the same model is available elsewhere and the migration is a URL and a key — not a rewrite. This is what makes the portability Enrique asked for in his first message real rather than aspirational.
+- **Hosted, not self-deployed.** Running these weights ourselves means a GPU box costing more per month than the entire budget, plus the operational burden of keeping it alive. Someone else runs the hardware and we pay for tokens.
+- **Paid, not free.** The free-tier premise is dead and the evidence is in this repo: migration 008 measured the nominal free primary serving 9 turns out of 153, and Gemini serving 0. Free tiers rate-limit, retire models without notice, and cannot be depended on for a system meant to run unattended.
+
+The exception is coding. The senior engineer and reviewer roles run on
+**subscription CLIs** already paid for — Claude Code today, Codex and Cursor
+registered for later. Those are flat-rate and their marginal cost is zero, which
+is why the most expensive role in the system is also the cheapest to run.
+
 **Roles**: supervisor, utility, senior_engineer, reviewer, stt, voice_tts, vision, embeddings.
 
 **Routing key**: `role + model + provider + auth_profile + project_policy`. Never
@@ -1237,9 +1253,9 @@ stay routable; hard failures drop out.
 
 | Role | Route | Cost |
 |---|---|---|
-| Supervisor / utility | Fireworks open-weights primary + one fallback | ~$5–10/mo |
+| Supervisor / utility | Hosted open-weights, one primary + one fallback (Fireworks today) | ~$5–10/mo |
 | Senior engineer / reviewer | Claude Code on `anthropic_personal` | $0 marginal |
-| STT | Groq Whisper free tier | $0 |
+| STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
 
 **Budget**: VPS ≤ €20, inference ≤ $20, total under $40/month. Metered spend is
