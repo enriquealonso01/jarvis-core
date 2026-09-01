@@ -1291,6 +1291,35 @@ someone's opinion.
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
 it. I will be able to ask questions about anything at any time."
 
+### Four tiers, deliberately separate
+
+The transcript is explicit that dumped material must be **separated from
+conversational memory**, and it names a fourth tier the plan had collapsed:
+
+```
+Jarvis memory
+├── Global memory      durable notes not scoped to any project
+├── Project memory     notes scoped to one project
+├── Knowledge          what he dumped: documents, PDFs, spreadsheets,
+│                      webpages, source code, audio transcripts, images,
+│                      raw notes
+└── Activity history   what happened: tasks, decisions, executions, approvals
+```
+
+Separate because the questions are different, and mixing them makes both worse:
+
+- *"What did the client say about the refund window?"* → **knowledge**. Answer from the document, cite it.
+- *"Why did we set Alpha's deploy policy to manual?"* → **activity history**. The answer is a decision and its reasoning, and it lives in `activity_events` and `config_versions`, not in a chunk.
+- *"What do you know about how I like PRs written?"* → **global memory**.
+
+A retrieval that returns a chunk of a PDF when the honest answer is "you decided
+that on the 14th, here is the task" is a wrong answer that looks right — the
+worst kind. Search ranks **within** tiers and says which tier each result came
+from; it never merges them into one undifferentiated list.
+
+**Activity history is queryable memory, not just a feed.** S18 builds
+`activity_events` for the console; this step makes it answerable in language.
+
 ### The architecture, decided
 
 **Postgres full-text search first. Embeddings only when it proves insufficient.**
@@ -1323,6 +1352,8 @@ embedding model on the system lane. Not before.
 - **N2 end to end**: dump a long thread and three PDFs, then ask a specific question with the clock shifted three weeks forward. The answer is correct and cited.
 - Survive a reboot — then survive a **restore from backup**, which is the test that actually matters and the one v1's backups would have failed.
 - Ask about project A; assert project B's chunks are not in the retrieved set. Not absent from the answer — absent from the **retrieval**.
+- **One question per tier**, and check each answer comes from the right one. "Why did we decide X" must answer from activity history, not from a document that happens to mention X.
+- A question answerable from two tiers → both offered, each labelled, rather than one silently winning.
 - Ask something genuinely not in the corpus → it says it does not know. **A confident answer from nothing is the worst possible failure here**, and it is the one this design is most exposed to.
 - Ingest the same document twice → no duplicate chunks, no doubled ranking.
 - A 200-page PDF and a 3-word note both ingest without special-casing.
