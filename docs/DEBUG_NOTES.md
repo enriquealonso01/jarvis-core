@@ -38,6 +38,31 @@ state machine.
 
 ---
 
+### `RETURNING` gave back the value it had just written
+**Symptom:** S20's endpointing worked — the utterance accumulated, the timer
+fired — and then Jarvis said nothing at all. The row showed `pending_text` gone,
+so the turn had plainly been claimed, and `takeTurn` reported "nothing was said".
+**Cause:** `UPDATE calls SET pending_text = NULL ... RETURNING pending_text`
+returns the NEW value. It cleared the caller's words and handed back the NULL it
+had just written, so the claim succeeded and the claimant was told there was
+nothing there.
+**Fix:** read the old value from a locked subquery —
+`FROM (SELECT pending_text FROM calls WHERE ... FOR UPDATE) old ... RETURNING
+old.pending_text` — which still lets exactly one claimant win.
+**Lesson:** `RETURNING` is not "what was there". For a claim-and-clear it has to
+be told explicitly where to look, or the operation silently becomes a delete.
+
+### The "are you still there?" prompt swallowed the caller mid-sentence
+**Symptom:** with the in-process timer gone (the restart case), the worker sweep
+saw a call waiting for the caller to finish and asked "Are you still there, sir?"
+instead of answering them.
+**Cause:** the sweep tested `state === "listening"` before it tested
+`leg === "endpoint"`. A caller pausing mid-sentence is also `listening` — the
+silence branch caught them first.
+**Lesson:** two branches keyed on different columns of the same row are ordered
+by whichever is more specific, not by whichever was written first. The specific
+one is the deadline's own leg; the state is the fallback.
+
 ### The runaway loop came back as a one-word kindness
 **Symptom:** S19's first run: three transcription segments of one sentence
 produced three spoken replies, and a second process sent mid-call was answered

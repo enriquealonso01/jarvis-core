@@ -33,6 +33,15 @@ const bad = (m: string, e: unknown, a: unknown) => {
 const check = (m: string, e: unknown, a: unknown) => (e === a ? ok(m) : bad(m, e, a));
 const truthy = (m: string, a: unknown) => (a ? ok(m) : bad(m, "truthy", a));
 
+/**
+ * S20 moved the moment a turn is taken. A transcription no longer produces a
+ * reply on the spot: the caller is allowed to pause mid-sentence, and the turn
+ * passes when they stop. So every assertion about a reply waits out that window
+ * first — the suite sets it to 400ms rather than the shipped five seconds.
+ */
+const WINDOW = Number(process.env.JARVIS_ENDPOINT_MS ?? 5000);
+const settle = () => new Promise((r) => setTimeout(r, WINDOW * 1.6));
+
 const OWNER = "+15551234567";
 const STAMP = Date.now().toString(36);
 const b64 = (s: string) => Buffer.from(s).toString("base64");
@@ -117,6 +126,7 @@ async function main(): Promise<void> {
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going, again")));
     await handleCallEvent(pool, ev("call.transcription", ccid, said("and once more")));
+    await settle();
 
     const replies = sentCommands.filter(
       (c) => c.ccid === ccid && c.body.client_state === REPLY,
@@ -131,6 +141,7 @@ async function main(): Promise<void> {
       handleCallEvent(pool, ev("call.transcription", ccid, said("read me the queue"))),
       handleCallEvent(pool, ev("call.transcription", ccid, said("read me the queue please"))),
     ]);
+    await settle();
     check(
       "two simultaneous transcriptions still produce one reply",
       1,
@@ -146,6 +157,7 @@ async function main(): Promise<void> {
     clearSentCommands();
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
+    await settle();
     check("mid-answer, the state is in the row", "speaking", await currentState(pool, ccid));
 
     /*
@@ -168,10 +180,15 @@ async function main(): Promise<void> {
     });
     console.log(`  the fresh process said: ${out.split("\n").pop()}`);
     truthy(
-      "a fresh process refuses the second utterance, as the first would have",
-      out.includes("ignored while answering"),
+      "a fresh process does not answer over the reply already playing",
+      !out.includes("answered"),
     );
-    check("and the call is still exactly where it was", "speaking", await currentState(pool, ccid));
+    truthy(
+      "it stops that playback instead — which it could only know about from the row",
+      out.includes("playback_stop"),
+    );
+    check("and the floor is the caller's, exactly as in this process", "listening",
+      await currentState(pool, ccid));
 
     await finalizeCall(pool, ccid, "test finished with it");
   }
@@ -184,6 +201,7 @@ async function main(): Promise<void> {
     process.env.JARVIS_PHONE_FAIL = "tts";
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
+    await settle();
 
     const reply = sentCommands.find((c) => c.ccid === ccid && c.body.client_state === REPLY);
     check("with no TTS the reply still goes out", "speak", reply?.action);
@@ -202,6 +220,7 @@ async function main(): Promise<void> {
     process.env.JARVIS_PHONE_FAIL = "model_once";
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
+    await settle();
 
     const lines = sentCommands.filter((c) => c.ccid === ccid && c.action !== "record_start");
     const filler = lines.find((c) => c.body.client_state === ACK);
@@ -223,6 +242,7 @@ async function main(): Promise<void> {
     process.env.JARVIS_PHONE_FAIL = "model,tts";
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
+    await settle();
 
     truthy(
       "twice-failed, it offers to follow up in writing",
@@ -294,7 +314,13 @@ async function main(): Promise<void> {
       0,
       sentCommands.filter((c) => c.ccid === ccid && c.body.client_state === REPLY).length,
     );
-    check("the call is still playing its greeting", "greeting", await currentState(pool, ccid));
+    // S20 changed this on purpose. Talking over the greeting used to be ignored
+    // until the greeting finished; now it interrupts, because "interrupt at the
+    // start of a long reply" is the first case the barge-in test names. What
+    // must still hold is that it is not ANSWERED over — the reply waits for the
+    // caller to finish.
+    check("it interrupts instead, and the floor is the caller's", "listening",
+      await currentState(pool, ccid));
     await finalizeCall(pool, ccid, "talk-over test done");
   }
   {
@@ -303,6 +329,7 @@ async function main(): Promise<void> {
     clearSentCommands();
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
+    await settle();
     await handleCallEvent(pool, ev("call.hangup", ccid, { hangup_cause: "normal_clearing" }));
 
     check("hanging up mid-answer ends the call", "ended", await currentState(pool, ccid));
@@ -341,8 +368,10 @@ async function main(): Promise<void> {
       ids.push(ccid);
       await upToListening(ccid);
       await handleCallEvent(pool, ev("call.transcription", ccid, said("read me the queue")));
+      await settle();
       await handleCallEvent(pool, ev("call.playback.ended", ccid, { client_state: REPLY }));
       await handleCallEvent(pool, ev("call.transcription", ccid, said("say something short")));
+      await settle();
       await handleCallEvent(pool, ev("call.playback.ended", ccid, { client_state: REPLY }));
       await handleCallEvent(pool, ev("call.hangup", ccid, { hangup_cause: "normal_clearing" }));
     }

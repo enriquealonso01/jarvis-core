@@ -19,6 +19,7 @@ $COMPOSE run --rm --no-deps -T \
   -e JARVIS_TELNYX=fake \
   -e JARVIS_TTS=fake \
   -e JARVIS_MODEL=fake \
+  -e JARVIS_ENDPOINT_MS=400 \
   -e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/fixtures/s19-phone-script.json \
   -e JARVIS_SITE_YAML=/app/scripts/fixtures/s19-site.yaml \
   runner node --import tsx scripts/s19-call-test.ts 2>&1

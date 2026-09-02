@@ -2,13 +2,17 @@
  * The restart, for S19's mid-call test.
  *
  * Deliberately a whole separate process: it shares no module state with the
- * suite that spawned it, which is exactly what an API restart leaves behind.
- * It sends one more transcription for a call that is already mid-answer and
- * prints what the handler decided. With the turn gate in a module-level Map
- * this printed an answer; with it in the row, it prints a refusal.
+ * suite that spawned it, which is exactly what an API restart leaves behind. It
+ * sends one more utterance for a call that is already mid-answer and prints what
+ * the handler decided, plus every command it issued.
+ *
+ * With the turn state in a module-level Map this process saw a call it had never
+ * heard of and answered over the reply already playing. With it in the row, it
+ * sees a call that is speaking and does what a person would: stops the playback
+ * and lets the caller talk.
  */
 import { createPool } from "../src/db.js";
-import { handleCallEvent } from "../src/callcontrol.js";
+import { handleCallEvent, sentCommands } from "../src/callcontrol.js";
 
 const pool = createPool();
 const ccid = process.argv[2];
@@ -23,5 +27,6 @@ const verdict = await handleCallEvent(pool, {
     },
   },
 });
-console.log(verdict);
+console.log(`verdict: ${verdict}`);
+console.log(`actions: ${sentCommands.map((c) => c.action).join(",")}`);
 await pool.end().catch(() => undefined);

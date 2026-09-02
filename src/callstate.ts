@@ -42,7 +42,91 @@ export const BUDGET_MS: Record<string, number> = {
   // Not a provider budget: how long a silent caller is left alone before being
   // asked whether they are still there.
   listening: 30_000,
+  // How long the caller may pause mid-thought before the turn passes to Jarvis
+  // (plan S20: "roughly five seconds of silence hands the turn"). Overridable
+  // so a test can prove the behaviour without spending six seconds per
+  // assertion; the default is what a real call uses.
+  endpoint: Number(process.env.JARVIS_ENDPOINT_MS ?? 5_000),
 };
+
+/**
+ * Add what was just heard to the turn in progress.
+ *
+ * Returns the whole utterance so far. A pause mid-sentence is not the end of a
+ * turn — Telnyx emits a final per segment, so "book me a flight to Madrid, no,
+ * Barcelona" arrives as two or three of them, and answering each one is how the
+ * caller ends up being interrupted by their own assistant.
+ */
+export async function appendUtterance(
+  pool: pg.Pool,
+  ccid: string,
+  text: string,
+): Promise<string> {
+  const r = await pool.query<{ pending_text: string }>(
+    `UPDATE calls
+     SET pending_text = CASE WHEN pending_text IS NULL OR pending_text = '' THEN $2
+                             ELSE pending_text || ' ' || $2 END,
+         pending_since = now(),
+         -- Only while LISTENING does this own the deadline. Said over a reply,
+         -- or while one is being composed, it must not overwrite the deadline
+         -- that leg is relying on — the answer would then have no timeout at
+         -- all, which is the exact failure the budgets exist to prevent.
+         deadline_leg = CASE WHEN state = 'listening' THEN 'endpoint' ELSE deadline_leg END,
+         deadline_at = CASE WHEN state = 'listening'
+                            THEN now() + make_interval(secs => $3::int / 1000.0)
+                            ELSE deadline_at END
+     WHERE call_control_id = $1 AND ended_at IS NULL
+     RETURNING pending_text`,
+    [ccid, text, BUDGET_MS.endpoint],
+  );
+  return r.rows[0]?.pending_text ?? text;
+}
+
+/**
+ * Claim the accumulated utterance, atomically, and clear it.
+ *
+ * Atomic because two things race for it: the in-process timer that fires when
+ * the caller stops talking, and the worker sweep that exists so a restart does
+ * not strand the turn. Exactly one may win, or the caller is answered twice.
+ */
+export async function takeUtterance(pool: pg.Pool, ccid: string): Promise<string | null> {
+  /*
+   * `RETURNING pending_text` after setting it to NULL returns the NEW value,
+   * which is NULL — so the first version of this cleared the turn and then
+   * reported that there had been nothing to say. The caller was answered with
+   * silence and the words were gone. The old value has to come from a
+   * subquery, locked, so two claimants still cannot both win it.
+   */
+  const r = await pool.query<{ pending_text: string }>(
+    `UPDATE calls c SET pending_text = NULL, pending_since = NULL
+     FROM (SELECT call_control_id, pending_text FROM calls
+           WHERE call_control_id = $1 FOR UPDATE) old
+     WHERE c.call_control_id = old.call_control_id AND c.ended_at IS NULL
+       AND old.pending_text IS NOT NULL AND old.pending_text <> ''
+     RETURNING old.pending_text`,
+    [ccid],
+  );
+  return r.rows[0]?.pending_text ?? null;
+}
+
+/** Remember which playback is in the air, so barge-in stops that one. */
+export async function setSpeakingMarker(
+  pool: pg.Pool,
+  ccid: string,
+  marker: string | null,
+): Promise<void> {
+  await pool.query(
+    "UPDATE calls SET speaking_marker = $2 WHERE call_control_id = $1",
+    [ccid, marker],
+  );
+}
+
+export async function countBargeIn(pool: pg.Pool, ccid: string): Promise<void> {
+  await pool.query(
+    "UPDATE calls SET barge_ins = barge_ins + 1 WHERE call_control_id = $1",
+    [ccid],
+  );
+}
 
 const ALLOWED: Record<CallState, CallState[]> = {
   ringing: ["greeting", "closing", "ended"],
