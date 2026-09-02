@@ -9,8 +9,10 @@ import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
 import { FAKE_MODEL, fakeCompletion, fakeThinkingTime } from "./fakemodel.js";
 import { enforceSoftCeiling } from "./quota.js";
 import {
+  NON_MODEL_PROFILES,
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
+  profileTier,
   isBooleanish,
   toBoolean,
   validEnum,
@@ -507,6 +509,47 @@ export async function runTool(
       const missing = PROFESSIONAL_REQUIRED.filter((f) => !a[f]);
       if (missing.length) {
         return `a professional project needs answers for: ${missing.join(", ")}`;
+      }
+
+      /*
+       * S26: "paid/subscription profiles only". A professional project's work is
+       * somebody else's code, and a free consumer tier is exactly the kind of
+       * endpoint whose terms allow training on what it is sent. Checked here, at
+       * onboarding, because this is where the answer is given — the broker
+       * refuses the same thing again at use (checkProfileAccess), and a rule
+       * enforced only at the far end produces a project that looks configured
+       * and cannot do anything.
+       *
+       * Names that are not profiles at all are refused too: an allowlist of
+       * things that do not exist is not an allowlist.
+       */
+      const named = (a.allowed_auth_profiles ?? "")
+        .split(",").map((s) => s.trim()).filter(Boolean)
+        .filter((s) => !["none", "n/a", "na", "-"].includes(s.toLowerCase()));
+      if (named.length) {
+        const known = await pool.query<{ id: string; auth_type: string; metered_spend_allowed: boolean }>(
+          `SELECT id, auth_type, metered_spend_allowed FROM auth_profiles WHERE id = ANY($1::text[])`,
+          [named],
+        );
+        const byId = new Map(known.rows.map((r) => [r.id, r]));
+        /*
+         * A deploy key for this project's own repository does not exist yet — it
+         * is provisioned after the project is. A name that looks like this
+         * project's own key is allowed through; anything else must be real.
+         */
+        const unknown = named.filter((n) => !byId.has(n) && !n.startsWith(`${a.slug}-`));
+        if (unknown.length) {
+          return `these are not auth profiles: ${unknown.join(", ")}. `
+            + "Ask him which existing profile he means.";
+        }
+        const free = known.rows
+          .filter((r) => !NON_MODEL_PROFILES.has(r.id) && profileTier(r) === "free_consumer")
+          .map((r) => r.id);
+        if (free.length) {
+          return `a professional project cannot use a free consumer account: ${free.join(", ")}. `
+            + "Its source code would go to an endpoint whose terms allow training on it. "
+            + "Use a subscription or a metered account, or ask him which he wants billed.";
+        }
       }
     }
 
