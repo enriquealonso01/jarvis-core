@@ -536,12 +536,39 @@ export async function markRouteHealth(
   health: "healthy" | "degraded" | "failed",
   error: string | null,
 ): Promise<void> {
+  /*
+   * IV.9's "model changed", audited on the TRANSITION only.
+   *
+   * This function runs on every health check, so auditing each call would bury
+   * the trail in rows saying nothing changed. What is worth attributing is a
+   * route going healthy, degraded or failed — which is when the Supervisor's
+   * chain actually moves.
+   */
+  const before = await pool.query<{ health: string }>(
+    "SELECT health FROM model_registry WHERE provider = $1 AND model_id = $2",
+    [provider, modelId],
+  );
+  const previous = before.rows[0]?.health ?? null;
+
   await pool.query(
     `UPDATE model_registry
      SET health = $3, last_error = $4, last_checked_at = now()
      WHERE provider = $1 AND model_id = $2`,
     [provider, modelId, health, error],
   );
+
+  if (previous !== health) {
+    const { audit } = await import("./audit.js");
+    await audit(pool, {
+      actor: "catalog",
+      action: "model.change",
+      target: `${provider}/${modelId}`,
+      model: modelId,
+      outcome: health === "healthy" ? "allowed" : "failed",
+      reason: health === "healthy" ? null : (error ?? `route is ${health}`),
+      extra: { provider, from: previous, to: health },
+    });
+  }
 
   // A pinned model that the provider no longer serves needs a person to re-pin
   // it; nothing else will. NVIDIA retired `nemotron-3-super-120b-a12b` and the
