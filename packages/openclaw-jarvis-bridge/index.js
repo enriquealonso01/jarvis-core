@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { definePluginEntry } from "openclaw/plugin-sdk/core";
 
 // OpenClaw loads this file as plain JavaScript. It must stay valid JS — no type
 // annotations — or the plugin fails to load and OpenClaw answers WhatsApp DMs
@@ -81,27 +82,30 @@ export function payloadFor(msg) {
 /**
  * OpenClaw plugin entry.
  *
- * Exported as BOTH `register` and default. The loader calls
- * `runPluginRegisterSyncInRegistry(register, api, ...)`, and which export it
- * takes that `register` from differs between plugin kinds; exporting both costs
- * one line and removes the guess. The first attempt exported only a default and
- * was called with `undefined`, which is how this was found.
+ * `definePluginEntry({ id, name, description, register })` is the real shape,
+ * read out of OpenClaw's own SDK (`openclaw/plugin-sdk/core`) rather than
+ * guessed. `register` is a PROPERTY of a descriptor object; it is not the
+ * export. Two earlier shapes were tried and both were called with `undefined`,
+ * which is what an invented API looks like from the inside.
  */
-export function register(api) {
-  api.registerHook("message_received", async (event) => {
-    const result = await ingestToJarvis(payloadFor(event?.message ?? event));
-    if (!result.ok) {
-      // Persist-first: if Jarvis did not store it, this must not be treated as
-      // handled. Throwing here also blocks the agent, which is the safe way to
-      // fail — silence rather than an unrecorded answer.
-      throw new Error(`jarvis persist failed status=${result.status}`);
-    }
-  });
+export default definePluginEntry({
+  id: "jarvis-bridge",
+  name: "Jarvis Bridge",
+  description: "Hand every inbound message to Jarvis, and stop OpenClaw answering for it.",
+  register(api) {
+    api.registerHook("message_received", async (event) => {
+      const result = await ingestToJarvis(payloadFor(event?.message ?? event));
+      if (!result.ok) {
+        // Persist-first: if Jarvis did not store it, this must not be treated
+        // as handled. Throwing also blocks the agent, which is the safe way to
+        // fail — silence rather than an unrecorded answer.
+        throw new Error(`jarvis persist failed status=${result.status}`);
+      }
+    });
 
-  api.registerHook("before_agent_run", async () => ({
-    outcome: "block",
-    reason: "Jarvis owns this conversation",
-  }));
-}
-
-export default register;
+    api.registerHook("before_agent_run", async () => ({
+      outcome: "block",
+      reason: "Jarvis owns this conversation",
+    }));
+  },
+});
