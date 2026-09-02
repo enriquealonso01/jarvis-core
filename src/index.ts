@@ -16,7 +16,7 @@ import { registerArtifactRoutes } from "./artifacts.js";
 import { registerSearchRoutes } from "./search.js";
 import { registerIsolationRoutes } from "./isolation.js";
 import { registerServiceRoutes } from "./services.js";
-import { ensureActionRequests, ensureBlockedIssues } from "./blockers.js";
+import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } from "./blockers.js";
 import type { RawRequest } from "./hmac.js";
 
 const pool = createPool();
@@ -65,6 +65,11 @@ async function main() {
     .then((catalogs) => console.log(`catalogs groq=${catalogs.groq} ${catalogs.notes.join("; ")}`))
     .catch((err) => console.error("catalog verification failed", err));
   await ensureBlockedIssues(pool);
+  // And close the ones that are no longer true. A stale "[setup] X not
+  // connected" teaches the reader to ignore the whole list.
+  for (const gap of await resolveSatisfiedBlockers(pool).catch(() => [] as string[])) {
+    console.log(`setup blocker closed: ${gap}`);
+  }
   await ensureActionRequests(pool);
 
   const app = Fastify({ logger: true, trustProxy: true });

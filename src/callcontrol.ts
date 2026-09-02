@@ -367,6 +367,11 @@ export async function renderSpeech(pool: pg.Pool, text: string): Promise<string 
 async function renderSpeechInner(pool: pg.Pool, text: string): Promise<string | null> {
   if (phoneFailing("tts")) return null;
   if (process.env.JARVIS_TTS === "fake") {
+    // A render that takes time, when a test needs one: the defect this exists
+    // for was a progress line arriving four seconds AFTER the answer started,
+    // and with an instant render that window does not exist to test.
+    const slow = Number(process.env.JARVIS_TTS_DELAY_MS ?? 0);
+    if (slow > 0) await new Promise((r) => setTimeout(r, slow));
     const token = crypto.createHash("sha256").update(text).digest("hex").slice(0, 32);
     return `http://fake.invalid/api/audio/${token}.wav`;
   }
@@ -799,10 +804,19 @@ async function speakTurnLine(
   const ending = kind === "answer" || kind === "handover" || kind === "closing";
   const marker = ending ? STATE_REPLY : STATE_ACK;
   if (ending) {
+    // `tts` until the audio is in the air, then `playing`. A long answer takes
+    // longer to PLAY than to render, and budgeting the playback with the render
+    // budget is what cut a real answer off after seven seconds.
     await move(pool, ccid, "speaking", { from: "thinking", cause: "playing the answer", leg: "tts" });
   }
   await setSpeakingMarker(pool, ccid, marker);
-  return await say(pool, ccid, text, marker);
+  const spoke = await say(pool, ccid, text, marker);
+  if (ending && spoke) {
+    await move(pool, ccid, "speaking", {
+      from: "speaking", cause: "the answer is playing", leg: "playing",
+    });
+  }
+  return spoke;
 }
 
 
@@ -858,6 +872,37 @@ export async function sweepCallDeadlines(pool: pg.Pool): Promise<string[]> {
         from: "listening", cause: "asked whether the caller is still there", leg: "listening",
       });
       done.push(`${ccid}: asked whether the caller is still there`);
+      continue;
+    }
+
+    /*
+     * A playback that never ended is a truncated answer, and a truncated answer
+     * is a FAILURE, not a state transition. On the call of 2026-09-02 this path
+     * quietly spoke a holding line over the top of the answer and moved on;
+     * nothing was raised, and the only evidence was a transition row.
+     */
+    if (leg === "playing") {
+      await raiseIssue(pool, {
+        category: "dependency.unavailable",
+        service: "telnyx",
+        title: "[phone] an answer was cut off before it finished playing",
+        dedupeKey: `phone.playback-truncated:${ccid}`,
+        evidence: { call_control_id: ccid, state },
+        requiredAction:
+          "The caller heard part of an answer. Check the recording and the answer_text on call_turns.",
+      }).catch(() => undefined);
+      await pool
+        .query(
+          `UPDATE call_turns SET outcome = 'failed'
+           WHERE call_control_id = $1 AND outcome = 'answered'
+             AND id = (SELECT max(id) FROM call_turns WHERE call_control_id = $1)`,
+          [ccid],
+        )
+        .catch(() => undefined);
+      await move(pool, ccid, "listening", {
+        from: ["speaking"], cause: "the answer was cut off", leg: "listening",
+      });
+      done.push(`${ccid}: an answer was cut off`);
       continue;
     }
 

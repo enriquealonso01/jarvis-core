@@ -1,6 +1,7 @@
 import type pg from "pg";
 import { pickLine, recordSpeech, subjectOf, type SpeechKind } from "./callbank.js";
 import { triage } from "./callagent.js";
+import { speakable } from "./speakable.js";
 import { ingestUserMessage } from "./inbox.js";
 import { createTask } from "./work.js";
 
@@ -45,6 +46,13 @@ export const TURN_MS = {
   progress: Math.round(10_000 * SCALE),
   /** Still going: hand it to the desk and give the turn back. */
   budget: Math.round(25_000 * SCALE),
+  /**
+   * The whole turn, end to end, including the render and the speaking.
+   *
+   * Every leg can be inside its own budget while the caller waits sixteen
+   * seconds — which is what a real call did — so the turn has one too.
+   */
+  whole: Math.round(20_000 * SCALE),
 };
 
 /** How a line actually reaches the caller. Injected so this module never imports the carrier. */
@@ -255,6 +263,18 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
 
   const outcome = await Promise.race([work, budget]);
 
+  /*
+   * Stop the ladder the instant the work returns.
+   *
+   * On the call of 2026-09-02 a progress line was spoken at 12:25:04, four
+   * seconds AFTER the answer had started playing at 12:25:00: the timer was
+   * only cancelled once the answer had finished being spoken, and speaking is
+   * not instant. Nothing scheduled may outlive the thing it was scheduled to
+   * cover.
+   */
+  for (const timer of t.timers) clearTimeout(timer);
+  t.timers = [];
+
   if (outcome === "budget") {
     /*
      * The phone-side budget is up. The work does not stop — it moves. The task
@@ -291,8 +311,19 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
 
   // ------------------------------------------------------------ the answer
   const modelMs = Date.now() - deskAt;
-  let answer = outcome.answer
-    ?? "I could not get to the bottom of that on the line, sir. It is saved and I will follow up.";
+  const written = outcome.answer
+    ?? "I could not get to the bottom of that on the line. It is saved and I will follow up.";
+
+  /*
+   * The desk answers in writing; the line needs speech.
+   *
+   * A real call was answered with the desk's written reply — bold, bullets,
+   * emoji, model version strings, 150 words. ElevenLabs took 7.4s to render it,
+   * the caller heard seven seconds of it, and the rest was cut off. The
+   * transcript read beautifully and the call delivered almost none of it.
+   */
+  const spokenForm = speakable(written);
+  let answer = spokenForm.say;
 
   // Say where it came from, when it came from somewhere.
   const source = await citeSources(pool, ctx.inboxId).catch(() => null);
@@ -312,7 +343,31 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
   if (said) await recordSpeech(pool, { ccid: ctx.ccid, turnId, kind: "answer", text: answer });
   cancelTurn(ctx.ccid);
   if (!said) await ctx.release();
-  return handedOver ? "handed over" : `answered in ${Date.now() - startedAt}ms`;
+
+  /*
+   * Budget the WHOLE turn, not each leg.
+   *
+   * The call that prompted this was 846ms of acknowledgement, 8.5s of model and
+   * 7.4s of render: every leg inside its own budget, and sixteen seconds of a
+   * caller waiting. A turn that takes this long is a defect even when nothing
+   * failed, so it leaves a ticket rather than only a number in a column.
+   */
+  const total = Date.now() - startedAt;
+  if (total > TURN_MS.whole) {
+    const { raiseIssue } = await import("./notify.js");
+    await raiseIssue(pool, {
+      category: "resource.cpu",
+      service: "phone",
+      title: "[phone] a spoken turn took longer than the whole-turn budget",
+      dedupeKey: "phone.turn-over-budget",
+      evidence: {
+        call_control_id: ctx.ccid, total_ms: total, model_ms: modelMs,
+        budget_ms: TURN_MS.whole, said: ctx.heard.slice(0, 120),
+      },
+      requiredAction: "Read call_turns for the per-leg split before touching any prompt.",
+    }).catch(() => undefined);
+  }
+  return handedOver ? "handed over" : `answered in ${total}ms`;
 }
 
 /**

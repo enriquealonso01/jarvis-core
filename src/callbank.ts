@@ -39,10 +39,14 @@ const CHECKING = [
  * Said at ~10s. These have to say something NEW — "a second 'still working on
  * it' is worse than silence, because it proves nothing is happening."
  */
+/*
+ * No apologising for latency. Enrique, on the call of 2026-09-02: it "violates
+ * the pager register, and it was the only 'sir' in the call". A progress line
+ * reports; it does not grovel.
+ */
 const PROGRESS = [
   "This one is taking longer than I would like — still going.",
   "It is a bigger lookup than I thought; I am on it.",
-  "Sorry, sir, this is slow. I have not forgotten you.",
   "Still running. If it drags much further I will hand it to the desk.",
 ];
 

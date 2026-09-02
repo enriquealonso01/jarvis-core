@@ -62,6 +62,10 @@
     {
       "match": "in alpha the login button is off-centre",
       "content": "Filed."
+    },
+    {
+      "match": "give me the rundown",
+      "content": "All systems nominal.\n\n**Model routing**\n- Primary: **DeepSeek** \u2705\n- Fallback: GLM \u26a0\ufe0f\n\n1. No incidents\n2. Backups green\n"
     }
   ],
   "classifier": [

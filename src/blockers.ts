@@ -59,6 +59,67 @@ export async function ensureBlockedIssues(pool: pg.Pool): Promise<void> {
 }
 
 /**
+ * Close a setup blocker once the thing it was waiting for has arrived.
+ *
+ * `ensureBlockedIssues` only ever guarded against RE-raising: once open, an
+ * issue stayed open forever, and the console kept showing "[setup] Composio not
+ * connected" months after composio was connected, healthy, and in use. A banner
+ * that is wrong is worse than no banner, because it teaches the reader to ignore
+ * the row of them.
+ *
+ * Each gap is closed by the condition that would have raised it, asked freshly —
+ * not by a flag someone remembered to set.
+ */
+export async function resolveSatisfiedBlockers(pool: pg.Pool): Promise<string[]> {
+  const closed: string[] = [];
+  const gaps: { dedupe: string; satisfied: string; params?: unknown[] }[] = [
+    ...HOST_LOGIN.map((id) => ({
+      dedupe: `setup.login.${id}`,
+      satisfied:
+        `SELECT 1 FROM auth_profiles WHERE id = '${id}'
+           AND (credential_id IS NOT NULL OR harness_auth_dir IS NOT NULL)`,
+    })),
+    ...OAUTH.map((id) => ({
+      dedupe: `setup.oauth.${id}`,
+      satisfied: `SELECT 1 FROM auth_profiles WHERE id = '${id}' AND credential_id IS NOT NULL`,
+    })),
+    {
+      // Composio is connected when it has a credential and is not unhealthy.
+      dedupe: "setup.composio",
+      satisfied:
+        `SELECT 1 FROM auth_profiles WHERE id = 'composio' AND credential_id IS NOT NULL
+           AND health <> 'down'`,
+    },
+    {
+      /*
+       * The phone is configured when Telnyx has a credential and a number is
+       * pinned. The original condition asked `channel_allowlist` — which the
+       * phone path never reads; it reads `site.yaml` — so the row stayed open
+       * through every working call.
+       */
+      dedupe: "setup.telnyx",
+      satisfied: `SELECT 1 FROM auth_profiles WHERE id = 'telnyx' AND credential_id IS NOT NULL`,
+    },
+    {
+      dedupe: "setup.whatsapp",
+      satisfied: `SELECT 1 FROM channel_allowlist WHERE channel = 'whatsapp'`,
+    },
+  ];
+
+  for (const gap of gaps) {
+    const done = await pool.query(gap.satisfied).catch(() => ({ rowCount: 0 }));
+    if (!done.rowCount) continue;
+    const r = await pool.query(
+      `UPDATE issues SET status = 'resolved', resolved_at = now(), updated_at = now()
+       WHERE dedupe_key = $1 AND status NOT IN ('resolved', 'ignored')`,
+      [gap.dedupe],
+    );
+    if (r.rowCount) closed.push(gap.dedupe);
+  }
+  return closed;
+}
+
+/**
  * An Issue that says "paste a key" is not actionable until there is somewhere to
  * paste it. Every open setup blocker gets a linked action request so the console
  * can send Enrique straight to the thing that unblocks it.
