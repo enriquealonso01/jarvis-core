@@ -384,6 +384,35 @@ unblocked, finish it before starting anything new.
   question you ask a week from now is the real assertion.
 - **Raised:** 2026-09-02 18:40Z
 
+## IN FLIGHT — the bridge plugin targets an OpenClaw API that does not exist
+
+- **Step:** S37 item 3
+- **Blocked on:** Nothing of Enrique's. Recorded because it changes the shape of
+  the step and must not be forgotten.
+- **What is true now:** OpenClaw is configured and healthy for the first time
+  (`gateway.mode=local`, a gateway token in `/etc/jarvis/compose.env`, 13 stock
+  plugins, `[gateway] ready`). `channel_allowlist` has the commanding identity
+  and the outbox revived 18 notifications.
+- **What is wrong:** `packages/openclaw-jarvis-bridge/index.js` exports
+  `{ onInbound }` and returns `{ skipDefaultAgent: true }`. **Neither exists in
+  OpenClaw 2026.8.1.** The real hook surface is `onAgentRunStart`, `onSend`,
+  `onDeliveryStatus`, `onStartup` and friends, and the mechanism for taking a
+  conversation away from the default agent is called a **runtime takeover**
+  (`docs.openclaw.ai/plugins/sdk-channel-inbound`, "Building channel plugins").
+  The bridge was written against an assumed API and has never once been loaded,
+  so nothing ever contradicted it.
+- **How it surfaced:** `openclaw plugins install` refused it — first for a
+  missing `openclaw.extensions` key, then for a missing `openclaw.plugin.json`
+  manifest. Fixing those two would have made it *install*, and its hook would
+  simply never have fired: an inbound DM would have gone to OpenClaw's own
+  agent, which is precisely what the bridge exists to prevent.
+- **Why the plugin is NOT being installed yet:** a plugin that loads and does
+  nothing is worse than one that refuses to load. The refusal is currently the
+  only thing telling the truth.
+- **Next:** rewrite the bridge against the runtime-takeover contract, prove it
+  by posting through OpenClaw rather than around it, and only then produce a QR.
+- **Raised:** 2026-09-02 20:40Z
+
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
 
 - **Step:** S37
