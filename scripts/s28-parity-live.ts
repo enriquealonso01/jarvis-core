@@ -83,6 +83,24 @@ async function main(): Promise<void> {
   const pid = project.rows[0].id;
   const key = await githubProvisionDeployKey(pool, pid, repo.owner, repo.name);
   if ("error" in key) throw new Error(`key: ${key.error}`);
+  /*
+   * Allowlist both engines for this project.
+   *
+   * The first attempt at this test parked immediately with "anthropic_personal
+   * is not allowlisted for this project" - correct behaviour, since S12b made
+   * the allowlist fail closed, and a gap in the fixture rather than in the
+   * code. Both profiles are listed because the whole point is to run the same
+   * task on each.
+   */
+  for (const profile of ["anthropic_personal", "openai_codex_personal"]) {
+    await pool.query(
+      `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+       VALUES ($1, $2, ARRAY['senior_engineer'])
+       ON CONFLICT (auth_profile_id, project_id) DO UPDATE SET allowed_roles = EXCLUDED.allowed_roles`,
+      [profile, pid],
+    );
+  }
+
   const checkout = await ensureProjectCheckout(pool, pid);
   if (!checkout.ok) throw new Error(`checkout: ${checkout.error}`);
   const dir = repoDir(SLUG);

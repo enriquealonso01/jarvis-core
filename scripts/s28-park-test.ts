@@ -123,18 +123,29 @@ async function main(): Promise<void> {
 
     const t = await pool.query<{ state: string; waiting_reason: string; ran_on_runtime: string | null }>(
       `SELECT state, waiting_reason, ran_on_runtime FROM tasks WHERE id = $1`, [id]);
-    const issue = await pool.query<{ category: string; required_action: string }>(
-      `SELECT category, required_action FROM issues WHERE task_id = $1`, [id]);
 
-    check("it parks", "waiting_for_user", t.rows[0]?.state);
+    /*
+     * The shape of this changed while it was being written, and for the better.
+     *
+     * It first asserted a MISMATCH park: the ladder handed back Anthropic, the
+     * runner noticed the task wanted codex, and refused. That refusal is now
+     * unreachable, because `task.runtime` FILTERS the ladder instead of being
+     * checked after it — a codex task is only ever offered codex routes. The
+     * wrong credential can no longer be selected, so there is nothing left to
+     * catch late.
+     *
+     * What is asserted is therefore the outcome, not the mechanism: it parks
+     * without running, and the reason names the engine that was asked for.
+     * Asserting the old mechanism would be asserting that the weaker design is
+     * still in place.
+     */
+    check("it parks rather than running on the wrong credential", "waiting_for_provider", t.rows[0]?.state);
     check("nothing is recorded as having run it", null, t.rows[0]?.ran_on_runtime);
-    truthy("the reason names what was asked for",
+    truthy("the reason names the engine it was pinned to",
       (t.rows[0]?.waiting_reason ?? "").includes("codex"));
-    truthy("and the credential that was actually available",
-      (t.rows[0]?.waiting_reason ?? "").includes("anthropic")
-      || (issue.rows[0]?.required_action ?? "").includes("anthropic"));
-    truthy("and it says Jarvis will not cross the two",
-      (issue.rows[0]?.required_action ?? "").includes("another vendor"));
+    truthy("and says why each other route was not it",
+      /not the codex this task asked for|no engineering route is registered/i
+        .test(t.rows[0]?.waiting_reason ?? ""));
   }
 
   await clean();

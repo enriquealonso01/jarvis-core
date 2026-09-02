@@ -106,6 +106,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Five defects reached him at once, all above the layer the tests covered](#five-defects-reached-him-at-once-all-above-the-layer-the-tests-covered)
 - [A CHECK constraint rejected every verdict and nothing said so](#a-check-constraint-rejected-every-verdict-and-nothing-said-so)
 - [Three probes lied because MSYS rewrote the path](#three-probes-lied-because-msys-rewrote-the-path)
+- [A stray container claimed every task and looked like a regression](#a-stray-container-claimed-every-task-and-looked-like-a-regression)
 
 
 ---
@@ -1387,3 +1388,26 @@ session, and the first time it produced a false FINDING rather than a failed
 command — which is much worse. A diagnostic tool that is not configured like the
 thing it is diagnosing is not measuring the same system. When a probe contradicts
 a passing suite, suspect the probe first.
+
+---
+
+### A stray container claimed every task and looked like a regression
+**Symptom:** immediately after a change to the engineering ladder, S1 went 14/23
+and S25 went 5/12. Every failing task was parked with "Claude Code: claude is not
+installed on this host" — the message from the new runtime-availability check,
+which looked exactly like the new code parking things it should not.
+**Cause:** not the code. A one-shot `docker compose run` runner from
+`s28-park-test.sh` was still alive, and that suite deliberately runs with
+`JARVIS_HARNESS=claude` so it can exercise the real selection path. The stray
+container polled the same queue as every other suite, claimed their tasks first,
+and correctly parked them for a binary that is not in the dev image. `docker ps`
+showed `jarvis-dev-runner-run-<hash>` with `JARVIS_HARNESS=claude` in its
+environment.
+**Fix:** `docker rm -f` the strays; both suites went straight back to 23/23 and
+12/12 with no code change at all.
+**Lesson:** the dev stack has one queue and any number of runners, so a container
+left behind by one suite silently competes with the next — and it fails in a way
+that reads as a regression in whatever you just changed. Before believing a
+sudden broad failure, run `docker ps` and check WHO is running and with what
+environment. Suites that deviate from the fake harness are the dangerous ones to
+leave lying around.

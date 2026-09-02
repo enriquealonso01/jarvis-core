@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import {
-  RUNTIMES, runtimeAvailable, runtimeFor, runtimeForHarness,
+  HARNESS_TO_RUNTIME, RUNTIMES, runtimeAvailable, runtimeFor, runtimeForHarness,
   type AgentRuntime, type RuntimeEvent,
 } from "./runtime.js";
 import fs from "node:fs/promises";
@@ -174,7 +174,17 @@ async function resolveProfile(
    * "a task that stops because one of three available engines was busy is a
    * task that did not need to stop."
    */
-  const ladder = await engineerLadder(pool, { projectId: task.project_id, taskId: task.id });
+  /*
+   * S28: if the task named an engine, only that engine's routes are candidates.
+   * The runtime id and the registry harness are different vocabularies, so the
+   * translation is explicit rather than a string that happens to match.
+   */
+  const wantHarness = task.runtime
+    ? Object.entries(HARNESS_TO_RUNTIME).find(([, id]) => id === task.runtime)?.[0] ?? task.runtime
+    : null;
+  const ladder = await engineerLadder(pool, {
+    projectId: task.project_id, taskId: task.id, wantHarness,
+  });
   if (!ladder.ok) return { error: ladder.reason };
   for (const note of ladder.skipped) console.log(`engineer ladder skipped ${note}`);
   if (!ladder.rung.authDir) {
@@ -860,6 +870,33 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     : null;
   const project = p?.rows[0] ?? null;
 
+  /*
+   * S28: a runtime nobody recognises is a typo, and it is checked here - before
+   * the engineering ladder is consulted at all.
+   *
+   * It used to be checked after the ladder had chosen a credential. Once the
+   * task's runtime began FILTERING the ladder, an unknown id stopped matching
+   * any route and came back as "no engineering route is registered for
+   * codex-that-is-not-here" - true, and much less useful than naming the
+   * runtimes that exist. The order of two checks decided the quality of the
+   * message.
+   */
+  const askedRuntime = task.runtime ?? project?.default_runtime ?? null;
+  if (askedRuntime && !runtimeFor(askedRuntime)) {
+    await park(pool, taskId, "waiting_for_user",
+      `no runtime called ${askedRuntime}`,
+      {
+        category: "config.invalid",
+        title: `[runtime] ${askedRuntime} is not a runtime Jarvis knows`,
+        dedupeKey: `runtime.unknown.${askedRuntime}`,
+        requiredAction:
+          `This task asks to run on "${askedRuntime}", which is not a runtime. Known: `
+          + `${Object.keys(RUNTIMES).join(", ")}. Fix the task or the project default.`,
+      },
+      task.project_id);
+    return;
+  }
+
   const refusal = await isolationRefusal(project);
   if (refusal) {
     await park(
@@ -1076,21 +1113,6 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
      * for "codex-that-is-not-here" and quietly run on the fake. The selection
      * logic was unreachable by exactly the tests written to exercise it.
      */
-    if (wantedRuntime && !runtimeFor(wantedRuntime)) {
-      await park(pool, task.id, "waiting_for_user",
-        `no runtime called ${wantedRuntime}`,
-        {
-          category: "config.invalid",
-          title: `[runtime] ${wantedRuntime} is not a runtime Jarvis knows`,
-          dedupeKey: `runtime.unknown.${wantedRuntime}`,
-          requiredAction:
-            `This task asks to run on "${wantedRuntime}", which is not a runtime. Known: `
-            + `${Object.keys(RUNTIMES).join(", ")}. Fix the task or the project default.`,
-        },
-        task.project_id);
-      return;
-    }
-
     const fromProfile = runtimeForHarness(profile.harness);
     const runtime = FAKE_HARNESS
       ? RUNTIMES.fake

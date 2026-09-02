@@ -277,9 +277,30 @@ async function engineerRoutes(pool: pg.Pool): Promise<
  */
 export async function engineerLadder(
   pool: pg.Pool,
-  args: { projectId: string | null; taskId?: string | null },
+  args: {
+    projectId: string | null;
+    taskId?: string | null;
+    /**
+     * S28: the harness this task asked for, if it asked. A task pinned to an
+     * engine must not be handed another engine's credential — running one
+     * vendor's CLI against another vendor's login reports 401 and reads exactly
+     * like an expired subscription. Filtering here rather than refusing later
+     * means "selectable per task" actually selects.
+     */
+    wantHarness?: string | null;
+  },
 ): Promise<LadderResult> {
-  const routes = await engineerRoutes(pool);
+  const all = await engineerRoutes(pool);
+  const routes = args.wantHarness
+    ? all.filter((r) => r.harness === args.wantHarness)
+    : all;
+  if (args.wantHarness && !routes.length) {
+    return {
+      ok: false,
+      reason: `no engineering route is registered for ${args.wantHarness}`,
+      skipped: all.map((r) => `${r.auth_profile_id}: ${r.harness}, not the ${args.wantHarness} this task asked for`),
+    };
+  }
   const skipped: string[] = [];
   const spent: { profileId: string; resetsAt: string | null; estimated: boolean }[] = [];
 
