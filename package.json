@@ -31,7 +31,9 @@
     "dev:test:s9": "bash scripts/s9-review-test.sh",
     "dev:burst": "bash scripts/burst-repro.sh",
     "dev:test:s10": "bash scripts/s10-grants-test.sh",
-    "dev:test:s11": "bash scripts/s11-recovery-test.sh"
+    "dev:test:s11": "bash scripts/s11-recovery-test.sh",
+    "dev:test:s12": "bash scripts/s12-isolation-test.sh",
+    "dev:test:all": "bash scripts/sweep.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

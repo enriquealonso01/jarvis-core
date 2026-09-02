@@ -7,6 +7,16 @@
 # is that a wrong route is invisible unless the decision was recorded.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# Git Bash on Windows rewrites anything shaped like a unix path in an argument
+# into a Windows path, so `-e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/...` reached
+# the container as `C:/Program Files/Git/app/scripts/...`. The fixture then
+# failed to load, the fake model answered with nothing, and the suite reported a
+# product failure ("no reviewer route answered") for a bug that was entirely in
+# the shell. It cost an afternoon twice. Suites must not depend on which shell
+# started them.
+export MSYS2_ARG_CONV_EXCL='*'
+export MSYS_NO_PATHCONV=1
 COMPOSE="docker compose -f deploy/compose.dev.yaml"
 PSQL="$COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX"
 API="http://127.0.0.1:8080"
@@ -60,6 +70,7 @@ route_case "question"    "Remind me how does our deploy work"          "question
 
 echo
 echo "=== the five-minute memo: one message, three destinations ==="
+BEFORE_DUMPS=$(q "SELECT count(*) FROM inbox_events WHERE raw_text LIKE 'Quick brain dump%';")
 say "Quick brain dump: alpha web needs the checkout page fixed, also for alpha mobile I thought of a nicer onboarding, oh and next month we should review pricing" >/dev/null
 INBOX=$(q "SELECT id FROM inbox_events ORDER BY received_at DESC, id LIMIT 1;")
 echo "  inbox=$INBOX category=$(last route_category) segments=$(segs)"
@@ -71,7 +82,12 @@ check "segment 2 is a capture with no project" "capture|" "$(seg 2 category)|$(s
 contains "the work segments carry an objective" "Reproduce it" "$(seg 0 objective)"
 check "the source text is still on the event, whole" "1" \
   "$(q "SELECT count(*) FROM inbox_events WHERE id = '$INBOX' AND raw_text LIKE 'Quick brain dump%review pricing';")"
-check "and it is one event, not three" "1" \
+# Counted as a DELTA against the count taken before the memo was sent.
+# `WHERE raw_text LIKE 'Quick brain dump%'` counts every run this database has
+# ever seen, so the assertion held only on a freshly seeded stack and reported
+# "four events from one memo" on any other — a product failure that never
+# happened.
+check "and it is one event, not three" "$((BEFORE_DUMPS + 1))" \
   "$(q "SELECT count(*) FROM inbox_events WHERE raw_text LIKE 'Quick brain dump%';")"
 
 echo

@@ -8,7 +8,7 @@ import { createPool } from "./db.js";
 import { claimTask, transitionTask, writeCheckpoint } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { sseBroadcast } from "./sse.js";
-import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
+import { ARTIFACTS_DIR, BROWSERS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
 import {
   completedPhases,
@@ -53,6 +53,7 @@ const ROOT = JARVIS_ROOT;
 const ARTIFACTS = ARTIFACTS_DIR;
 const WORKTREES = WORKTREES_DIR;
 const PROJECTS = PROJECTS_DIR;
+const BROWSERS = BROWSERS_DIR;
 
 /** Rounding a 6-second test limit to "0 minutes" makes the failure message a lie. */
 function humanMs(ms: number): string {
@@ -335,11 +336,19 @@ export function escapedPath(
       for (const m of command.matchAll(/(?<![\w/-])(\/[\w./@+-]+)/g)) {
         const abs = path.resolve(m[1]);
         if (inside(abs)) continue;
-        const underProjects = abs.startsWith(`${PROJECTS}${path.sep}`);
-        const underSecrets =
-          abs.startsWith(`${path.join(ROOT, "keys")}${path.sep}`)
+        // Another project's checkout, another project's browser profile,
+        // another task's worktree, or the secrets. S12 probed all four and this
+        // list only had the first and the last: a `cat` of Beta's browser
+        // profile — where Beta's logged-in sessions and cookies live — walked
+        // straight past the tripwire, and so did a read of another task's
+        // worktree. Both are exactly the cross-project read L9 names.
+        const outsideOwn =
+          abs.startsWith(`${PROJECTS}${path.sep}`)
+          || abs.startsWith(`${BROWSERS}${path.sep}`)
+          || abs.startsWith(`${WORKTREES}${path.sep}`)
+          || abs.startsWith(`${path.join(ROOT, "keys")}${path.sep}`)
           || abs.startsWith(`${path.join(ROOT, "harness-auth")}${path.sep}`);
-        if (underProjects || underSecrets) return abs;
+        if (outsideOwn) return abs;
       }
     }
   }
