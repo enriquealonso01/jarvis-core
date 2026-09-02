@@ -1,6 +1,16 @@
-# Build order — supersedes FIRST_SLICE.md
+# Build order — SUPERSEDED
 
-Date: 2026-09-01. Written after `docs/GAP_ANALYSIS.md`.
+> **Superseded by `docs/JARVIS_MASTER_PLAN_V2.md`. Do not sequence work from this
+> file.** Its Step 0–6 numbering predates the plan's S1–S37 and does not map onto
+> it; two documents with different step numbers, both claiming to supersede
+> `FIRST_SLICE.md`, is how someone ends up building the wrong list.
+>
+> Kept because **the six decisions below are still the decisions**, and this is
+> where they were made and argued. The master plan carries them forward; this is
+> the record of why.
+
+Date: 2026-09-01. Written after `docs/GAP_ANALYSIS.md`, before the master plan
+existed.
 
 `FIRST_SLICE.md` deferred worktrees, GitHub keys and harness spawn. That deferral
 is why Jarvis does no work. This document resequences around one rule:
@@ -13,7 +23,7 @@ is why Jarvis does no work. This document resequences around one rule:
 |---|---|---|
 | 1 | Start over? | **No.** Keep the 8,453 lines. Build the executor. |
 | 2 | Where does the harness run? | **Host systemd runner as `jarvis`.** ADR 015. |
-| 3 | Which harness? | **Claude Code only for v1.** Codex/Cursor stay registered, unbuilt. |
+| 3 | Which harness? | **Claude Code first.** *Revised by the plan:* S28 adds the `AgentRuntime` interface and a second adapter, because the evaluation suite has nothing to compare until two exist. |
 | 4 | Which models? | **Paid open-weights for Supervisor, subscription for Engineer.** Free-tier chain is dead. |
 | 5 | What gets frozen? | Ops, observability, security, backups, notifications. **No further work.** |
 | 6 | What proves done? | One acceptance test: seeded repo, failing test in, merged PR out. |
