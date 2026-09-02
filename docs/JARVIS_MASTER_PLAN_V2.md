@@ -1360,6 +1360,36 @@ From now on: a requirement that lands after its governing step has shipped goes
 into **this step**, not into the finished one. The finished step gets a one-line
 pointer and nothing else.
 
+### Triage — two of these do not wait for their turn
+
+The list below grew in the order the gaps were found, which is chronological and
+has nothing to do with risk. Ordered by what it actually costs to leave alone:
+
+| | Item | Live? | Why it ranks here |
+|---|---|---|---|
+| 1 | Deterministic router | **yes** | A model reads every inbound body first, confidential ones included |
+| 2 | SSH hardening | **yes** | Password auth and root login at defaults, on a public port |
+| 3 | Output scrubber + canary | unknown | "Never logged" has nothing behind it; unverified, not known-broken |
+| 4 | Checkpoint contents | no | The recovery ladder cannot resume without it |
+| 5 | Recovery ladder | no | Recovery is one action where it should be ten |
+| 6 | Three error classes | no | Taxonomy and code disagree |
+| 7 | Internal HMAC idempotency | no | Small, and easy to skip forever |
+| 8 | Status bar and composer | no | Missing features, not risk |
+
+**Items 1 and 2 are exceptions to the step order.** The plan's whole discipline
+is one step at a time, in sequence — and that rule is right for building and
+wrong for a live security gap. Both are running on the box now, both predate
+their specifications, and neither becomes less true by waiting for S16 and S17
+to finish.
+
+Do them next, out of order, and say so in the commit. Item 2 is roughly ten
+minutes and is not code. Item 1 is a day and makes the system cheaper as well as
+safer.
+
+The other six wait their turn. **A retrofit list where everything is urgent is a
+retrofit list nobody triages**, which is how the important two would end up
+queued behind the status bar.
+
 ### The debt, as of 2026-09-02
 
 **Checkpoint contents** *(S11 shipped 21:18; the spec landed 21:47).* The runner
