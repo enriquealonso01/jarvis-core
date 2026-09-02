@@ -707,6 +707,24 @@ executed. Fix that before writing anything else.
 - If the runner claims nothing, the lane or `lease_until` is wrong. Query `tasks` directly before suspecting code.
 - Windows is not a target for the runner — it spawns POSIX processes and sets unix permissions. Use WSL, a container, or the box.
 
+### The dev stack is a fixture, not a second Jarvis
+
+ADR 014 is blunt: *nothing is developed or run as the Jarvis environment on
+Enrique's laptop; the Netcup VPS is the only Jarvis host.* A literal reading
+forbids this step. It should not, but the thing the ADR was guarding against is
+real, so the boundary is written here rather than assumed.
+
+The dev stack is a **disposable test fixture**:
+
+- **No real credentials, ever.** Not a spare key, not a read-only token. If a test needs a provider, it needs the fake.
+- **Its state is destroyed and reseeded, never migrated or preserved.** The moment anyone cares about what is in the dev database, it has become a second Jarvis.
+- **A fix verified only in dev is not verified.** Dev proves the logic; the box proves the system. The plan's Done-when lines mean the box wherever the step touches deployment, harnesses, or the filesystem layout.
+- **Netcup remains the only place Jarvis runs.** One installation, one state, one truth.
+
+This is not theoretical: an S4 commit had to correct its own runbook because *the
+box was running pre-S1 code* while dev was ahead. Drift between the two is the
+failure mode, and the only defence is that the box is the one that counts.
+
 **Done when:** someone with no Claude subscription and no network can run the entire engineering loop end to end, and all five variants behave as specified.
 
 ## S2 — `task_create`
@@ -2622,6 +2640,14 @@ substitute a different account because it happens to be the same provider.
 
 **Authentication is per provider.** New model, same provider, same key, no
 question asked.
+
+**Bootstrap collects every provider in the routing table** (ADR 014) — not one
+key to get chat working and the rest later. What changed since that ADR is the
+*table*, not the rule: §35's free-tier list is superseded by VI.0, so
+"every declared provider" now means the hosted open-weights primary and its
+fallback, the subscription logins, STT and TTS. Connecting a key is still not
+enabling pay-as-you-go: a provider that will not run without billing leaves its
+profile `waiting` with an Issue asking for an explicit ceiling.
 
 **A registered model is not a working route.** Nothing becomes routable until a
 real tool-enabled call has succeeded against it. Transient failures degrade and
