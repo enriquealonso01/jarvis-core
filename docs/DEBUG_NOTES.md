@@ -20,6 +20,7 @@ is two or three entries, and it is where the time is actually saved.
 - [A code deploy silently reverted files that were not code](#a-code-deploy-silently-reverted-files-that-were-not-code)
 - [`plugins install` reported success while installing nothing](#plugins-install-reported-success-while-installing-nothing)
 - [An OpenClaw plugin http handler must write its own response](#an-openclaw-plugin-http-handler-must-write-its-own-response)
+- [Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval](#configuring-the-whatsapp-channel-needs-a-newer-runtime-and-a-non-interactive-approval)
 
 **Phone**
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
@@ -355,6 +356,22 @@ lived there too, and a deploy replaced it with main's copy, which lacks
 different clock than the code. And the install output said exactly what was
 wrong, both times, into a `>/dev/null` - suppressing the output of a step whose
 success you are assuming is how two hours disappear.
+
+### Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval
+**Symptom:** `channels add --channel whatsapp` failed with `requires plugin API
+>=2026.8.2, but this OpenClaw runtime exposes 2026.8.1`; after upgrading it then
+printed a capability box and stopped at `Setup cancelled.`
+**Cause:** two separate gates. The channel plugin has a runtime floor, and its
+capability approval is an interactive prompt that `channels add` has no flag for,
+so it always answers No when stdin is not a terminal.
+**Fix:** upgrade the image (`docker pull`, then `compose up -d openclaw`), then
+`openclaw plugins install clawhub:@openclaw/whatsapp --accept-capabilities`
+FIRST, and only then `channels add --channel whatsapp`, which now skips both.
+**Also:** `session.dmScope` defaults to `main` when unset - one shared session
+across every DM. Set it explicitly (`per-account-channel-peer`) before pairing,
+or OpenClaw becomes the memory it is not supposed to be.
+**Lesson:** an interactive prompt in a non-interactive context does not hang
+here, it silently chooses the safe answer and reports success-shaped output.
 
 ### An OpenClaw plugin http handler must write its own response
 **Symptom:** every request to the plugin route hung until the client timed out.

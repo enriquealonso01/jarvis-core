@@ -26,6 +26,39 @@ unblocked, finish it before starting anything new.
   ownership fixed, `runner.env` written, `dist/` built, migrations 010+011
   applied to the live DB, unit installed and enabled.
 
+## The WhatsApp QR is ready for you to scan
+
+- **Step:** S37 item 3
+- **What I need you to do:** run this yourself, in your own terminal, and scan
+  the QR with WhatsApp on your phone (Settings > Linked devices > Link a device):
+
+      ssh jarvis-netcup
+      sudo docker exec -it jarvis-openclaw-1 openclaw channels login --channel whatsapp
+
+  It has to be your terminal because the QR refreshes every few seconds - one I
+  generated here would expire long before you saw it. I am deliberately not
+  pairing on your behalf.
+- **What is ready:** the channel is installed, enabled and configured
+  (`WhatsApp default (Enrique): installed, enabled, not linked`). I verified the
+  login command renders a live QR, then let it expire without scanning.
+- **What I had to change to get there:** the WhatsApp plugin requires OpenClaw
+  plugin API >= 2026.8.2 and the runtime was 2026.8.1, so I upgraded OpenClaw
+  and re-verified the bridge afterwards - it registers both hooks, and the send
+  route still authenticates, validates and reaches the CLI.
+- **Two things I set before handing you the QR:**
+  - `session.dmScope` is now `per-account-channel-peer`. It was unset, and the
+    default is `main` - one shared session for every DM, which is exactly the
+    memory role OpenClaw is not supposed to have.
+  - OpenClaw still has no usable model credential (`openai/gpt-5.6-sol`,
+    `Auth: no`), so it cannot compose a reply even if a hook failed open.
+    Adding any credential silently removes that guarantee.
+- **What I could not prove without you:** that `before_agent_run` actually
+  blocks on the WhatsApp inbound path. It needs a real inbound message. The
+  hook is registered on every gateway start (logged), but registered is not
+  fired, and I will not claim it until a message arrives and OpenClaw stays
+  silent. Send me any message after pairing and I will check.
+- **Raised:** 2026-09-02 22:20
+
 ## WhatsApp is not paired, and 19 notifications are waiting on it
 
 - **Step:** S37 item 4
