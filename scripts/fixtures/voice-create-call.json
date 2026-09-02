@@ -1,0 +1,19 @@
+{
+  "note": "The six utterances from call v3:wm-3_QFxUNh7dGbiF-bbZjm66VRkR0uobhEU1ljCeTNO02H8nVIW5w, 2026-09-02T18:23:29Z, verbatim from call_turns. Enrique tried to create a project by voice and no project was created. Kept as a fixture because a transcript of a real failure is worth more than any sentence anyone would invent: the disfluency, the repetition and the mid-sentence correction are what a phone call actually sounds like, and every one of them mattered.",
+  "spoken_back": [
+    "remembered: I want to create a project called Test Project.",
+    "I need a few answers before I can create it. A professional project must have these set:. Confidentiality - is the project confidential?. Production s",
+    "He wants to create a personal project and repository, but no project name is given, so it cannot be assigned to any existing project.",
+    "The user asks to create projects named 'test project one' and 'personal project', but neither name matches any project in the existing list, and no pr",
+    "The message is a fragment with no clear subject, project, or intent; cannot determine what is being asked or referenced.",
+    "Very good, sir. Have a pleasant day."
+  ],
+  "turns": [
+    { "n": 1, "heard": "I want to create a project called Test Project." },
+    { "n": 2, "heard": "Yeah, I'm here, but did you create the test project I told you about?" },
+    { "n": 3, "heard": "For now, just select the defaults. I want to create a project that is personal and create a repository, create" },
+    { "n": 4, "heard": "Just create the project name, test project one. and then created a personal project, please." },
+    { "n": 5, "heard": "because I'm asking you to create it." },
+    { "n": 6, "heard": "Yeah, this is a problem. Thank you. You can exit now." }
+  ]
+}
