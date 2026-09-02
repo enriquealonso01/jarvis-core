@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "aba7d7cb46528b4d825b219d0bc5abd763be6c22",
+  "plan_sha": "4c91ad6ed346afcd08bd30e4b51d6f95e0b6f098",
   "total_steps": 37,
-  "updated_at": "2026-09-02T00:52:41.719Z",
-  "current_step": "S10",
+  "updated_at": "2026-09-02T01:00:16.098Z",
+  "current_step": "S11",
   "steps": [
     {
       "id": "S1",
@@ -50,8 +50,8 @@
       "title": "The engineering workflow",
       "stage": 1,
       "state": "done",
-      "evidence": "N1 end to end from a console-created task: sentence -> task -> 11 phases -> review -> PR on GitHub, 20/20 live; unreproducible report opens nothing",
-      "pr": 36
+      "pr": 36,
+      "evidence": "N1 end to end from a console-created task: sentence -> task -> 11 phases -> review -> PR on GitHub, 20/20 live; unreproducible report opens nothing"
     },
     {
       "id": "S7",
@@ -81,7 +81,9 @@
       "id": "S10",
       "title": "Grants, merge, deploy",
       "stage": 2,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "grants: all eight invalidation conditions verified individually, level 3 unreachable by grant, N6 refuses; 40/40",
+      "pr": 39
     },
     {
       "id": "S11",
