@@ -588,6 +588,25 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### A CHECK constraint turned the recovery ladder into the loop it forbids
+**Symptom:** the ladder climbed rung 1 twelve times in a row and never reached
+rung 2. Every assertion about escalation failed, and the task sat in `recovering`
+forever.
+**Cause:** the ladder records each rung as a `task_events` row of type
+`recovery`, and `task_events.type` had a CHECK constraint allowing six kinds —
+not that one. Every insert was rejected. The insert is deliberately wrapped in a
+`.catch()`, because a timeline write must never break a recovery, so the
+rejection was silent; the ladder then read back "nothing has been tried" on every
+pass and did the cheapest rung again. II.3's own warning describes the result
+exactly: "a ladder without limits is exactly how an infinite retry loop is
+built" — except the limits were there and the memory of using them was not.
+**Fix:** migration 019 adds `recovery` to the allowed types.
+**Lesson:** a swallowed write plus a decision that reads that write back is a
+loop waiting to happen. When a catch is genuinely right — and it was — the thing
+that reads the data has to be able to tell "nothing happened" from "nothing was
+recorded", or add a test that asserts the row exists rather than the behaviour it
+should have produced.
+
 ### A line in an activity feed took down a state transition
 **Symptom:** S3c went from 22/22 to 9/22 after S18 added an activity feed.
 Symptoms in the database: a task that had genuinely been `running` ended
