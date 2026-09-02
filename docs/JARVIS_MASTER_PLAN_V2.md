@@ -1533,6 +1533,11 @@ recorded on the task.
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
 
+**Seventeen undocumented tables** *(the schema grew 37 → 55; `DATA_MODEL.md` did
+not).* Document them from the migrations that created them — one paragraph each,
+what it holds and who writes it. Not a rewrite of the file: an append, and then
+the same-commit rule keeps it current.
+
 **Contract conformance tests** *(Part IV defines them; nothing verifies them).*
 Two generated suites — illegal transitions across the ten state machines, and
 every error class against its taxonomy row. Both read their tables at run time,
@@ -2568,6 +2573,26 @@ happened because of it.
 A record that cannot name its origin is a bug, even when its content is correct.
 
 ## IV.1 Schema
+
+**`DATA_MODEL.md` documents the schema Jarvis started with, not the schema it
+has.** It describes 37 tables; there are now 55. The seventeen undocumented ones
+are real, correct, and were added by the work — `activity_events` and
+`resource_metrics` from S18, `task_context` from S3, the `call_*` family from
+Stage 4, `quota_observations` from S25, `reauth_events` from S12b,
+`sender_project_binding` from the deterministic router, `internal_requests` from
+HMAC idempotency.
+
+That is a documentation debt with teeth: §0.0 sends the next agent to
+`DATA_MODEL.md` as **read-only law**, and a table that is law-but-absent is a
+table someone recreates under a different name. The two would then both be
+written to, by different code paths, and nothing would fail loudly.
+
+**The rule, from here: a migration that adds a table adds its `DATA_MODEL.md`
+entry in the same commit.** Same discipline as the traceability appendix and for
+the same reason — a document that claims to be complete is worse than one that
+does not, because the gap reads as a decision rather than an omission.
+
+Cataloguing the seventeen is in S18b.
 37 tables, already migrated. The task table already carries `worktree_path`,
 `branch`, `head_sha`, `harness`, `external_session_id`, `auth_profile_id` — the
 data model anticipated the executor even though the code never arrived. Two objects the transcript names are **not** in the schema and are added in S18:
