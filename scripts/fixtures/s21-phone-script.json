@@ -1,0 +1,33 @@
+{
+  "supervisor": [
+    { "match": "how are you", "content": "ANSWER: Very well, sir. What can I do for you?" },
+    { "match": "good morning", "content": "ANSWER: Good morning, sir." },
+    { "match": "thank you very much", "content": "ANSWER: A pleasure, sir." },
+    { "match": "how is the deploy going", "content": "The deploy finished twenty minutes ago, sir." },
+    { "match": "read me the queue", "content": "Two tasks are queued and one is running." },
+    { "match": "what is the spend", "content": "Eleven dollars this month, sir." },
+    { "match": "check the alpha migration", "content": "The migration ran clean on Tuesday." },
+    { "match": "how many issues are open", "content": "Three, and none of them are urgent." },
+    { "match": "what did i tell you about tuesdays", "content": "That the client prefers them for calls." },
+    { "match": "say something short", "content": "Right away, sir." },
+    { "match": "the login button is dead", "content": "Filed it." }
+  ],
+  "classifier": [
+    {
+      "match": "the login button is dead",
+      "json": {
+        "reason": "one thing to do, in one project",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "the login button is dead",
+            "title": "Fix the login button",
+            "objective": "The login button does nothing when clicked. Find why the handler never fires, fix it, and open a pull request.",
+            "reason": "an explicit request to change code"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -38,6 +38,31 @@ state machine.
 
 ---
 
+### A python edit that asserted its anchors, failed, and left nothing behind
+**Symptom:** S21's barge-in over an acknowledgement did not stop the playback,
+and the call stayed in `thinking`. The code plainly said it should.
+**Cause:** the edit that added `thinking` to the barge-in states was in a script
+whose FIRST anchor assertion failed. The script exited before writing anything —
+correctly — but three later edits in the same script went with it, and the rebuild
+and the test run that followed looked like a code bug rather than an edit that
+never happened.
+**Fix:** re-applied them, and checked with `grep` that each landed rather than
+trusting the script's exit.
+**Lesson:** a batch edit that fails partway is a batch edit that did nothing.
+Verify the file, not the script — and keep unrelated edits out of one batch.
+
+### An assertion that could not fail because the code guarded twice
+**Symptom:** deliberately removing the `clearTimeout` from barge-in did not turn
+the "nothing queued behind it still gets spoken" assertion red.
+**Cause:** the queued line was guarded twice — the timer was cleared AND the
+callback checked a `cancelled` flag at fire time. Removing either one alone left
+the other holding, so the test could not see the difference.
+**Fix:** the sabotage removed both, which turned it red; both guards stay in the
+code, since belt and braces is right here.
+**Lesson:** "every test must have been seen to fail once" has to be checked
+against the property, not against one line of code. A sabotage that a redundant
+guard absorbs proves the guard, not the test.
+
 ### `RETURNING` gave back the value it had just written
 **Symptom:** S20's endpointing worked — the utterance accumulated, the timer
 fired — and then Jarvis said nothing at all. The row showed `pending_text` gone,

@@ -214,48 +214,37 @@ async function main(): Promise<void> {
     await finalizeCall(pool, ccid, "tts test done");
   }
   {
-    // ---- The model fails once. "Give me a moment", then the real answer.
+    /*
+     * ---- The model is dead.
+     *
+     * S19 answered this with a spoken filler and one retry. S21 replaced that
+     * with the turn runtime's own ladder — acknowledge, hold, progress, hand
+     * over — so what is asserted here is the invariant that survived both: a
+     * caller whose question cannot be answered is TOLD so, honestly, and what
+     * he said is still on the record.
+     */
     const ccid = newCcid();
     clearSentCommands();
-    process.env.JARVIS_PHONE_FAIL = "model_once";
+    process.env.JARVIS_MODEL_FAIL = "1";
     await upToListening(ccid);
     await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
     await settle();
+    process.env.JARVIS_MODEL_FAIL = "";
 
-    const lines = sentCommands.filter((c) => c.ccid === ccid && c.action !== "record_start");
-    const filler = lines.find((c) => c.body.client_state === ACK);
-    truthy("a failed model says something rather than nothing", filler);
+    const heard = spoken(ccid);
+    truthy("a dead model still produces a spoken line", heard.length > 0);
     truthy(
-      "and what it says is that it is still working",
-      spokenLines.some((l) => l.ccid === ccid && l.clientState === ACK
-        && l.text.toLowerCase().includes("moment")),
+      "and the line promises a follow-up rather than pretending to have answered",
+      heard.some((t) => /follow up|saved/i.test(t)),
     );
-    const answer = lines.find((c) => c.body.client_state === REPLY);
-    truthy("then the retry's answer arrives", answer);
-    check("the filler did NOT end the turn", "speaking", await currentState(pool, ccid));
-    await finalizeCall(pool, ccid, "model_once test done");
-  }
-  {
-    // ---- The model fails twice: an honest offer to follow up in writing.
-    const ccid = newCcid();
-    clearSentCommands();
-    process.env.JARVIS_PHONE_FAIL = "model,tts";
-    await upToListening(ccid);
-    await handleCallEvent(pool, ev("call.transcription", ccid, said("how is the deploy going")));
-    await settle();
-
-    truthy(
-      "twice-failed, it offers to follow up in writing",
-      spoken(ccid).some((t) => t.includes("follow up in writing")),
-    );
-    const pending = await pool.query<{ n: string }>(
+    const persisted = await pool.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM inbox_events
        WHERE channel = 'phone' AND raw_text = 'how is the deploy going'
-         AND processing_state = 'pending'`,
+         AND capture_state = 'persisted'`,
     );
     truthy(
-      "and the promise is a queued message, not a good intention",
-      Number(pending.rows[0].n) > 0,
+      "and the promise is a real row, not a good intention",
+      Number(persisted.rows[0].n) > 0,
     );
     await finalizeCall(pool, ccid, "model test done");
   }
