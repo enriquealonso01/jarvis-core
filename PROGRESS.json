@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "badebe360c821256ba48e1c4b0e0f66614c08f1f",
+  "plan_sha": "d36f8cbcae8a2b38c64a002dee46901cf541cb84",
   "total_steps": 37,
-  "updated_at": "2026-09-02T03:51:55.082Z",
-  "current_step": "S12",
+  "updated_at": "2026-09-02T04:14:05.417Z",
+  "current_step": "S15",
   "steps": [
     {
       "id": "S1",
@@ -115,14 +115,16 @@
       "title": "Live work detail",
       "stage": 3,
       "state": "done",
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY.",
-      "pr": 53
+      "pr": 53,
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
       "title": "Repair the degraded console",
       "stage": 3,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "Audit harness green: 99 assertions across all 16 pages at 375px (overflow, accessible names, touch targets, colour-alone, reduced motion, visible focus at every keyboard stop) + 10 forced-state assertions. Build bar now distinguishes blocked from done by pattern, not colour. PARTIAL: only /queue has the full state set; PWA, L17's six journeys and the remaining screens are not done.",
+      "pr": 55
     },
     {
       "id": "S16",
