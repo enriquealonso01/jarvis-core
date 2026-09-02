@@ -23,6 +23,7 @@ import { promisify } from "node:util";
 import { createPool } from "../src/db.js";
 import { githubCreatePrivateRepo, githubProvisionDeployKey } from "../src/github.js";
 import { readJsonCredential } from "../src/credentials.js";
+import { encryptGcm, loadMasterKey, newDek, wrapDek } from "../src/crypto.js";
 import {
   ensureProjectCheckout, gitEnv, loadProject, materialiseDeployKey, repoDir, sshUrl,
 } from "../src/checkout.js";
@@ -54,6 +55,32 @@ async function adminToken(): Promise<string> {
     "SELECT credential_id FROM auth_profiles WHERE id = 'github_personal_admin'");
   const cred = await readJsonCredential(pool, row.rows[0].credential_id);
   return cred.api_key as string;
+}
+
+/**
+ * A project-scoped GitHub credential.
+ *
+ * The deploy key can push a branch and cannot open a pull request, and the
+ * personal admin token is deliberately not a substitute - it can reach every
+ * repository Enrique owns, and S5 exists to stop a project worker holding that.
+ * So the project gets its own. Without it both engines do the whole job and then
+ * park at the last step, which is correct behaviour and a useless test.
+ */
+async function giveProjectApiCredential(projectId: string): Promise<void> {
+  const token = await adminToken();
+  const dek = newDek();
+  const { nonce, ciphertext } = encryptGcm(dek, Buffer.from(JSON.stringify({ api_key: token })));
+  const dekRow = await pool.query<{ id: string }>(
+    "INSERT INTO dek_keys (wrapped_key) VALUES ($1) RETURNING id",
+    [wrapDek(loadMasterKey(), dek)],
+  );
+  const cred = await pool.query<{ id: string }>(
+    `INSERT INTO credentials (dek_id, ciphertext, nonce, fingerprint, kind, broker_only)
+     VALUES ($1,$2,$3,$4,'api_key',false) RETURNING id`,
+    [dekRow.rows[0].id, ciphertext, nonce, `project:${SLUG}:github`],
+  );
+  await pool.query("UPDATE projects SET github_api_credential_id=$2 WHERE id=$1",
+    [projectId, cred.rows[0].id]);
 }
 
 async function waitForTask(id: string, seconds: number): Promise<string> {
@@ -101,6 +128,8 @@ async function main(): Promise<void> {
     );
   }
 
+  await giveProjectApiCredential(pid);
+
   const checkout = await ensureProjectCheckout(pool, pid);
   if (!checkout.ok) throw new Error(`checkout: ${checkout.error}`);
   const dir = repoDir(SLUG);
@@ -123,7 +152,28 @@ async function main(): Promise<void> {
   if ("error" in mat) throw new Error(mat.error);
   await run("git", ["push", "-q", sshUrl(repo.owner, repo.name), `HEAD:${repo.default_branch}`],
     { cwd: dir, env: gitEnv(mat.sshCommand) });
-  console.log("  seeded the bug and pushed\n");
+  /*
+   * And make the seed visible to the runner.
+   *
+   * Pushing to an explicit URL does NOT move the `origin/<branch>`
+   * remote-tracking ref — only a push to the named remote does. The runner
+   * branches each task worktree from `origin/main`, so without this both
+   * engines get a worktree containing README.md and nothing else. Codex
+   * reported exactly that ("this checkout has no AGENTS.md, package.json, src
+   * directory, or test directory") and was right: the bug was in this fixture,
+   * not in the runtime it was written to test.
+   *
+   * Asserted rather than assumed, because a fixture that quietly seeds nothing
+   * produces a test failure that looks like a product failure — which is what
+   * it did, twice.
+   */
+  await run("git", ["fetch", "-q", "origin"], { cwd: dir, env: gitEnv(mat.sshCommand) });
+  const seeded = await run("git", ["ls-tree", "--name-only", `origin/${repo.default_branch}`], { cwd: dir });
+  const files = seeded.stdout.trim().split("\n").join(", ");
+  console.log(`  seeded, and visible on origin/${repo.default_branch}: ${files}`);
+  if (!seeded.stdout.includes("package.json")) {
+    throw new Error(`the seed is not on the branch the runner builds from (saw: ${files})`);
+  }
 
   const token = await adminToken();
   const results: Record<string, { state: string; pr: number | null; ran: string | null; tools: number }> = {};
