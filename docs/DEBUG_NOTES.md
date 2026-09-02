@@ -23,6 +23,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval](#configuring-the-whatsapp-channel-needs-a-newer-runtime-and-a-non-interactive-approval)
 
 **Phone**
+- [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
 - [One utterance produced several replies, and the call ran away](#one-utterance-produced-several-replies-and-the-call-ran-away)
 - [A python edit that asserted its anchors, failed, and left nothing behind](#a-python-edit-that-asserted-its-anchors-failed-and-left-nothing-behind)
@@ -118,6 +119,27 @@ is two or three entries, and it is where the time is actually saved.
 ---
 
 ## Phone
+
+### A CRITICAL isolation alert for an `ls`
+**Symptom:** `[isolation] harness wrote outside the worktree`, critical, evidence
+`attempted_path: /var/lib/jarvis/worktrees/unscoped`.
+**What actually happened:** the task was the sentence "Hello, can you finish what
+you were saying?" - conversational filler that became a heavy task with no
+project. With no project there is no repository, so the run was given an empty
+directory under `worktrees/unscoped`. Claude landed in it, correctly reported
+there was nothing to continue from, and while looking around ran
+`ls -la /var/lib/jarvis/worktrees/unscoped/`. That is outside the paths the run
+may touch, so the tripwire killed the run and raised a critical - for a
+directory listing, in an empty directory, on a task that should not have existed.
+**Fix:** upstream, not in the tripwire, which was right: a run whose boundary is
+an empty scratch directory has no meaningful boundary. The heavy lane now parks
+a task with no project and quotes the sentence that caused it. Five of thirty
+heavy tasks on the box had no project; none of 721 system tasks did.
+**Also fixed:** the title said "wrote" when the tripwire cannot tell a read from
+a write inside a Bash string, which sent the reader looking for a file that was
+never created. It says "touched" now.
+**Read the transcript first.** The ticket said to, and it answered the question
+in one line: `fatal: not a git repository`.
 
 ### Jarvis transcribed its own greeting as if the caller had said it
 **Symptom:** every call opened with Jarvis answering a question nobody asked.

@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S37 WhatsApp — channel configured, QR handed over and awaiting scan; untrusted-content handling and unpaired-channel state landed; voice notes next (audio kept as raw_audio, transcribed, then routed exactly like typed text)."
+  "working_on": "Fixed: filler became an unscoped heavy task and tripped a CRITICAL isolation alert; the heavy lane now refuses work with no project."
 }
