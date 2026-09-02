@@ -1033,6 +1033,48 @@ export async function warmPhoneAudio(pool: pg.Pool): Promise<void> {
  * so anything slow (transcription, a Supervisor turn) happens after the
  * recording arrives, on a later event, not while a call is waiting.
  */
+/**
+ * Is this `call.initiated` our OWN outbound leg rather than somebody calling in?
+ *
+ * Telnyx sends `call.initiated` for both directions. The owner check was applied
+ * to all of them, so every call Jarvis placed was measured against "is the
+ * caller Enrique?", answered no - the caller is Jarvis - and was rejected. Five
+ * of them in one day. The calls survived only because a later event with no row
+ * invents one, so what looked like a working outbound call was a rejection
+ * followed by an accident.
+ *
+ * Two signals, both local:
+ *
+ *   the ccid is one we placed  authoritative, and unspoofable: it comes from
+ *                              our own API response, not from the wire.
+ *   the from is our own number  covers the race where the webhook beats the
+ *                              write of that ccid.
+ *
+ * The second is caller-controlled, so it must never GRANT anything. It does not:
+ * an outbound leg is neither answered nor rejected here, so a spoofer claiming
+ * to be our number gets silence, which is what an unrecognised caller should
+ * get anyway.
+ */
+async function isOwnOutboundLeg(
+  pool: pg.Pool,
+  ccid: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  if (String(payload.direction ?? "").toLowerCase() === "outgoing") return true;
+
+  const ours = await pool
+    .query<{ n: string }>(
+      `SELECT count(*) AS n FROM outbound_calls WHERE call_control_id = $1`,
+      [ccid],
+    )
+    .catch(() => null);
+  if (Number(ours?.rows[0]?.n ?? 0) > 0) return true;
+
+  const from = String(payload.from ?? "");
+  const mine = sitePin((c) => c.telnyx?.from_e164);
+  return Boolean(mine && from === mine);
+}
+
 export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promise<string> {
   const type = event.data?.event_type ?? "";
   const payload = (event.data?.payload ?? {}) as Record<string, unknown>;
@@ -1050,6 +1092,19 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
   }
 
   if (type === "call.initiated" && ccid) {
+    /*
+     * Our own outbound leg: record it and let it proceed. Answering is the
+     * callee's job, and rejecting it would be Jarvis hanging up on itself.
+     */
+    if (await isOwnOutboundLeg(pool, ccid, payload)) {
+      await ensureCall(pool, {
+        ccid,
+        legId: String(payload.call_leg_id ?? "") || null,
+        from: String(payload.from ?? "") || null,
+      });
+      return "outbound leg initiated";
+    }
+
     const verdict = callerVerdict(payload);
     if (!verdict.allow) {
       await command(pool, ccid, "reject", { cause: "CALL_REJECTED" });
