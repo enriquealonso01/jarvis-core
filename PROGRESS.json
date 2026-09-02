@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "4c91ad6ed346afcd08bd30e4b51d6f95e0b6f098",
   "total_steps": 37,
-  "updated_at": "2026-09-02T01:00:16.098Z",
-  "current_step": "S11",
+  "updated_at": "2026-09-02T01:18:15.701Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -82,14 +82,16 @@
       "title": "Grants, merge, deploy",
       "stage": 2,
       "state": "done",
-      "evidence": "grants: all eight invalidation conditions verified individually, level 3 unreachable by grant, N6 refuses; 40/40",
-      "pr": 39
+      "pr": 39,
+      "evidence": "grants: all eight invalidation conditions verified individually, level 3 unreachable by grant, N6 refuses; 40/40"
     },
     {
       "id": "S11",
       "title": "Recovery under failure",
       "stage": 2,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "five mid-run failures each mapped to the taxonomy with its own retry budget; L2 restart preserves order and loses nothing; 26/26",
+      "pr": 40
     },
     {
       "id": "S12",
