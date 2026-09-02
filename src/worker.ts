@@ -205,6 +205,28 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
       );
       continue;
     }
+    /*
+     * "Not paired yet" is not a failed attempt.
+     *
+     * Wiring the outbox to a real transport turned a channel that never sent
+     * anything into one that tries and is refused, and the retry curve would
+     * then spend all seven attempts before Enrique had scanned the QR: the
+     * queue would reach `failed`, the revive sweep would resurrect it, and the
+     * pair would loop forever while spawning a CLI process per row per sweep.
+     * Deferring instead keeps the queue intact and idle until a channel exists,
+     * which is what "on pairing each must arrive exactly once, not zero" needs.
+     * Every other failure still walks the taxonomy curve untouched.
+     */
+    if (/channel is unavailable|not paired/i.test(sent.detail)) {
+      await pool.query(
+        `UPDATE notifications_outbox
+         SET last_error = 'channel not paired yet; deferred without spending an attempt',
+             next_attempt_at = now() + interval '5 minutes'
+         WHERE id = $1`,
+        [n.id],
+      );
+      continue;
+    }
     // Back off on the taxonomy curve instead of hammering a flat interval.
     const attempts = await pool.query<{ attempts: number }>(
       `SELECT attempts FROM notifications_outbox WHERE id = $1`,

@@ -27,6 +27,7 @@ async function main() {
   const pool = createPool();
   const seen: Seen[] = [];
   let respondWith = 200;
+  let unavailable = false;
 
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -41,7 +42,11 @@ async function main() {
       });
       res.statusCode = respondWith;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify(respondWith === 200 ? { ok: true } : { ok: false, detail: "channel unavailable" }));
+      res.end(JSON.stringify(
+        respondWith === 200
+          ? { ok: true }
+          : { ok: false, detail: unavailable ? "Channel is unavailable: whatsapp" : "boom" },
+      ));
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -99,6 +104,26 @@ async function main() {
   f.rows[0]?.state === "pending" ? ok("still pending") : bad(`state=${f.rows[0]?.state}`);
   f.rows[0]?.attempts === 1 ? ok("attempts=1") : bad(`attempts=${f.rows[0]?.attempts}`);
   (f.rows[0]?.last_error ?? "").includes("502") ? ok("the real error is recorded") : bad(`last_error=${f.rows[0]?.last_error}`);
+
+  console.log("5. an unpaired channel defers without spending an attempt");
+  // The queue has to survive intact until the phone is paired. Spending the
+  // retry budget on a channel that does not exist yet would mark it failed and
+  // deliver zero, which is the failure Enrique named first.
+  respondWith = 503;
+  unavailable = true;
+  const { rows: [row3] } = await pool.query<{ id: string }>(
+    `INSERT INTO notifications_outbox (channel, body, state, next_attempt_at)
+     VALUES ('whatsapp', 's37-test three', 'pending', now()) RETURNING id`,
+  );
+  await drainOutbox(pool);
+  await pool.query(`UPDATE notifications_outbox SET next_attempt_at = now() WHERE id = $1`, [row3.id]);
+  await drainOutbox(pool);
+  const u = await pool.query<{ state: string; attempts: number; last_error: string }>(
+    `SELECT state, attempts, last_error FROM notifications_outbox WHERE id = $1`, [row3.id],
+  );
+  u.rows[0]?.attempts === 0 ? ok("attempts still 0 after two refusals") : bad(`attempts=${u.rows[0]?.attempts}`);
+  u.rows[0]?.state === "pending" ? ok("still queued for delivery") : bad(`state=${u.rows[0]?.state}`);
+  (u.rows[0]?.last_error ?? "").includes("not paired yet") ? ok("recorded as unpaired, not as a failure") : bad(`last_error=${u.rows[0]?.last_error}`);
 
   await pool.query(`DELETE FROM notifications_outbox WHERE body LIKE 's37-test%'`);
   await pool.query(`DELETE FROM channel_allowlist WHERE identifier = '+15550001111'`);
