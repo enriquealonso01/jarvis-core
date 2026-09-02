@@ -217,6 +217,29 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     return { ...result, attachments: uploads };
   });
 
+  /**
+   * The calls, and one call in full (S24).
+   *
+   * "A call is as reviewable as a chat thread." A thread has a list and a
+   * detail; so does this — what was said, what it produced, and whether the
+   * recording still exists or the seven days have taken it.
+   */
+  app.get("/api/calls", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const { recentCalls } = await import("./callreview.js");
+    return { calls: await recentCalls(pool) };
+  });
+
+  app.get("/api/calls/:id", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const { callReview } = await import("./callreview.js");
+    const review = await callReview(pool, (req.params as { id: string }).id);
+    if (!review) return reply.code(404).send({ error: "no such call" });
+    return review;
+  });
+
   app.get("/api/conversations/:id", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;

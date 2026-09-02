@@ -650,6 +650,16 @@ export async function finalizeCall(pool: pg.Pool, ccid: string, reason: string):
       [ccid, artifact.id],
     );
   }
+
+  /*
+   * S24: what the call was about, written down at the end and filed where a
+   * LATER call can find it. Never allowed to fail the hang-up: a call that
+   * cannot be summarised is still a call that ended.
+   */
+  const { finishReview } = await import("./callreview.js");
+  await finishReview(pool, ccid).catch((err) =>
+    console.error("could not summarise the call:", err instanceof Error ? err.message : err));
+
   return artifact?.id ?? null;
 }
 
@@ -1196,6 +1206,11 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
 
     const stored = await storeRecording(pool, url, legId);
     if (!stored) return "recording could not be stored";
+    // S24: the call remembers its recording, so the console can offer it while
+    // it exists and say plainly when retention has taken it.
+    await pool
+      .query("UPDATE calls SET recording_artifact_id = $2 WHERE call_control_id = $1", [ccid, stored.id])
+      .catch(() => undefined);
 
     const text = await transcribe(pool, stored.full);
     if (!text) return `stored ${stored.id}, transcription unavailable`;
