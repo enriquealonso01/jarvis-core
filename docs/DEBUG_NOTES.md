@@ -135,21 +135,29 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
-### Known intermittent: the three-message burst occasionally produces two tasks
-**Symptom:** S2's "three messages in ten seconds -> three tasks, none merged,
-none dropped" fails roughly once in ten runs with two distinct titles instead of
-three. Twelve consecutive runs afterwards were clean, so it is not reproducible
-on demand.
-**Cause:** not yet known. The three requests are sent concurrently and each
-should produce its own inbox event, route decision and task; the failure loses
-one of the three somewhere along that path.
-**Fix:** none yet — this is recorded as OPEN, not solved. The test now dumps the
-tasks and the inbox events with their route verdicts whenever the count is
-wrong, so the next occurrence carries its own evidence instead of being a bare
-red line.
-**Lesson:** "three messages, none dropped" is a plan requirement, not a nicety.
-An intermittent failure of it is a real defect and is written down as one rather
-than being re-run until it passes.
+### The Supervisor answered the wrong message when two arrived at once
+**Symptom:** three messages sent together produced tasks for "burst one",
+"burst three" and "burst three" — one message answered twice, another lost
+entirely. About one run in ten, so it looked like flakiness rather than a defect.
+**Cause:** `runSupervisorTurn` appended the message it was answering only if the
+recent-history window did not already contain it:
+
+    if (!messages.some((m) => m.role === "user" && m.content === userPayload)) {
+      messages.push({ role: "user", content: userPayload });
+    }
+
+The history *always* contains it — `ingestUserMessage` stores the user message
+before calling the Supervisor — so the guard almost always skipped the push, and
+the turn ended on whatever the history had last. In sequence that is the same
+message and nothing is wrong. Concurrently, the window is shared, so a turn could
+end on a sibling's message and answer that instead.
+**Fix:** the message being answered is filtered out of the history and appended
+explicitly, so it is last and appears exactly once. 65 burst rounds clean after;
+restoring the old guard reproduced the loss on round 1.
+**Lesson:** a dedupe guard that is *usually* true is a branch that is usually not
+taken, and its behaviour when it is taken had never been exercised. Concurrency
+did not create this bug — it revealed a turn that had never been asked to be
+sure which message it was answering.
 
 ### A fixture that lied about being GitHub-linked parked every successful run
 **Symptom:** the moment S7 wired pull-request opening into the runner's success

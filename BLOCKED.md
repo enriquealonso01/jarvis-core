@@ -88,5 +88,9 @@ unblocked, finish it before starting anything new.
 - **What I did instead:** Added diagnostics to the test so the next occurrence
   dumps the tasks and the inbox events with their route verdicts. Continued to
   S9.
-- **Raised:** 2026-09-02 02:10   Resolved:
+- **Raised:** 2026-09-02 02:10   **Resolved:** 2026-09-02 02:35 — not a flake. The
+  Supervisor appended the message it was answering only when the history did not
+  already contain it, and the history always does; under concurrency a turn could
+  end on a sibling's message. Fixed by filtering it out of history and appending
+  it explicitly. 65 burst rounds clean; the old guard reproduces it on round 1.
 
