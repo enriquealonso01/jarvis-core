@@ -2745,6 +2745,48 @@ The worked example from the requirements: *"call the voice agent and ask it to
 explain the improvement opportunities from two days ago."* Jarvis finds that
 document, and **explains it conversationally rather than reading it out.**
 
+### Explaining a document aloud sends it to a third party
+
+S38 established that a channel is an endpoint. **A phone call is three of them.**
+The text Jarvis speaks goes to ElevenLabs to be synthesised, the audio crosses
+Telnyx, and what Enrique says back goes to Whisper. Explaining a confidential
+report on a call means handing its contents to a TTS vendor — which is precisely
+what ADR 005 forbids for models, arriving through a vendor nobody thought to
+classify.
+
+Blocking it outright would be wrong: he asked for this feature specifically, and
+a Jarvis that will not discuss half his work on the phone is a worse assistant
+than one that discusses it carefully.
+
+**So confidential documents are explained at metadata level, not read out.**
+
+> *"The Alpha migration report recommends option two, mostly on cost. There are
+> three tradeoffs. Do you want them in the console, or shall I walk through the
+> shape of it?"*
+
+That sentence contains no confidential content and is genuinely useful. Jarvis
+can name the document, its recommendation, its shape, how many options, when it
+was written — and offer the detail on a channel that can carry it. **What it does
+not do is pipe the body through a synthesiser to say it out loud.**
+
+Normal projects are read and explained freely. As in S38, a document spanning
+both takes the stricter treatment.
+
+### The transcript is a copy, and it outlives the call
+
+S24 stores every call's transcript. A call where a confidential document was
+discussed produces a transcript **containing that discussion**, stored under
+ordinary retention, indexed by S30, and reachable by any future recall — including
+by voice.
+
+That is a leak inside Jarvis rather than to a vendor, and it is the sort that
+compounds: the content moves from a classified artifact into an unclassified
+transcript, and every downstream feature treats it as ordinary.
+
+**A transcript inherits the strictest classification of anything discussed in it.**
+Confidential in, confidential out — same retention, same channel rules, same
+exclusion from being read aloud later.
+
 ### Build
 - Documents and findings are indexed by date, kind and project alongside their content (S30's four tiers).
 - Relative time resolves: yesterday, two days ago, last week, "the one about scraping".
@@ -2753,6 +2795,9 @@ document, and **explains it conversationally rather than reading it out.**
 ### Test
 - Produce a report, then ask for it by relative date on the phone three days later → the right document, explained in a way that survives being heard rather than seen.
 - Ask for something that does not exist → says so, does not improvise a plausible summary.
+- **Ask for a confidential report by voice** → it names it, gives the recommendation and the shape, offers the detail elsewhere, and **the confidential body never reaches the TTS request**. Assert on the outbound payload, not on what was heard.
+- Ask for a normal one → read and explained freely. **Both halves, or the rule is just switched off.**
+- Discuss a confidential document on a call, then check the stored transcript → classified confidential, and a later voice recall will not read *it* aloud either.
 - Ask for "the one about X" with no date → finds it by content.
 
 **Debug** If the voice agent reads headings aloud, it is reciting rather than
