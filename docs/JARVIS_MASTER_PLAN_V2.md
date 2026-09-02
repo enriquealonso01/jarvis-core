@@ -172,7 +172,11 @@ applied, audited, and reversible — from WhatsApp, without opening anything.
 
 A Telnyx number. Both directions.
 
-**Inbound**: Enrique calls Jarvis at any hour. Accepted always.
+**Inbound**: Enrique calls Jarvis at any hour. Always answered — and always
+listening, capturing and routing whatever he says. What a call can *do* depends
+on what the line proves about who is on it (S19): an unattested call talks and
+captures; it does not act unilaterally, and it never satisfies an always-confirm
+action.
 
 **Outbound**: Jarvis calls Enrique. Forbidden 19:30–08:00 America/New_York.
 Weekends allowed. A blocked call becomes a WhatsApp plus an Issue — never a
@@ -1517,6 +1521,33 @@ comments in `callcontrol.ts` today and regression tests after S19:
 
 ## S19 — Call reliability hardening
 *Size: 2–3 days. Do this before making it smarter — a clever agent on a flaky line is worse than a dull one on a solid line.*
+
+### The phone is the weakest-authenticated channel, and it holds every tool
+
+The last of the outward-reaching surfaces, and the only one where the risk is not
+solely an attacker.
+
+Today a call is admitted on `from == owner_e164`, plus SHAKEN/STIR attestation
+when the carrier supplies one. That is a reasonable front door — but **when
+attestation is absent the call is admitted on caller ID alone**, and caller ID is
+spoofable. Behind that door, Tier 2 (S22) holds every Supervisor tool: memory,
+projects, connections, task creation.
+
+And the second risk needs no attacker at all: **speech recognition mishears.**
+"Delete the staging data" and several less comfortable sentences are one
+transcription error apart, on the channel with the least redundancy and no
+undo button.
+
+So authority is graded by what the channel can actually establish:
+
+- **Caller ID alone → read-only.** Answer questions, capture what he says, take dictation. Everything he says is still persisted and routed (S21's safety net), so nothing is lost by declining to *act* on it.
+- **State changes from an unattested call become proposals, not actions.** The task is created in a `waiting_for_approval` state and he confirms it in the console or over WhatsApp. He still gets to think out loud on the phone; the phone just does not get to be the last word.
+- **Attestation A → normal Level 1 and Level 2 authority**, as any other channel.
+- **Level 3 is never satisfiable by voice.** Not attested, not with a spoken confirmation, not ever. Production deploys, deletions, purchases and credential rotation do not happen because a voice said so — the channel is too weak to authenticate and too lossy to be sure of the words.
+
+The general shape, and it is the same one the browser and MCP steps reached:
+**capability follows the strength of what the channel proves, not the convenience
+of where the request arrived.**
 
 **Build**
 - A real per-call state machine — `ringing → greeting → listening → thinking → speaking → closing` — persisted, not held in a module-level map that a restart erases mid-call.
