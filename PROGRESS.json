@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "A call-created task now always carries its project."
+  "working_on": "The sweep now covers every dev-safe suite, and two fixtures that had been failing for months are fixed."
 }
