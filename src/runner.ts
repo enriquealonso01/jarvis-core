@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { RUNTIMES, runtimeAvailable, runtimeFor, type AgentRuntime, type RuntimeEvent } from "./runtime.js";
+import {
+  RUNTIMES, runtimeAvailable, runtimeFor, runtimeForHarness,
+  type AgentRuntime, type RuntimeEvent,
+} from "./runtime.js";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import os from "node:os";
@@ -138,18 +141,28 @@ type Project = {
 async function resolveProfile(
   pool: pg.Pool,
   task: Task,
-): Promise<{ id: string; dir: string } | { error: string }> {
+): Promise<{ id: string; dir: string; harness: string | null } | { error: string }> {
   const wanted = task.auth_profile_id;
   if (wanted) {
-    const r = await pool.query<{ id: string; dir: string | null }>(
-      `SELECT id, harness_auth_dir AS dir FROM auth_profiles
-       WHERE auth_type = 'subscription_login' AND id = $1`,
+    /*
+     * S28: the harness comes from the route this profile is registered under,
+     * not from a guess. An auth directory and a CLI are a matched pair - handing
+     * codex the anthropic login is not a degraded run, it is an unauthenticated
+     * one that reports 401 and looks like an expired subscription.
+     */
+    const r = await pool.query<{ id: string; dir: string | null; harness: string | null }>(
+      `SELECT a.id, a.harness_auth_dir AS dir,
+              (SELECT m.harness FROM model_registry m
+               WHERE m.auth_profile_id = a.id AND 'senior_engineer' = ANY (m.role_assignments)
+               ORDER BY m.route_order LIMIT 1) AS harness
+       FROM auth_profiles a
+       WHERE a.auth_type = 'subscription_login' AND a.id = $1`,
       [wanted],
     );
     const row = r.rows[0];
     if (!row) return { error: `auth profile ${wanted} does not exist` };
     if (!row.dir) return { error: `auth profile ${row.id} has no completed host login` };
-    return { id: row.id, dir: row.dir };
+    return { id: row.id, dir: row.dir, harness: row.harness };
   }
 
   /*
@@ -167,8 +180,8 @@ async function resolveProfile(
   if (!ladder.rung.authDir) {
     return { error: `${ladder.rung.profileId} has no completed host login` };
   }
-  console.log(`engineer ladder chose ${ladder.rung.profileId} (${ladder.rung.kind})`);
-  return { id: ladder.rung.profileId, dir: ladder.rung.authDir };
+  console.log(`engineer ladder chose ${ladder.rung.profileId} (${ladder.rung.kind}, ${ladder.rung.harness})`);
+  return { id: ladder.rung.profileId, dir: ladder.rung.authDir, harness: ladder.rung.harness };
 }
 
 /**
@@ -1038,17 +1051,52 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
      * whole point of naming a runtime is that the answer to "which engine
      * produced this?" is not a guess.
      */
-    const wantedRuntime = task.runtime ?? project?.default_runtime ?? DEFAULT_RUNTIME_ID;
-    const runtime = runtimeFor(wantedRuntime);
-    if (!runtime) {
+    /*
+     * The engine follows the CREDENTIAL, not a separate field.
+     *
+     * This was wrong when first written: it resolved the runtime from
+     * `task.runtime` alone, which meant a task pinned to codex could be handed
+     * anthropic's auth directory by the ladder and run `codex` against it. That
+     * does not fail loudly — codex finds no login and reports 401, which reads
+     * exactly like an expired subscription. An auth directory and a CLI are a
+     * matched pair.
+     *
+     * So the rung the ladder chose names the harness, and the harness names the
+     * runtime. `task.runtime` and the project default are a CONSTRAINT: if they
+     * disagree with the profile that was actually available, the task parks
+     * rather than running on an engine nobody asked for.
+     */
+    const wantedRuntime = task.runtime ?? project?.default_runtime ?? null;
+    const fromProfile = runtimeForHarness(profile.harness);
+    const runtime = FAKE_HARNESS
+      ? RUNTIMES.fake
+      : (fromProfile ?? runtimeFor(wantedRuntime ?? DEFAULT_RUNTIME_ID));
+
+    if (runtime && wantedRuntime && !FAKE_HARNESS && runtime.id !== wantedRuntime) {
       await park(pool, task.id, "waiting_for_user",
-        `no runtime called ${wantedRuntime}`,
+        `asked for ${wantedRuntime} but the usable credential is ${profile.id} (${runtime.id})`,
         {
           category: "config.invalid",
-          title: `[runtime] ${wantedRuntime} is not a runtime Jarvis knows`,
-          dedupeKey: `runtime.unknown.${wantedRuntime}`,
+          title: `[runtime] ${wantedRuntime} was asked for and ${runtime.id} is what is available`,
+          dedupeKey: `runtime.mismatch.${task.id}`,
           requiredAction:
-            `This task asks to run on "${wantedRuntime}". Known runtimes: `
+            `This task asks to run on ${wantedRuntime}, but the engineering ladder could only `
+            + `offer ${profile.id}, which is driven by ${runtime.id}. Jarvis will not run one `
+            + "vendor's CLI against another vendor's login. Allowlist the right profile for this "
+            + `project, or change the task's runtime to ${runtime.id}.`,
+        },
+        task.project_id);
+      return;
+    }
+    if (!runtime) {
+      await park(pool, task.id, "waiting_for_user",
+        `no runtime for ${wantedRuntime ?? profile.harness ?? "this profile"}`,
+        {
+          category: "config.invalid",
+          title: `[runtime] ${wantedRuntime ?? profile.harness} is not a runtime Jarvis knows`,
+          dedupeKey: `runtime.unknown.${wantedRuntime ?? profile.harness ?? "none"}`,
+          requiredAction:
+            `This task resolves to "${wantedRuntime ?? profile.harness}", which is not a runtime. Known: `
             + `${Object.keys(RUNTIMES).join(", ")}. Set the task's or the project's runtime to one of those.`,
         },
         task.project_id);

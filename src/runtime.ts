@@ -289,6 +289,30 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
 /** Every runtime id, for validation and for the console. */
 export const RUNTIME_IDS = Object.keys(RUNTIMES);
 
+/**
+ * The registry calls engines one thing and this module calls them another, and
+ * the two have to meet.
+ *
+ * `model_registry.harness` is a property of a ROUTE — which vendor CLI that
+ * auth profile is driven by. The runtime id is a property of an
+ * implementation. They were always going to be near-identical strings, which is
+ * exactly why the mapping is written down: `claude_code` and `claude` differing
+ * by an underscore is the kind of thing that fails silently at 3am.
+ *
+ * `http_agent` is deliberately absent. The hosted fallback is a chat model that
+ * needs an agent loop around it, and that loop does not exist — mapping it to
+ * some runtime anyway would produce a rung that looks runnable and is not.
+ */
+export const HARNESS_TO_RUNTIME: Record<string, string> = {
+  claude_code: "claude",
+  codex: "codex",
+};
+
+export function runtimeForHarness(harness: string | null | undefined): AgentRuntime | null {
+  if (!harness) return null;
+  return runtimeFor(HARNESS_TO_RUNTIME[harness] ?? null);
+}
+
 export function runtimeFor(id: string | null | undefined): AgentRuntime | null {
   if (!id) return null;
   return RUNTIMES[id] ?? null;

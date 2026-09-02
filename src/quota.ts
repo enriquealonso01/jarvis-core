@@ -212,7 +212,7 @@ export type Rung = {
  * protocol rather than any particular vendor CLI — which is exactly what makes
  * the ladder testable before S28 exists.
  */
-export const IMPLEMENTED_HARNESSES = new Set(["claude_code"]);
+export const IMPLEMENTED_HARNESSES = new Set(["claude_code", "codex"]);
 
 /**
  * Harnesses the fake can stand in for: the vendor CLIs, which all speak the
