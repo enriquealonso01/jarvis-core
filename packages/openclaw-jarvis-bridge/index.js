@@ -99,7 +99,21 @@ export default definePluginEntry({
   name: "Jarvis Bridge",
   description: "Hand every inbound message to Jarvis, and stop OpenClaw answering for it.",
   register(api) {
+    /*
+     * Say so, loudly, on registration and on every fire.
+     *
+     * Whether these hooks are invoked at all turned out to be the entire
+     * question, and it could not be answered from the outside: the plugin
+     * loads, `plugins inspect` says hook-only with conversation access, and an
+     * agent turn still reached the model. Logging is the only instrument that
+     * distinguishes "not registered", "registered but not dispatched on this
+     * path", and "dispatched but the return value ignored".
+     */
+    const log = api.logger ?? console;
+    log.info?.("[jarvis-bridge] registering message_received and before_agent_run");
+
     api.on("message_received", async (event) => {
+      log.info?.("[jarvis-bridge] message_received fired");
       const result = await ingestToJarvis(payloadFor(event?.message ?? event));
       if (!result.ok) {
         // Persist-first: if Jarvis did not store it, this must not be treated
@@ -109,9 +123,9 @@ export default definePluginEntry({
       }
     });
 
-    api.on("before_agent_run", async () => ({
-      outcome: "block",
-      reason: "Jarvis owns this conversation",
-    }));
+    api.on("before_agent_run", async () => {
+      log.info?.("[jarvis-bridge] before_agent_run fired — blocking");
+      return { outcome: "block", reason: "Jarvis owns this conversation" };
+    });
   },
 });
