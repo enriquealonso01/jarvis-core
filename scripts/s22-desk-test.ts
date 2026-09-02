@@ -110,6 +110,54 @@ async function main(): Promise<void> {
     truthy("with its transcript stored", call.rows[0]?.transcript_artifact_id);
   }
 
+  console.log("\n########## one sentence never becomes two tasks ##########\n");
+  {
+    /*
+     * From the live run of 2026-09-02: the desk took longer than the 25-second
+     * budget, so the handover filed a task of its own — while the router was in
+     * the middle of filing the correctly-scoped one. Two tasks for one sentence,
+     * and the handover's had no project, so the runner had no repo, so the
+     * harness wrote outside its worktree and the run was killed. One missing
+     * fact at the top of that chain.
+     */
+    const ccid = newCcid();
+    clearSentCommands();
+    // Slower than the whole budget, so the handover definitely fires.
+    process.env.JARVIS_MODEL_DELAY_MS = String(TURN_MS.budget * 2);
+    await upToListening(ccid);
+    /*
+     * A work segment AND a question: the router files the task straight away,
+     * and the DESK is what takes too long — which is the shape the real call
+     * had. A pure work segment never reaches the Supervisor at all, so nothing
+     * would be slow and the handover would never fire.
+     */
+    // Deliberately NOT the wording of the first section's fixture: the fake
+    // model matches on the longest substring, and that one would win.
+    const text = `the login button sits off-centre on mobile, fix it and how is the deploy going ${STAMP}b`;
+    await handleCallEvent(pool, ev("call.transcription", ccid, said(text)));
+    await sleep(WINDOW * 1.5 + TURN_MS.budget * 2 + 1500);
+    process.env.JARVIS_MODEL_DELAY_MS = "0";
+
+    const spoken = await spokenOnCall(pool, ccid);
+    truthy("it handed over", spoken.some((l) => l.kind === "handover"));
+
+    const inbox = await pool.query<{ id: string }>(
+      "SELECT id FROM inbox_events WHERE raw_text = $1 ORDER BY received_at DESC LIMIT 1", [text]);
+    const tasks = await pool.query<{ id: string; slug: string | null }>(
+      `SELECT t.id, p.slug FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+       WHERE t.origin_inbox_id = $1`,
+      [inbox.rows[0]?.id],
+    );
+    check("one sentence, exactly one task", 1, tasks.rowCount);
+    check("and it is the router's, with the project on it", "alpha-web", tasks.rows[0]?.slug);
+
+    const turn = await pool.query<{ outcome: string; handover_task_id: string | null }>(
+      "SELECT outcome, handover_task_id FROM call_turns WHERE call_control_id = $1", [ccid]);
+    check("the turn says it was handed over", "handed_over", turn.rows[0]?.outcome);
+    check("pointing at the task that already exists", tasks.rows[0]?.id, turn.rows[0]?.handover_task_id);
+    await finalizeCall(pool, ccid, "no duplicate task test done");
+  }
+
   console.log("\n########## two projects in one call, two tasks ##########\n");
   {
     const ccid = newCcid();

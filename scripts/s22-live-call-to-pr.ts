@@ -148,8 +148,25 @@ async function main(): Promise<void> {
   await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: SLUG, type: "module" }, null, 2));
   await run("git", ["add", "-A"], { cwd: dir });
   await run("git", ["-c", "user.email=jarvis@local", "-c", "user.name=Jarvis", "commit", "-m", "seed a failing test"], { cwd: dir });
-  await run("git", ["push", "origin", repo.default_branch], { cwd: dir, env: process.env });
+
+  /*
+   * Pushed with the DEPLOY KEY, not with whatever ssh happens to be configured
+   * for the operator. The first run of this script pushed with the ambient
+   * environment and got "Host key verification failed" — the box has no
+   * known_hosts entry for github.com for this user, and it should not need one:
+   * every push in this system goes out under the project's own key.
+   */
+  const { materialiseDeployKey, gitEnv, loadProject, sshUrl } = await import("../src/checkout.js");
+  const loaded = await loadProject(pool, pid);
+  const mat = await materialiseDeployKey(pool, loaded!);
+  if ("error" in mat) throw new Error(mat.error);
+  await run("git", ["push", "-q", sshUrl(repo.owner, repo.name), `HEAD:${repo.default_branch}`], {
+    cwd: dir, env: gitEnv(mat.sshCommand),
+  });
   ok("seeded one failing test on the default branch");
+
+  const red = await run("node", ["--test"], { cwd: dir }).then(() => "GREEN").catch(() => "RED");
+  check("and it is RED before Jarvis touches it", "RED", red);
 
   // ------------------------------------------------------------- the call
   const spoken =
@@ -171,11 +188,36 @@ async function main(): Promise<void> {
   ok("and hung up");
 
   // ------------------------------------------------------- what it produced
-  const task = await pool.query<{ id: string; title: string; objective: string; state: string; lane: string }>(
-    `SELECT t.id, t.title, t.objective, t.state, t.lane
-     FROM tasks t WHERE t.project_id = $1 ORDER BY t.created_at DESC LIMIT 1`,
-    [pid],
+  /*
+   * Found by the INBOX EVENT, not by the project. The first live run looked
+   * only in the project and reported "no task" while a task did exist — the
+   * handover had filed one with no project at all. Asking the wrong question
+   * turned a real defect into a blank.
+   */
+  const inbox = await pool.query<{ id: string }>(
+    `SELECT id FROM inbox_events WHERE channel = 'phone' AND raw_text = $1
+     ORDER BY received_at DESC LIMIT 1`,
+    [spoken],
   );
+  let task = await pool.query<{ id: string; title: string; objective: string; state: string; lane: string; slug: string | null }>(
+    `SELECT t.id, t.title, t.objective, t.state, t.lane, p.slug
+     FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+     WHERE t.origin_inbox_id = $1 ORDER BY t.created_at DESC`,
+    [inbox.rows[0]?.id ?? null],
+  );
+  // The router files it during the turn, but a slow desk can push it a little
+  // past the hangup; wait rather than declaring it missing.
+  for (let i = 0; i < 12 && !task.rowCount; i += 1) {
+    await sleep(5_000);
+    task = await pool.query(
+      `SELECT t.id, t.title, t.objective, t.state, t.lane, p.slug
+       FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+       WHERE t.origin_inbox_id = $1 ORDER BY t.created_at DESC`,
+      [inbox.rows[0]?.id ?? null],
+    );
+  }
+  check("one sentence, exactly one task", 1, task.rowCount);
+  check("in the project the caller named", SLUG, task.rows[0]?.slug);
   truthy("the call produced a task in that project", task.rowCount === 1);
   if (!task.rowCount) throw new Error("no task; nothing further to assert");
   const taskId = task.rows[0].id;

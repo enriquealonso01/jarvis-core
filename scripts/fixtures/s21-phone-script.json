@@ -124,6 +124,28 @@
           }
         ]
       }
+    },
+    {
+      "match": "off-centre on mobile, fix it",
+      "json": {
+        "reason": "one thing to do and one thing to answer",
+        "segments": [
+          {
+            "category": "work",
+            "project": "alpha-web",
+            "text": "the login button is off-centre on mobile",
+            "title": "Fix the off-centre login button on mobile",
+            "objective": "In Alpha the login button is off-centre on mobile. Fix it and open a pull request.",
+            "reason": "an explicit request to change code"
+          },
+          {
+            "category": "question",
+            "project": null,
+            "text": "and how is the deploy going",
+            "reason": "a question, which the desk answers"
+          }
+        ]
+      }
     }
   ]
 }
