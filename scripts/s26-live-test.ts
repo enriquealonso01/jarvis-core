@@ -56,6 +56,11 @@ async function clean(): Promise<void> {
   await pool.query(
     "DELETE FROM onboarding_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE title LIKE $1)",
     [`%${STAMP}%`]);
+  // Onboarding audits project.create and project.instructions_commit against the
+  // project, and audit_events has the foreign key, so these go before the row.
+  await pool.query(
+    "DELETE FROM audit_events WHERE project_id IN (SELECT id FROM projects WHERE slug LIKE $1)",
+    [`%${STAMP}%`]);
   await pool.query("DELETE FROM projects WHERE slug LIKE $1", [`%${STAMP}%`]);
   await pool.query("DELETE FROM conversations WHERE title LIKE $1", [`%${STAMP}%`]);
 }
