@@ -37,6 +37,9 @@ is two or three entries, and it is where the time is actually saved.
 
 **Credentials and routing**
 - [The `to_e164` in `site.yaml` is not the number the outbound dial uses](#the-to_e164-in-siteyaml-is-not-the-number-the-outbound-dial-uses)
+- [The outbound sweep never looks at a `wanted` row](#the-outbound-sweep-never-looks-at-a-wanted-row)
+- [A delivered call is not a ringing phone](#a-delivered-call-is-not-a-ringing-phone)
+- [One sweep dialled twice, and the carrier stopped the second one](#one-sweep-dialled-twice-and-the-carrier-stopped-the-second-one)
 - [Every model route failed and the reason was unknowable](#every-model-route-failed-and-the-reason-was-unknowable)
 - [Host logins were completed and Jarvis kept asking for them](#host-logins-were-completed-and-jarvis-kept-asking-for-them)
 
@@ -44,6 +47,7 @@ is two or three entries, and it is where the time is actually saved.
 - [`deploy-control-center.sh` republished a stale build, silently](#deploy-control-centersh-republished-a-stale-build-silently)
 - [There are two `/opt/jarvis` trees and only one of them is the build context](#there-are-two-optjarvis-trees-and-only-one-of-them-is-the-build-context)
 - [The console has been reporting a build state from a file nobody updates](#the-console-has-been-reporting-a-build-state-from-a-file-nobody-updates)
+- [The em-dashes were never mis-encoded; the header was missing](#the-em-dashes-were-never-mis-encoded-the-header-was-missing)
 - [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
 - [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
@@ -1105,6 +1109,86 @@ later case parked with "every engineering route is spent" before running.
 **Fix:** `clearqueue()` now also clears `quota_json` for subscription profiles.
 **Lesson:** when a step changes what a failure MEANS, the suites that provoke
 that failure on purpose need their fixtures re-read, not just their assertions.
+
+---
+
+### The outbound sweep never looks at a `wanted` row
+**Symptom:** the S23 dial defect was fixed and deployed, the failed
+`outbound_calls` row was reset to `state='wanted', attempts=0` exactly as the
+blocker said to, and then nothing happened. No dial, no log line, no error. The
+row sat at `wanted` through many sweeps.
+**Cause:** `sweepOutboundCalls` has two sources and `wanted` is neither of them.
+It iterates `reasonsToCall`, which **skips any task that already has an
+`outbound_calls` row** — and the reset row is that row — and then it picks up
+`state='blocked'` rows whose `retry_after` has passed. A `wanted` row created by
+nothing is unreachable: `wantCall` produces one and hands it straight to
+`placeCall` in the same pass, so it never has to be swept.
+**Fix:** to re-place a call, put the row on the retry path rather than at the
+start: `state='blocked', retry_after=now() - interval '1 minute', attempts=0`.
+The next sweep re-checks quiet hours through `mayDial` and places it, which also
+means the retry is exercised by the same code that would run at 08:00 rather
+than by a hand-written call into `placeCall`.
+**Lesson:** "reset it to the initial state" assumes the initial state is one the
+system polls. Read the sweep before choosing which state to reset to — an
+unreachable row is indistinguishable from a broken sweep.
+
+---
+
+### A delivered call is not a ringing phone
+**Symptom:** the first successful outbound dial. Telnyx returned 200 with a real
+`call_control_id`, the sweep logged `ringing`, and Enrique reported no call. He
+then corrected it: the call did arrive, it just never rang.
+**Cause:** not Jarvis. The handset silenced it — the shape of iOS **Silence
+Unknown Callers**, which delivers an unknown number straight to voicemail. The
+evidence was already in the logs and was misread twice: we received **only**
+`call.hangup` for that leg, never `call.initiated`, `call.ringing` or
+`call.answered`, and the hangup landed ~31s after the dial, matching the
+`timeout_secs: 30` in `telnyxDial`. That is a call that was delivered and never
+picked up, not a call that failed to leave.
+**Fix:** the Telnyx number has to be a known contact on the handset. Recorded in
+BLOCKED.md, because it is a setting on Enrique's phone and nothing in the repo
+can do it.
+**Lesson:** two of them. First, "the API accepted it" and "the phone rang" are
+separated by an entire carrier and a device the code cannot see — S23's Done-when
+says *rings* for exactly that reason. Second, the missing webhooks were the
+diagnosis and they were sitting in `docker logs` the whole time: when a call ends
+with only a hangup event, ask what never happened before asking what broke.
+
+---
+
+### One sweep dialled twice, and the carrier stopped the second one
+**Symptom:** placing one call produced two. The `blocked_task` dial succeeded,
+and in the same sweep a `security_event` dial went out and came back
+`403 90042 OB profile channel limit exceeded`.
+**Cause:** `sweepOutboundCalls` walks every reason it finds and calls `placeCall`
+on each, with nothing between them. An open `security_event` issue — "[telnyx]
+rejected a call from an unrecognised number" — was a second legitimate reason, so
+two calls left within a second of each other. Telnyx's outbound profile channel
+limit is what actually prevented a double ring; the pager rule in plan §17 did
+not, because nothing in the sweep enforces one call at a time.
+**Fix:** none yet — recorded, not fixed, and the concurrency question belongs to
+S33 (notification policy) rather than to a fix smuggled into S23.
+**Lesson:** a per-call decision does not add up to a per-sweep decision. "Is this
+a reason to ring?" was answered six ways correctly, and the question nobody asked
+was "how many times may the phone ring in one pass?".
+
+---
+
+### The em-dashes were never mis-encoded; the header was missing
+**Symptom:** `PROGRESS.json` appeared to contain `â€"` where an em-dash belonged,
+which looks exactly like a write path that is not using UTF-8.
+**Cause:** the file was clean the whole time — on Windows, on the box, and in the
+published copy: zero mojibake bytes, five real U+2014. Caddy served it from the
+static file server as `Content-Type: application/json` with **no charset**, under
+`X-Content-Type-Options: nosniff`. A browser with nothing to sniff and no charset
+to obey falls back to its locale default, and cp1252 renders the three UTF-8
+bytes of an em-dash as exactly `â€"`.
+**Fix:** `/PROGRESS.json` is routed to the API, which sends
+`application/json; charset=utf-8`.
+**Lesson:** check the bytes before you go looking for the encoder. `grep -c` for
+the mojibake sequence in the actual file takes ten seconds and would have pointed
+at the transport immediately; "something in the write path" was a plausible story
+about a file that was never wrong.
 
 ---
 
