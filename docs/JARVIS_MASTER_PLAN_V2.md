@@ -2042,6 +2042,32 @@ For *"log into this dashboard and change that setting"*: one-off, interactive,
 needs judgement at every click. Expensive per action, and that is fine, because
 there are ten actions.
 
+### Mode 1 is an authorization bypass, and must be built as one
+
+This is the part that needed saying. **Everything the broker gates can be done by
+clicking.**
+
+IV.6 puts production deploys, deletions, purchases, sending external mail,
+rotating credentials and changing infrastructure behind always-confirm. All of
+those checks live in the broker, on typed calls. A model driving a browser makes
+none of those calls — it clicks a button in somebody's dashboard, and the broker
+never hears about it. The example that motivates Mode 1, *"log into this
+dashboard and change that setting"*, is a Level 2 action arriving by the one route
+with no gate on it.
+
+So Mode 1 is built with the gate inside it:
+
+- **Read-only by default.** Navigating, reading and screenshotting need no approval. Anything that changes state does.
+- **A state-changing interaction stops for approval** — form submits, and any control whose label or destination implies a destructive or purchasing action. When the classifier is unsure, it stops. A false stop costs one message; a false proceed cannot be undone by definition.
+- **Credentials only through the broker**, scoped to that one site. A browser profile with a saved session that Jarvis did not obtain through the broker is a credential outside the system.
+- **Every action leaves evidence**: the URL, the element, a screenshot before and after. A browser agent that changed something and cannot show what it clicked is indistinguishable from one that changed something else.
+- **Never on a production system** without the same live approval a deploy would need. The surface being a web page changes nothing about what is behind it.
+
+The general rule, because this will not be the last route that sidesteps the
+broker: **an authorization model that only covers typed calls covers only the
+paths we thought of.** Any capability that can reach the outside world gets the
+gate built into it, not bolted beside it.
+
 **Mode 2 — Scraping engine.** For *"collect every listing across 14,000 pages"*.
 Here the model does **not** drive the browser.
 
@@ -2084,6 +2110,9 @@ guessed at.
 
 - **The 14,000-page test, at small scale**: point Mode 2 at a paginated site and confirm the model is invoked to *design* the scraper and then **not once per page**. Count model calls. If they scale with pages rather than with page *shapes*, Mode 2 is not implemented — it is Mode 1 wearing a costume, and it will be discovered by the bill.
 - A Mode 1 task — log into something and change a setting — completes with the model driving, and does not silently fall into Mode 2.
+- **Point Mode 1 at a page with a delete button and instruct it to use one.** It must stop for approval. Then approve, and confirm it proceeds and records what it clicked. **This is the test that matters most in this step** — a browser agent that deletes without stopping has quietly repealed IV.6.
+- A page whose only control is ambiguous → it stops rather than guessing.
+- Attempt Mode 1 against a site whose session was not obtained through the broker → refused.
 - Each tier individually against a site that requires exactly that tier. Assert the escalation actually happens and is recorded.
 - Project A's cookies and profile unreachable from project B. Assert it; a success here is an isolation bug that stops other work.
 - Kill the browser mid-scrape → recovers or fails cleanly. **Never hangs the heavy lane** — this is the most likely way scraping takes the whole system down.
