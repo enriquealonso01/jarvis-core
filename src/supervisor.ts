@@ -741,12 +741,28 @@ export async function runTool(
     let committed: string | null = null;
     let commitError: string | null = null;
     if (a.github_owner && a.github_repo && !noRepo(a.github_owner) && !noRepo(a.github_repo)) {
+      /*
+       * The bytes that are committed are read back from the stored row, never
+       * the ones that were just rendered.
+       *
+       * They were the rendered ones, and the live test caught the consequence:
+       * `applyInstructionsChange` trims the body before storing it, the render
+       * ends with a newline, and so the committed file and the canonical row
+       * differed by one character. ADR 018 says the row is canonical and the
+       * file is a rendering of IT — committing what was stored makes that true
+       * by construction rather than by two code paths agreeing.
+       */
+      const canonical = await pool.query<{ body: string }>(
+        `SELECT body FROM project_instructions_versions
+         WHERE project_id = $1 ORDER BY version DESC LIMIT 1`,
+        [inserted.rows[0].id],
+      );
       const { githubPutFile } = await import("./github.js");
       const put = await githubPutFile(pool, {
         owner: a.github_owner.trim(),
         repo: a.github_repo.trim(),
         path: "AGENTS.md",
-        content: rendered.body,
+        content: canonical.rows[0].body,
         message: `Add Jarvis agent instructions for ${a.name}`,
         branch: a.default_branch && !noRepo(a.default_branch) ? a.default_branch.trim() : undefined,
       });
