@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
@@ -24,6 +25,12 @@ import type { RawRequest } from "./hmac.js";
 const pool = createPool();
 
 const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
+
+/**
+ * The one copy of `PROGRESS.json` on the box: the deployed source tree, which
+ * is also what the images are built from and what the host runner executes.
+ */
+const PROGRESS_PATH = process.env.JARVIS_PROGRESS_PATH ?? "/opt/jarvis/core/PROGRESS.json";
 
 function originOk(req: { headers: { origin?: string } }): boolean {
   const origin = req.headers.origin;
@@ -138,6 +145,50 @@ async function main() {
       // Composing stays enabled while any route can still be reached.
       compose_enabled: routing !== "missing",
     };
+  });
+
+  /**
+   * The build bar reads this.
+   *
+   * It used to read a COPY of the file under the console's static root,
+   * published by `scripts/progress-publish.sh` — a script run by hand, whose
+   * own comment told you to run it "in the same breath" as editing the file.
+   * That is an instruction, not a mechanism: it was run once, went 21 hours
+   * stale reporting S5/37 against a repo on S25/40, and the console deploy's
+   * `rsync --delete` removed it outright. Served from the deployed source tree
+   * there is exactly one copy on the box, and the same action that ships code
+   * ships the state.
+   *
+   * The charset is not decoration. Caddy served the static copy as
+   * `application/json` with no charset, under `X-Content-Type-Options:
+   * nosniff`, so a browser with nothing to sniff and no charset to obey fell
+   * back to its locale default and drew every em-dash as `â€"`. The bytes were
+   * UTF-8 the whole time; the header was not.
+   *
+   * Public, like the file it replaces: it is a progress bar, and the console
+   * fetches it before anyone has logged in.
+   */
+  app.get("/PROGRESS.json", async (_req, reply) => {
+    try {
+      const [raw, stat] = await Promise.all([
+        fs.readFile(PROGRESS_PATH, "utf8"),
+        fs.stat(PROGRESS_PATH),
+      ]);
+      return reply
+        .type("application/json; charset=utf-8")
+        .header("Cache-Control", "no-cache")
+        .header("Last-Modified", stat.mtime.toUTCString())
+        .send(raw);
+    } catch {
+      // A missing file is reported as a missing file. Serving `{}` would make
+      // the bar draw a plausible empty build instead of saying it cannot see one.
+      return reply.code(503).type("application/json; charset=utf-8").send({
+        error: {
+          code: "progress_unavailable",
+          message: `no PROGRESS.json at ${PROGRESS_PATH}`,
+        },
+      });
+    }
   });
 
   registerAuthRoutes(app, pool);

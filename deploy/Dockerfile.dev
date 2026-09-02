@@ -17,6 +17,9 @@ RUN pnpm install --frozen-lockfile
 COPY src ./src
 COPY scripts ./scripts
 COPY migrations ./migrations
+# In production the API reads this from the deployed source tree at
+# /opt/jarvis/core, bind-mounted read-only. Dev has no such tree, so /app is it.
+COPY PROGRESS.json ./
 RUN pnpm build
 # A worktree created by the runner must not look "dubiously owned" to git when
 # the seed script and the runner disagree about uid. This is a throwaway box.

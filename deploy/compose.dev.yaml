@@ -63,6 +63,9 @@ services:
       # turn can complete with no credential and no network. See src/fakemodel.ts.
       JARVIS_MODEL: ${JARVIS_MODEL:-}
       JARVIS_FAKE_MODEL_SCRIPT: ${JARVIS_FAKE_MODEL_SCRIPT:-/app/scripts/fixtures/s2-model-script.json}
+      # In production this is the deployed source tree at /opt/jarvis/core. In
+      # dev the image bakes the source, so /app IS that tree.
+      JARVIS_PROGRESS_PATH: /app/PROGRESS.json
     ports:
       - "127.0.0.1:8080:8080"
 

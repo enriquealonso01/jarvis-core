@@ -21,6 +21,14 @@ jarvis.enriquecodes.com {
 		reverse_proxy api:8080
 	}
 
+	# The build bar's state. Served by the API from the deployed source tree,
+	# NOT from a copy under the static root: that copy was published by hand,
+	# went stale, and the console deploy's `rsync --delete` removed it. Routing
+	# it here also means it arrives with an explicit UTF-8 charset.
+	handle /PROGRESS.json {
+		reverse_proxy api:8080
+	}
+
 	handle {
 		root * /srv/www
 		try_files {path} {path}/ {path}.html /index.html

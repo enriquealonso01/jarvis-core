@@ -46,6 +46,10 @@ services:
     volumes:
       - /var/lib/jarvis:/var/lib/jarvis
       - /etc/jarvis:/etc/jarvis:ro
+      # Read-only, and the DIRECTORY rather than the file: a deploy extracts a
+      # new PROGRESS.json over the old one, which replaces the inode, and a
+      # single-file bind mount would go on serving the one it was started with.
+      - /opt/jarvis/core:/opt/jarvis/core:ro
     mem_limit: 768m
     logging:
       driver: json-file
