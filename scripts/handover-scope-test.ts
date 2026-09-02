@@ -16,7 +16,17 @@ import { handoverTaskFor } from "../src/callruntime.js";
 
 const pool = createPool();
 let fails = 0;
-const ok = (m: string) => console.log(`  ok   - ${m}`);
+/*
+ * `passes` exists for the sweep, not for the reader.
+ *
+ * scripts/sweep.sh decides whether a suite ran by grepping for one exact line:
+ * `==== N passed, M failed ====`. These suites printed their own summary instead,
+ * so the sweep reported all seven as "NO SUMMARY - the suite did not finish"
+ * while each of them passed perfectly well on its own. Adding a suite to the net
+ * is not the same as the net being able to see it.
+ */
+let passes = 0;
+const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails++; };
 
 async function main() {
@@ -85,6 +95,9 @@ async function main() {
     [[unscoped.rows[0].id, scoped.rows[0].id]]);
   await pool.query(`DELETE FROM projects WHERE id = $1`, [proj.rows[0].id]);
   await pool.end();
+
+  console.log(`
+==== ${passes} passed, ${fails} failed ====`);
 
   console.log(fails === 0 ? "\nHandover scope PASS" : `\nHandover scope FAIL (${fails})`);
   process.exit(fails === 0 ? 0 : 1);

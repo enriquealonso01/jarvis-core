@@ -19,7 +19,17 @@ import { clearSentCommands, handleCallEvent, sentCommands } from "../src/callcon
 
 const pool = createPool();
 let fails = 0;
-const ok = (m: string) => console.log(`  ok   - ${m}`);
+/*
+ * `passes` exists for the sweep, not for the reader.
+ *
+ * scripts/sweep.sh decides whether a suite ran by grepping for one exact line:
+ * `==== N passed, M failed ====`. These suites printed their own summary instead,
+ * so the sweep reported all seven as "NO SUMMARY - the suite did not finish"
+ * while each of them passed perfectly well on its own. Adding a suite to the net
+ * is not the same as the net being able to see it.
+ */
+let passes = 0;
+const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails++; };
 
 const JARVIS = "+13057866217";
@@ -100,6 +110,9 @@ async function main() {
   await pool.query(`DELETE FROM outbound_calls WHERE call_control_id = $1`, [ccid]);
   await pool.query(`DELETE FROM calls WHERE call_control_id = ANY($1)`, [[ccid, bad1, spoof]]);
   await pool.end();
+
+  console.log(`
+==== ${passes} passed, ${fails} failed ====`);
 
   console.log(fails === 0 ? "\nOutbound leg PASS" : `\nOutbound leg FAIL (${fails})`);
   process.exit(fails === 0 ? 0 : 1);
