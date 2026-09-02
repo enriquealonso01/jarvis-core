@@ -103,6 +103,9 @@ is two or three entries, and it is where the time is actually saved.
 
 **Process**
 - [Thirty-one overnight ticks produced no progress on the thing that mattered](#thirty-one-overnight-ticks-produced-no-progress-on-the-thing-that-mattered)
+- [Five defects reached him at once, all above the layer the tests covered](#five-defects-reached-him-at-once-all-above-the-layer-the-tests-covered)
+- [A CHECK constraint rejected every verdict and nothing said so](#a-check-constraint-rejected-every-verdict-and-nothing-said-so)
+- [Three probes lied because MSYS rewrote the path](#three-probes-lied-because-msys-rewrote-the-path)
 
 
 ---
@@ -1303,3 +1306,84 @@ ADR sweeps — while the heavy lane stayed parked.
 suite again.
 **Lesson:** an optimiser improves what you measure. If the measurement does not
 include "it did the job", the optimiser will never make it do the job.
+
+---
+
+### Five defects reached him at once, all above the layer the tests covered
+**Symptom:** Enrique tried to create a project by voice. Six turns, no project.
+He was answered "remembered: I want to create a project called Test Project",
+then asked for confidentiality and production status on a project he had called
+personal, then read the classifier's own notes aloud in the third person — "He
+wants to create…", "The user asks…", "The message is a fragment with no clear
+subject" — and finally told that neither name "matches any project in the
+existing list".
+**Cause:** five separate defects, and one thing they had in common. The router
+had no category for creating a project, so the request could only land in
+`capture`; its prompt said an unknown project name makes a segment `ambiguous`,
+which is backwards for a request to CREATE one; `segment.reason` (a diagnostic
+field) was wired into the question asked back to him; `classifyInbox` received
+the current utterance and nothing else, so a fragment three turns in had no
+subject; and the Supervisor prompt described only the professional case, so with
+no type recorded it asked for the professional four.
+**Why the tests were green:** S26 had 59 offline assertions and 11 live ones,
+and every one of them drove `runTool` directly. They prove the onboarding tools
+work. They are structurally incapable of seeing whether anything ever CALLS
+them — and nothing did. A sixth defect was mine: rendering `AGENTS.md` demanded
+twenty answers while the plan asks eight, and "just use the defaults" had no
+representation, so even a perfectly routed request could not have finished.
+**Fix:** a `create_project` category that hands the utterance to the desk where
+the onboarding tools live; a question built from his own words; the last eight
+turns given to the classifier; the prompt teaching type-first; and
+`project_onboarding_defaults`, which answers how a project is BUILT and never
+what it IS. Then the tests that were missing: one driving `ingestUserMessage`
+end to end, and one putting his six real sentences through the LIVE classifier.
+**Lesson:** a test that starts below the layer that failed cannot fail. When a
+step's Done-when says "by voice", the test has to start where the voice does —
+and if that is expensive, the expense is the point. Ask what the suite would
+still pass with if the feature were entirely unreachable; if the answer is
+"everything", the suite is measuring the wrong end.
+
+---
+
+### A CHECK constraint rejected every verdict and nothing said so
+**Symptom:** the new `create_project` route worked perfectly — message routed,
+project created, correct reply — and `inbox_events.route_category` was null for
+every one of them.
+**Cause:** `inbox_events_route_category_check` still listed the original five
+categories plus `mixed`. Every `create_project` UPDATE violated it and threw.
+The write is wrapped in `.catch(() => undefined)`, on the correct reasoning that
+a routing RECORD must never take a message down — so the throw was swallowed and
+the behaviour was flawless with no trace of itself.
+**Why it matters more than it looks:** `routing.ts` opens by saying "Wrong
+routing is invisible otherwise, and the documented way to find the bug is to
+read a day of verdicts." A verdict that cannot be written is that sentence
+quietly failing, and the next routing bug would have been undiagnosable.
+**Fix:** migration 031 widens the constraint. The catch still cannot throw and
+can no longer be silent — it logs the category and the reason.
+**Lesson:** adding a value to an enum in code means adding it everywhere the
+value is stored. And a deliberate catch is a decision to lose information: it is
+right often enough to be worth keeping, and it must always say what it lost.
+This was found only because a null column looked odd next to nineteen passing
+assertions — the suite and the record disagreed, and the suite was the one that
+was wrong.
+
+---
+
+### Three probes lied because MSYS rewrote the path
+**Symptom:** an ad-hoc `docker compose run -e JARVIS_FAKE_MODEL_SCRIPT=/app/...`
+reported that the classifier was never invoked at all. It led to a conclusion,
+briefly reported as fact, that an entire test was passing through a degradation
+path and proving nothing.
+**Cause:** Git Bash rewrote `/app/scripts/fixtures/x.json` into
+`C:/Program Files/Git/app/scripts/fixtures/x.json`. The fake found no script,
+returned an empty string, and the router recorded "no model route answered".
+Every `*-test.sh` in this repo exports `MSYS_NO_PATHCONV=1` and
+`MSYS2_ARG_CONV_EXCL='*'` for exactly this reason; a command typed directly into
+the shell has neither.
+**Fix:** export both before any ad-hoc `docker compose` invocation, or put the
+command in a `.sh` like every suite already does.
+**Lesson:** this is the third time path conversion has cost real time in one
+session, and the first time it produced a false FINDING rather than a failed
+command — which is much worse. A diagnostic tool that is not configured like the
+thing it is diagnosing is not measuring the same system. When a probe contradicts
+a passing suite, suspect the probe first.
