@@ -321,5 +321,28 @@
         ]
       }
     }
+  ],
+  "reviewer": [
+    {
+      "match": "i <= items.length",
+      "json": {
+        "summary": "off-by-one in total()",
+        "findings": [
+          {
+            "severity": "blocking",
+            "file": "src/cart.js",
+            "detail": "the loop runs to i <= items.length, one past the end",
+            "why": "items[items.length] is undefined, so reading .price throws"
+          }
+        ]
+      }
+    },
+    {
+      "match": "Math.round(sum * 100) / 100",
+      "json": {
+        "summary": "no defects found",
+        "findings": []
+      }
+    }
   ]
 }

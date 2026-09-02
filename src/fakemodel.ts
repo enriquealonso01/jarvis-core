@@ -32,20 +32,24 @@ export type FakeTurn = {
   json?: unknown;
 };
 
-type FakeScript = { supervisor?: FakeTurn[]; classifier?: FakeTurn[] } | FakeTurn[];
+type FakeScript =
+  | { supervisor?: FakeTurn[]; classifier?: FakeTurn[]; reviewer?: FakeTurn[] }
+  | FakeTurn[];
 
 export const FAKE_MODEL = process.env.JARVIS_MODEL === "fake";
 
 /** Must match ROUTE_CLASSIFIER_MARKER in routing.ts. Duplicated to avoid an import cycle. */
 const CLASSIFIER_MARKER = "route classifier";
+/** Must match REVIEW_MARKER in review.ts. */
+const REVIEW_MARKER = "independent code review";
 
-function readScript(path: string): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
+function readScript(path: string): { supervisor: FakeTurn[]; classifier: FakeTurn[]; reviewer: FakeTurn[] } {
   try {
     const parsed = JSON.parse(fs.readFileSync(path, "utf8")) as FakeScript;
-    if (Array.isArray(parsed)) return { supervisor: parsed, classifier: [] };
-    return { supervisor: parsed.supervisor ?? [], classifier: parsed.classifier ?? [] };
+    if (Array.isArray(parsed)) return { supervisor: parsed, classifier: [], reviewer: [] };
+    return { supervisor: parsed.supervisor ?? [], classifier: parsed.classifier ?? [], reviewer: parsed.reviewer ?? [] };
   } catch {
-    return { supervisor: [], classifier: [] };
+    return { supervisor: [], classifier: [], reviewer: [] };
   }
 }
 
@@ -61,10 +65,10 @@ function readScript(path: string): { supervisor: FakeTurn[]; classifier: FakeTur
  */
 const OVERLAY = path.join(process.env.JARVIS_ROOT ?? "/var/lib/jarvis", "fake-overlay.json");
 
-function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
+function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[]; reviewer: FakeTurn[] } {
   const base = process.env.JARVIS_FAKE_MODEL_SCRIPT
     ? readScript(process.env.JARVIS_FAKE_MODEL_SCRIPT)
-    : { supervisor: [], classifier: [] };
+    : { supervisor: [], classifier: [], reviewer: [] };
   if (!fs.existsSync(OVERLAY)) return base;
   const extra = readScript(OVERLAY);
   // Overlay first: a test that needs a specific answer must win over the
@@ -72,6 +76,7 @@ function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[] } {
   return {
     supervisor: [...extra.supervisor, ...base.supervisor],
     classifier: [...extra.classifier, ...base.classifier],
+    reviewer: [...extra.reviewer, ...base.reviewer],
   };
 }
 
@@ -89,11 +94,12 @@ export function fakeCompletion(messages: Msg[]): {
   const script = loadScript();
   const system = messages.filter((m) => m.role === "system").map(textOf).join("\n").toLowerCase();
   const isRouter = system.includes(CLASSIFIER_MARKER);
+  const isReviewer = system.includes(REVIEW_MARKER);
 
   // A tool has already run this turn, so the loop must be allowed to end.
   // Without this the fake would replay the same tool call forever and every test
   // would hit the eight-call limit instead of its assertion.
-  if (!isRouter && messages.some((m) => m.role === "tool")) {
+  if (!isRouter && !isReviewer && messages.some((m) => m.role === "tool")) {
     const last = [...messages].reverse().find((m) => m.role === "tool");
     const result = textOf(last);
     return { role: "assistant", content: result.startsWith("ERROR") ? `I could not do that. ${result}` : "Done." };
@@ -101,7 +107,7 @@ export function fakeCompletion(messages: Msg[]): {
 
   const user = [...messages].reverse().find((m) => m.role === "user");
   const text = textOf(user).toLowerCase();
-  const turns = isRouter ? script.classifier : script.supervisor;
+  const turns = isReviewer ? script.reviewer : isRouter ? script.classifier : script.supervisor;
   // Longest match wins, not first. With `find`, a fixture keyed on "how does our
   // deploy work" silently swallowed a longer message that merely contained that
   // phrase, and the test that caught it looked like a routing bug.
@@ -112,7 +118,9 @@ export function fakeCompletion(messages: Msg[]): {
   if (!turn) {
     // The router must fail closed: no scripted verdict means no verdict, and
     // routing.ts turns that into `ambiguous` rather than a guess.
-    return { role: "assistant", content: isRouter ? "" : "(fake model: no scripted turn matched)" };
+    // Router and reviewer both fail CLOSED: no scripted answer means no answer,
+    // and review.ts turns that into an error rather than a clean pass.
+    return { role: "assistant", content: isRouter || isReviewer ? "" : "(fake model: no scripted turn matched)" };
   }
   if (turn.json !== undefined) return { role: "assistant", content: JSON.stringify(turn.json) };
   if (!turn.tool_calls?.length) return { role: "assistant", content: turn.content ?? "(fake model)" };

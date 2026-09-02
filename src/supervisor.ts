@@ -984,7 +984,7 @@ export async function quickCompletion(
   pool: pg.Pool,
   system: string,
   user: string,
-  opts: { maxTokens?: number } = {},
+  opts: { maxTokens?: number; role?: ModelRole } = {},
 ): Promise<string | null> {
   // The router is a quickCompletion too, so the fake model has to reach here or
   // routing cannot be tested offline at all.
@@ -995,7 +995,7 @@ export async function quickCompletion(
     ]);
     return reply.content ?? null;
   }
-  const candidates = await getProviderCandidates(pool, "supervisor");
+  const candidates = await getProviderCandidates(pool, opts.role ?? "supervisor");
   for (const c of candidates) {
     try {
       const res = await fetch(c.url, {

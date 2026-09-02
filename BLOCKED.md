@@ -76,3 +76,17 @@ unblocked, finish it before starting anything new.
   only the live PR is missing. One run finishes it once the token works.
 - **Raised:** 2026-09-02 00:33   Resolved:
 
+## Intermittent: burst of three messages sometimes yields two tasks
+
+- **Step:** S2 (regression surface for S3's routing)
+- **Blocked on:** Nothing of yours — recorded here so it is not lost. It is a
+  real defect against the plan's "three messages in ten seconds -> three tasks,
+  none merged, none dropped".
+- **What I need you to do:** Nothing. Mine to chase.
+- **What I tried:** Twelve runs after the failure, all clean; roughly 1 in 10.
+  Not reproducible on demand yet.
+- **What I did instead:** Added diagnostics to the test so the next occurrence
+  dumps the tasks and the inbox events with their route verdicts. Continued to
+  S9.
+- **Raised:** 2026-09-02 02:10   Resolved:
+

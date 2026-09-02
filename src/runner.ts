@@ -958,6 +958,60 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       `UPDATE task_attempts SET ended_at = now(), summary = $3 WHERE task_id = $1 AND n = $2`,
       [taskId, n, successSummary],
     );
+    // S9: a second model reads the diff BEFORE the pull request exists. Blocking
+    // findings send the work back through the S3c context path rather than
+    // opening a PR that a human then has to reject.
+    // S9 says the review happens "before the PR opens", and that is exactly the
+    // scope: a change on a project with no linked repository will never become a
+    // pull request, so there is no gate for a reviewer to stand in front of.
+    // Reviewing it anyway would block local work on a reviewer route that the
+    // project has no reason to have configured.
+    const willOpenPr = Boolean(project?.github_owner && project.github_repo);
+    if (changed && workspace.isRepo && willOpenPr) {
+      const { reviewTask, sendBackForRework } = await import("./review.js");
+      const review = await reviewTask(pool, taskId).catch((err: unknown) => ({
+        ok: false as const,
+        findings: [],
+        blocking: [],
+        error: `review threw: ${err instanceof Error ? err.message : String(err)}`,
+        model: "none",
+      }));
+      if (!review.ok) {
+        // A review that did not happen is not a review that passed. The work is
+        // held rather than shipped on the strength of an absent opinion.
+        const reason = `not reviewed: ${review.error ?? "unknown"}`;
+        await pool
+          .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, reason.slice(0, 500)])
+          .catch(() => undefined);
+        await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner", "lease_until = NULL");
+        await raiseIssue(pool, {
+          category: "supervisor",
+          service: "reviewer",
+          owner: "user",
+          status: "waiting_for_user",
+          title: `[review] could not review ${task.title.slice(0, 60)}`,
+          dedupeKey: `review.unavailable:${taskId}`,
+          taskId,
+          projectId: task.project_id,
+          evidence: { error: review.error ?? null, branch: workspace.branch },
+          requiredAction: "The change was not reviewed. Read the diff before merging it.",
+        }).catch(() => undefined);
+        return;
+      }
+      if (review.blocking.length) {
+        const back = await sendBackForRework(pool, taskId, review.blocking);
+        if (back.requeued) {
+          console.log(`task ${taskId} sent back: ${back.reason}`);
+          return;
+        }
+        await pool
+          .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, back.reason.slice(0, 500)])
+          .catch(() => undefined);
+        await transitionTask(pool, taskId, "waiting_for_user", back.reason.slice(0, 300), "runner", "lease_until = NULL");
+        return;
+      }
+    }
+
     // S7: a finished run becomes a pull request. Never fatal — a task that did
     // the work and could not open the PR is a completed piece of work with a
     // reason attached, not a crash, and the reason is already recorded by
