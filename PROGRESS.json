@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "3e4100b471a877aec207efab413baea940081514",
+  "plan_sha": "5904009a087e63d66321d6aaea94b2e390ece06f",
   "total_steps": 39,
-  "updated_at": "2026-09-02T11:57:39.182Z",
-  "current_step": "S21",
+  "updated_at": "2026-09-02T11:58:05.311Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -186,8 +186,9 @@
       "id": "S21",
       "title": "The conversational orchestration runtime",
       "stage": 4,
-      "state": "in_progress",
-      "evidence": "43/43 incl. variety, the 2.5/10/25s ladder, three interruption points and capture independence; PR open"
+      "state": "done",
+      "evidence": "43/43; varied, interruptible at three points, honest handover at the budget, and capture independent of it all",
+      "pr": 91
     },
     {
       "id": "S22",
