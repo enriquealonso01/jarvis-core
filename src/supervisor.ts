@@ -693,12 +693,28 @@ export async function runTool(
      * Version 1 of the instructions, written by Jarvis. This row is canonical
      * (ADR 018): the file committed into the repository is a rendering of it,
      * not a second source of project policy.
+     *
+     * It goes through `applyInstructionsChange` rather than its own INSERT —
+     * S27's Debug section is explicit that every config write goes through one
+     * function, and this was one of the two that did not. Routing it here also
+     * gets it the things it was quietly missing: the conversation it happened
+     * in, the placeholder guard applied to every version rather than only to
+     * later ones, and an audit line.
      */
-    await pool.query(
-      `INSERT INTO project_instructions_versions (project_id, version, body, parsed_policy, created_by)
-       VALUES ($1, 1, $2, $3, 'jarvis')`,
-      [inserted.rows[0].id, rendered.body, JSON.stringify(a)],
-    );
+    const { applyInstructionsChange } = await import("./config.js");
+    const stored = await applyInstructionsChange(pool, {
+      projectId: inserted.rows[0].id,
+      body: rendered.body,
+      actor: "jarvis",
+      conversationId,
+      causedByMessage: `onboarding ${a.slug}`,
+      parsedPolicy: a,
+    });
+    if ("error" in stored) {
+      // The project row exists and its instructions do not, which is worth
+      // saying out loud rather than returning a success that hides it.
+      return `project ${a.slug} was created but its instructions were refused: ${stored.error}`;
+    }
 
     await pool.query(
       `UPDATE onboarding_sessions SET status = 'finalized', project_id = $2, updated_at = now() WHERE id = $1`,

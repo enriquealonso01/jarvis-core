@@ -14,6 +14,7 @@
  * not even record an attempt, because a question that has not been answered is
  * not a change that failed.
  */
+import fs from "node:fs";
 import { createPool } from "../src/db.js";
 import {
   IMMUTABLE_DOMAINS, IMMUTABLE_KEYS, applyConfigChange, applyInstructionsChange,
@@ -70,7 +71,39 @@ async function main(): Promise<void> {
     `INSERT INTO conversations (title, channel, project_id) VALUES ($1, 'voice', $2) RETURNING id`,
     [`talking about beta ${STAMP}`, beta])).rows[0].id;
 
-  console.log("########## the immutable list is data, and all of it refuses ##########\n");
+  console.log("########## there is exactly one writer ##########\n");
+  {
+    /*
+     * The step's Debug section, made mechanical:
+     *
+     *   "If a change applies but does not show in history, the write is
+     *    bypassing the versioning path. Every config write goes through one
+     *    function; find the one that does not."
+     *
+     * Every assertion elsewhere in this suite tests the function. None of them
+     * can see a second writer somewhere else in the tree — a route that INSERTs
+     * straight into the table applies a change that is invisible to history, and
+     * every test here would still be green.
+     *
+     * So this reads the source. When it was first written it found two:
+     * `product.ts` (the schedule route) and `supervisor.ts` (S26 onboarding).
+     * Both now call the one function; this is what stops a third appearing.
+     */
+    const dir = new URL("../src/", import.meta.url);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
+    const writers: string[] = [];
+    for (const f of files) {
+      const body = fs.readFileSync(new URL(f, dir), "utf8");
+      if (/INSERT\s+INTO\s+(config_versions|project_instructions_versions)/i.test(body)) {
+        writers.push(f);
+      }
+    }
+    check("only one file writes a version row", 1, writers.length);
+    check("and it is config.ts", "config.ts", writers[0] ?? "(none)");
+    if (writers.length > 1) console.log(`        also writing: ${writers.join(", ")}`);
+  }
+
+  console.log("\n########## the immutable list is data, and all of it refuses ##########\n");
   {
     for (const [domain, label] of Object.entries(IMMUTABLE_DOMAINS)) {
       const got = immutableDomain(`${domain}.something`);

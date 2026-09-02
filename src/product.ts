@@ -1206,21 +1206,25 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     // Config changes are versioned (plan §: config_versions). The table existed
     // and nothing wrote to it, so schedule edits left no trace beyond the audit line.
     if (typeof b.paused === "boolean" || b.cron) {
-      await pool.query(
-        `INSERT INTO config_versions (scope, project_id, key, value, version, actor, note)
-         VALUES ('project', $1, $2, $3,
-                 COALESCE((SELECT max(version) FROM config_versions WHERE key = $2), 0) + 1,
-                 'user', $4)`,
-        [
-          before.rows[0].project_id,
-          `schedule:${before.rows[0].name}`,
-          JSON.stringify({
-            from: { paused: before.rows[0].paused, cron: before.rows[0].cron },
-            to: { paused: r.rows[0].paused, cron: r.rows[0].cron },
-          }),
-          b.cron ? "cron changed" : b.paused ? "paused" : "resumed",
-        ],
-      );
+      /*
+       * Through the one function (S27). This used to be its own INSERT, and it
+       * computed the version with `max(version)` over the key across every
+       * project — so two projects with a schedule of the same name shared one
+       * version sequence. It also predated provenance, so a schedule change had
+       * no record of what caused it.
+       */
+      const { applyConfigChange } = await import("./config.js");
+      await applyConfigChange(pool, {
+        scope: "project",
+        projectId: before.rows[0].project_id,
+        key: `schedule:${before.rows[0].name}`,
+        value: {
+          from: { paused: before.rows[0].paused, cron: before.rows[0].cron },
+          to: { paused: r.rows[0].paused, cron: r.rows[0].cron },
+        },
+        actor: "user",
+        note: b.cron ? "cron changed" : b.paused ? "paused" : "resumed",
+      });
       await audit(pool, {
         actor: "user",
         action: "schedule.update",
