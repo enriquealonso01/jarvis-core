@@ -111,6 +111,14 @@ export default definePluginEntry({
      */
     const log = api.logger ?? console;
     log.info?.("[jarvis-bridge] registering message_received and before_agent_run");
+    // One-time surface probe: what this plugin is actually handed. Cheaper and
+    // more reliable than reading five SDK pages about what it might be.
+    try {
+      log.info?.(`[jarvis-bridge] api keys: ${Object.keys(api).join(",")}`);
+      log.info?.(`[jarvis-bridge] runtime keys: ${Object.keys(api.runtime ?? {}).join(",")}`);
+    } catch (err) {
+      log.info?.(`[jarvis-bridge] surface probe failed: ${err?.message}`);
+    }
 
     api.on("message_received", async (event) => {
       log.info?.("[jarvis-bridge] message_received fired");
