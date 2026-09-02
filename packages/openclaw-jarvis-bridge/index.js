@@ -194,6 +194,14 @@ function registerSendRoute(api) {
   api.registerHttpRoute({
     method: "POST",
     path: "/jarvis/send",
+    /*
+     * "plugin" means this route authenticates itself, and it does: the same
+     * INTERNAL_HMAC the inbound direction uses, so neither direction is weaker
+     * than the other. The alternative, "gateway", would gate on the gateway
+     * token instead — a second secret to distribute for no gain, since the
+     * worker already holds the HMAC.
+     */
+    auth: "plugin",
     handler: async (req) => {
       const secret = process.env.INTERNAL_HMAC;
       const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
