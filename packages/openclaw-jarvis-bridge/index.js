@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
 import { definePluginEntry } from "openclaw/plugin-sdk/core";
 
 // OpenClaw loads this file as plain JavaScript. It must stay valid JS — no type
@@ -99,6 +100,8 @@ export default definePluginEntry({
   name: "Jarvis Bridge",
   description: "Hand every inbound message to Jarvis, and stop OpenClaw answering for it.",
   register(api) {
+    registerSendRoute(api);
+
     /*
      * Say so, loudly, on registration and on every fire.
      *
@@ -111,16 +114,6 @@ export default definePluginEntry({
      */
     const log = api.logger ?? console;
     log.info?.("[jarvis-bridge] registering message_received and before_agent_run");
-    // One-time surface probe: what this plugin is actually handed. Cheaper and
-    // more reliable than reading five SDK pages about what it might be.
-    try {
-      log.info?.(`[jarvis-bridge] api keys: ${Object.keys(api).join(",")}`);
-      log.info?.(`[jarvis-bridge] runtime keys: ${Object.keys(api.runtime ?? {}).join(",")}`);
-      log.info?.(`[jarvis-bridge] runtime.channel: ${Object.keys(api.runtime?.channel ?? {}).join(",")}`);
-      log.info?.(`[jarvis-bridge] channel.outbound: ${Object.keys(api.runtime?.channel?.outbound ?? {}).join(",")}`);
-    } catch (err) {
-      log.info?.(`[jarvis-bridge] surface probe failed: ${err?.message}`);
-    }
 
     api.on("message_received", async (event) => {
       log.info?.("[jarvis-bridge] message_received fired");
@@ -139,3 +132,94 @@ export default definePluginEntry({
     });
   },
 });
+
+/**
+ * The outbound half: one HTTP route Jarvis can post a message to.
+ *
+ * Jarvis's worker cannot run the OpenClaw CLI — different container, and
+ * deliberately no Docker socket — and the gateway speaks WebSocket. The stock
+ * `admin-http-rpc` plugin was checked and has no send method (its methods are
+ * health, status and agents.*). So the send lives here, inside OpenClaw, where
+ * the CLI exists and is a supported interface.
+ *
+ * `channel.outbound.loadAdapter` is the more native route and is deliberately
+ * NOT used yet: its shape is undocumented, it likely requires a paired channel,
+ * and three ticks of guessing at internal APIs is enough. The CLI is a stable,
+ * documented surface, and swapping to the adapter later changes only this
+ * function.
+ *
+ * Two properties this must have, and they are the reason it is not a one-liner:
+ *
+ *   authenticated — the same INTERNAL_HMAC the inbound direction uses, so this
+ *                   route is no weaker than the one it mirrors.
+ *   exactly once  — the outbox marks a row sent only after a success, so a
+ *                   crash between the send and the mark would resend on retry.
+ *                   The dedupe below closes that window: the same outbox id is
+ *                   never sent twice by this process.
+ */
+const sentIds = new Map();
+const SENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function alreadySent(id) {
+  const at = sentIds.get(id);
+  if (at === undefined) return false;
+  if (Date.now() - at > SENT_TTL_MS) {
+    sentIds.delete(id);
+    return false;
+  }
+  return true;
+}
+
+export function sendViaCli(args) {
+  return new Promise((resolve) => {
+    const argv = [
+      "message", "send",
+      "--channel", args.channel ?? "whatsapp",
+      "-t", args.to,
+      "-m", args.text,
+    ];
+    if (args.dryRun) argv.push("--dry-run");
+    execFile("openclaw", argv, { timeout: 60_000 }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ ok: false, detail: `${err.message} ${String(stderr).slice(0, 200)}`.trim() });
+        return;
+      }
+      resolve({ ok: true, detail: String(stdout).trim().slice(0, 200) });
+    });
+  });
+}
+
+function registerSendRoute(api) {
+  const log = api.logger ?? console;
+  api.registerHttpRoute({
+    method: "POST",
+    path: "/jarvis/send",
+    handler: async (req) => {
+      const secret = process.env.INTERNAL_HMAC;
+      const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
+      const signature = req.headers?.[HMAC_HEADER.toLowerCase()] ?? req.headers?.[HMAC_HEADER];
+      if (!secret || !signature || signature !== signBody(secret, raw)) {
+        return { status: 401, body: { ok: false, error: "hmac" } };
+      }
+      const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body ?? {});
+      if (!body.to || !body.text) {
+        return { status: 400, body: { ok: false, error: "to and text are required" } };
+      }
+      // The outbox's own row id. Without it there is no way to be idempotent,
+      // so it is required rather than optional.
+      if (!body.id) return { status: 400, body: { ok: false, error: "id is required" } };
+
+      if (alreadySent(body.id)) {
+        log.info?.(`[jarvis-bridge] send ${body.id} already delivered; not sending again`);
+        return { status: 200, body: { ok: true, deduped: true } };
+      }
+
+      const result = await sendViaCli({
+        to: body.to, text: body.text, channel: body.channel, dryRun: Boolean(body.dry_run),
+      });
+      if (result.ok && !body.dry_run) sentIds.set(body.id, Date.now());
+      log.info?.(`[jarvis-bridge] send ${body.id} ok=${result.ok} ${result.detail}`);
+      return { status: result.ok ? 200 : 502, body: { ok: result.ok, detail: result.detail } };
+    },
+  });
+}
