@@ -78,8 +78,16 @@ export function payloadFor(msg) {
   };
 }
 
-/** OpenClaw plugin entry. Receives the plugin api and registers two hooks. */
-export default function jarvisBridge(api) {
+/**
+ * OpenClaw plugin entry.
+ *
+ * Exported as BOTH `register` and default. The loader calls
+ * `runPluginRegisterSyncInRegistry(register, api, ...)`, and which export it
+ * takes that `register` from differs between plugin kinds; exporting both costs
+ * one line and removes the guess. The first attempt exported only a default and
+ * was called with `undefined`, which is how this was found.
+ */
+export function register(api) {
   api.registerHook("message_received", async (event) => {
     const result = await ingestToJarvis(payloadFor(event?.message ?? event));
     if (!result.ok) {
@@ -95,3 +103,5 @@ export default function jarvisBridge(api) {
     reason: "Jarvis owns this conversation",
   }));
 }
+
+export default register;
