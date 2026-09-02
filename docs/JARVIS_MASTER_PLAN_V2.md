@@ -1,6 +1,6 @@
 # Jarvis — Master Plan v2
 
-- Status: **authoritative**. Supersedes `JARVIS_V1_MASTER_PLAN_v1.2.md` and `FIRST_SLICE.md`.
+- Status: **authoritative**. Supersedes `JARVIS_V1_MASTER_PLAN_v1.2.md`, `FIRST_SLICE.md`, and the sequencing in `BUILD_ORDER.md` (whose six decisions it carries forward — that file is now the record of why, not what to build).
 - Date: 2026-09-01
 - Source of requirements: Enrique's planning transcript (25 messages), plus every decision taken since.
 - Diagnosis this responds to: `docs/GAP_ANALYSIS.md`.
