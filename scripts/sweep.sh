@@ -23,7 +23,7 @@ COMPOSE="docker compose -f deploy/compose.dev.yaml"
 SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-context-test
         s4-drain-test s4-recovery-test s6-workflow-test s9-review-test s10-grants-test
         s11-recovery-test s12-isolation-test s12-privdrop-test s13-home-test s14-live-detail-test
-        s15-console-test s16-credential-test
+        s15-console-test s16-credential-test s16b-deviceflow-test
         s17-artifacts-test s18-search-test s18b-retrofit-test s19-call-test
         s20-turntaking-test s21-runtime-test s21b-call-defects-test
         s22-desk-test"

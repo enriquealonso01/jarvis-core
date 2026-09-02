@@ -5,6 +5,7 @@ import { connectClient, createPool, migrate } from "./db.js";
 import { ensureBootstrapUser, registerAuthRoutes, requireUser } from "./auth.js";
 import { ingestResticEnv } from "./ingest-restic.js";
 import { registerSetupRoutes } from "./setup.js";
+import { registerDeviceFlowRoutes } from "./deviceflow.js";
 import { verifyCatalogs } from "./catalog.js";
 import { ingestUserMessage } from "./inbox.js";
 import { sseBroadcast, startSseBridge } from "./sse.js";
@@ -140,6 +141,8 @@ async function main() {
 
   registerAuthRoutes(app, pool);
   registerSetupRoutes(app, pool);
+  // Providers with no key to paste: the device code grant (netcup SCP).
+  registerDeviceFlowRoutes(app, pool);
   registerProductRoutes(app, pool);
   registerGrantRoutes(app, pool);
   registerOperationsRoutes(app, pool);
