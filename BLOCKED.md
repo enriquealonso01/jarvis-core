@@ -425,8 +425,32 @@ unblocked, finish it before starting anything new.
   channels; the WhatsApp block has `dmPolicy`, `allowFrom`, `dmHistoryLimit` and
   `dms`, and no `autoReply`. So silencing the default agent on WhatsApp needs the
   hook — checked before writing code rather than after.
-- **Next:** rewrite the bridge against those two hooks, prove it by posting
-  through OpenClaw rather than around it, and only then produce a QR.
+- **Where it got to, 20:40Z.** The bridge is rewritten and LOADS:
+  `14 plugins: … jarvis-bridge …`, no register errors, and
+  `plugins.entries.jarvis-bridge.hooks.allowConversationAccess=true` cleared the
+  one thing `plugins doctor` complained about. Four wrong shapes were tried and
+  each was caught by OpenClaw rather than by me — `onInbound`/`skipDefaultAgent`
+  (does not exist), a bare default export and a `register` export (both called
+  with `undefined`), and `api.registerHook` for a typed hook, which the loader
+  warns is "not invoked".
+- **What is NOT proven, and it is the only thing that matters:** that
+  `before_agent_run` actually blocks. `openclaw agent -m "say OK"` ran through
+  the gateway and reached OpenAI (401, no credential) — it was not blocked. Two
+  readings and I cannot yet separate them:
+  1. that path does not dispatch `before_agent_run` at all. The docs say it is
+     implemented by "the embedded and CLI runners", and this went through the
+     gateway; or
+  2. the hook is still not registered. `openclaw hooks list` shows five bundled
+     hooks and none of ours — though that command manages "internal agent
+     hooks", which may be a different subsystem from plugin typed hooks.
+- **Why this is not a QR yet.** The only path that matters is an inbound
+  WhatsApp DM, and testing it needs pairing — while pairing before the block is
+  proven means Enrique's DMs get answered by OpenClaw's own agent, with its own
+  model and memory. That is the deadlock, stated plainly rather than resolved by
+  optimism.
+- **The way out, for the next tick:** OpenClaw's `--channel` list includes
+  `qa-channel`. If that can carry a synthetic inbound message, the takeover can
+  be proved without WhatsApp and without pairing. That is the first thing to try.
 - **Raised:** 2026-09-02 20:40Z
 
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
