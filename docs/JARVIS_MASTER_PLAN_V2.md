@@ -2027,12 +2027,35 @@ When S36 is done, this is the only work left between here and a finished Jarvis.
 - Reconciliation that backfills anything missed while the API was down.
 - Retention: raw audio 7 days, never past 10 unless marked permanent.
 
+**Outbound — the half that was missing**
+
+The step described ingest and nothing else, which would have left the finish line
+unreachable: N1 is *voice note in, PR link back*, and there was no back.
+
+- **Wire `notifications_outbox` to OpenClaw's send.** Today the worker parks every non-`ui` notification with "whatsapp/phone transport not paired" and backs off. That stub is the only reason the outbox looks healthy — the moment a real transport exists, everything S33's notification policy decides actually has somewhere to go.
+- Delivery is confirmed, not assumed: a send that fails retries on the taxonomy curve and, after its limit, raises `notification.delivery`. **A notification believed delivered and never sent is worse than one that failed loudly**, because the system then thinks Enrique knows something he does not.
+- Revive the notifications that failed while unpaired — the worker already does this when a channel appears in `channel_allowlist`, and pairing is exactly that moment. Every blocker raised before pairing should arrive once, not vanish.
+
+**OpenClaw is a pipe, not memory**
+
+Do not let OpenClaw's own session model become the product's conversation model.
+Its `session.dmScope=main` would collapse every project into one thread, which is
+the opposite of everything S3 does. Conversations live in Postgres, scoped to
+projects; OpenClaw's session id is recorded on the conversation or task as
+`external_session_id` when a live runtime exists, and that is all it is.
+
+If OpenClaw insists on a main session, treat it as transport and ignore its
+memory. **The one thing that must never happen is two answers to "what was said"**
+— one in Postgres and one in OpenClaw's own store, disagreeing.
+
 **Test before the number exists** — everything except pairing:
 - Synthesised inbound payloads of each type against `/internal/inbox/ingest` → correct inbox events, artifacts, transcripts and routing.
 - A real audio file through the full transcribe-and-route path.
 - Kill the API for 10 seconds mid-send → the bridge retries, reconciliation fills the gap, nothing is dropped (L1).
 - Ingest with a bad HMAC → refused.
 - An unknown sender → ignored, not processed.
+- **Outbound against a stub transport**: queue a notification, confirm it is sent once, marked sent, and not resent on the next drain. Force the send to fail → retries, then `notification.delivery`, and the task is **not** marked as having told him anything.
+- Queue several notifications while "unpaired", then pair → each arrives exactly once. Not zero, not twice.
 
 **Test after pairing (tomorrow)**
 - QR pair the dedicated number. Send a text, a voice note, an image and a document from Enrique's phone.
@@ -2043,7 +2066,8 @@ When S36 is done, this is the only work left between here and a finished Jarvis.
 - If OpenClaw answers with its own agent, the plugin failed to load — it must stay plain JavaScript, no type annotations.
 - Missing `INTERNAL_HMAC` makes the bridge refuse to complete. That is correct behaviour, not a bug.
 
-**Done when:** N1 runs end to end from a voice note on Enrique's phone. **That is the finish line for this plan.**
+**Done when:** N1 runs end to end from a voice note on Enrique's phone — **and the
+result comes back to that phone.** That is the finish line for this plan.
 
 
 ---
