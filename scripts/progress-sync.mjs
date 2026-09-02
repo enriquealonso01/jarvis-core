@@ -60,7 +60,12 @@ const merged = steps.map((s) => {
 });
 
 const planSha = execFileSync("git", ["log", "-1", "--format=%H", "--", PLAN]).toString().trim();
-const firstOpen = merged.find((s) => s.state === "in_progress" || s.state === "partial")
+// What is being worked on NOW, in order of how much it is being worked on. A
+// `partial` step waiting on Enrique used to win over the step actually in
+// progress, so the bar said "S12" while S13 was being built — which is the one
+// number on the page Enrique reads at a glance.
+const firstOpen = merged.find((s) => s.state === "in_progress")
+  ?? merged.find((s) => s.state === "partial")
   ?? merged.find((s) => s.state !== "done" && s.state !== "blocked");
 
 const gates = { ...(prev.gates ?? {}) };
