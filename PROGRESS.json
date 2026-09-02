@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "a78dd6eda2411f1465a2e60c36958b4fa06131ea",
-  "total_steps": 37,
-  "updated_at": "2026-09-02T08:28:25.459Z",
-  "current_step": "S12",
+  "plan_sha": "9c61d7264576b87e75a0e88cba683e71acd9e6df",
+  "total_steps": 39,
+  "updated_at": "2026-09-02T08:29:40.800Z",
+  "current_step": "S18b",
   "steps": [
     {
       "id": "S1",
@@ -111,6 +111,14 @@
       "evidence": "Home leads with work: 24/24 browser assertions at 375x667. Running task title above the fold at 354px, queue at 546px, disk percentage below it entirely. Health collapsed to a 44px strip; system lane hidden by default."
     },
     {
+      "id": "S13b",
+      "title": "The build progress bar",
+      "stage": 3,
+      "state": "done",
+      "pr": 49,
+      "evidence": "Built in S13/S15 and verified there: the bar is on Home above the fold, every pair of states differs by more than colour, each segment is labelled, and the staleness notice and derived denominator are asserted."
+    },
+    {
       "id": "S14",
       "title": "Live work detail",
       "stage": 3,
@@ -149,6 +157,14 @@
       "state": "done",
       "pr": 71,
       "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone."
+    },
+    {
+      "id": "S18b",
+      "title": "The retrofit sweep",
+      "stage": 3,
+      "state": "in_progress",
+      "evidence": "Three of five retrofit items done, 20/20. Checkpoints carry the six fields that record WHY and the RESUME PATH READS THEM, proved by capturing the prompt a resumed run is actually given. The three taxonomy-only error classes exist and are provoked from real harness output; agent.repeat quotes the repeated action. Internal posts dedupe on request id atomically. PARTIAL: the ten-rung recovery ladder and the status-bar/composer items are not built.",
+      "pr": 74
     },
     {
       "id": "S19",
