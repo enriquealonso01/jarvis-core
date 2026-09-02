@@ -1992,6 +1992,42 @@ misread page is retried, where a misrouted Supervisor turn is a broken
 conversation. Routing them to the same model wastes money on one and quality on
 the other.
 
+## VI.3 What each role is selected for
+
+The planning conversation named specific models for each role. Those names are
+superseded — the free tiers are gone and the lineup has moved — but **what each
+role is selected *for* has not changed**, and that is the durable half. Write
+routing against these properties, never against a model's reputation.
+
+| Role | Must be good at | May be weak at | Latency | Cost sensitivity |
+|---|---|---|---|---|
+| **supervisor** | tool calling, instruction following, staying in character, refusing cleanly | deep reasoning, long code | low — it is the conversation | medium; every turn pays |
+| **utility** | short deterministic transforms, classification | anything requiring judgement | low | **high** — highest call volume |
+| **senior_engineer** | long-horizon coding, root-cause reasoning, tests, scope control | speed, conversational polish | **none** — take the time | flat-rate subscription |
+| **reviewer** | finding real defects, refusing to invent them | generating code | none | flat-rate; different family from the implementer |
+| **research/browser** | search, navigation, source evaluation, running scripts, scraping, **recovering when a tool fails**, **holding an objective across many steps** | polish, exact phrasing | medium | **high** — many calls per task |
+| **stt** | accented English, domain nouns, disfluency | everything else | low on the phone | low |
+| **voice_tts** | one consistent pinned voice, natural prosody | — | **very low** — it is the call | metered per character |
+| **vision** | reading documents and screenshots, tables | creative description | medium | medium |
+| **embeddings** | stable vectors, cheap at volume | — | batch | must be near zero |
+
+Two entries deserve their reasoning stated, because they are the ones most likely
+to be routed lazily:
+
+**research/browser** is agentic, not conversational. The two properties that
+actually separate a usable model here from an unusable one are **recovering when
+a tool fails** and **holding an objective across many steps** — not knowledge. A
+model that answers beautifully and gives up when a selector misses is worse for
+this role than a duller one that retries and remembers what it was doing.
+
+**reviewer** must come from a **different family** than the implementer wherever
+policy allows. A model reviewing its own family's output shares its blind spots,
+and a reviewer that agrees with everything is a rubber stamp with a latency cost.
+
+Candidates are proposed by Improvement and admitted to the pool (VI.1) only by
+Enrique. Nothing in this table names a vendor, deliberately: the table should
+still be correct in a year.
+
 **Routing key**: `role + model + provider + auth_profile + project_policy`. Never
 substitute a different account because it happens to be the same provider.
 
