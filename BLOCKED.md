@@ -469,6 +469,23 @@ unblocked, finish it before starting anything new.
   outbox is wired (item 4), so the 19 queued notifications deliver exactly once
   — not because pairing is dangerous, but because pairing is the moment they go
   out.
+- **Item 4's send path, 20:55Z.** The worker cannot run the OpenClaw CLI (wrong
+  container) so it needs an HTTP route. What was ruled out and why:
+  - `POST /api/v1/admin/rpc` (the stock `admin-http-rpc` plugin) IS reachable
+    from the api container with the gateway token — `health` returns ok. But its
+    method list is `health`, `status`, `agents.create|delete|list|update`. There
+    is no send. It was enabled to find that out and has been **disabled again**:
+    it is a full operator surface, it is not needed, and leaving a speculative
+    widening of the attack surface in production because it was convenient to
+    test with is exactly the kind of thing nobody remembers to undo.
+  - The gateway's own protocol is WebSocket; a WS client in the worker is
+    possible but is the most code for the least support.
+  - **The chosen path:** the bridge already runs inside OpenClaw, and the plugin
+    api includes `registerHttpRoute`. The bridge exposes one internal send
+    endpoint, the worker POSTs to it, and the plugin performs the send with
+    OpenClaw's own helpers. It makes the bridge bidirectional, which it needs to
+    be anyway, and keeps the outbox's state machine untouched — the only change
+    in `worker.ts` is replacing the "transport not paired" stub with a call.
 - **Raised:** 2026-09-02 20:40Z
 
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
