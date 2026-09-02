@@ -10,3 +10,11 @@ whatsapp:
   owner_e164: "+15551234567"
 elevenlabs:
   voice_id: "s19-fake-voice"
+# S23 dials on the Telnyx pair, not the WhatsApp pair. The four numbers are
+# deliberately all different so a test can tell which one the dial actually
+# used — when they matched, an outbound call reading the WhatsApp pair looked
+# correct in the fake and went out with a blank `from` in production.
+telnyx:
+  from_e164: "+15557770001"
+  to_e164: "+15557770002"
+  connection_id: "s23-fake-connection"
