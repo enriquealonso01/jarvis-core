@@ -134,12 +134,39 @@ async function main(): Promise<void> {
 
   console.log("\n########## the file is in the repository, and it is his answers ##########\n");
   {
-    const res = await fetch(
-      `https://api.github.com/repos/${owner}/${REPO}/contents/AGENTS.md?ref=${branch}`,
-      { headers });
-    check("GitHub serves AGENTS.md", 200, res.status);
-    const json = (await res.json()) as { content?: string; encoding?: string };
-    const committed = Buffer.from(json.content ?? "", "base64").toString("utf8");
+    const row = await pool.query<{ body: string }>(
+      `SELECT body FROM project_instructions_versions
+       WHERE project_id = (SELECT id FROM projects WHERE slug = $1)`, [slug]);
+    const canonical = row.rows[0]?.body ?? "";
+
+    /*
+     * Read back until it converges, not once.
+     *
+     * The first run of this test against an existing file failed three
+     * assertions and the actual value was the PREVIOUS run's file: the Contents
+     * API acknowledged the write and then served the old blob for a moment.
+     * Reading once turns that into a flaky test whose failures get re-run away,
+     * which is worse than either outcome. So: poll, bounded, and say how long it
+     * took — a convergence that takes several seconds is information, and one
+     * that never happens is a real failure.
+     */
+    let status = 0;
+    let committed = "";
+    let tries = 0;
+    for (; tries < 8; tries += 1) {
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${REPO}/contents/AGENTS.md?ref=${branch}`,
+        { headers, cache: "no-store" });
+      status = res.status;
+      if (res.ok) {
+        const json = (await res.json()) as { content?: string };
+        committed = Buffer.from(json.content ?? "", "base64").toString("utf8");
+        if (committed === canonical) break;
+      }
+      await new Promise((r) => setTimeout(r, 750));
+    }
+    check("GitHub serves AGENTS.md", 200, status);
+    console.log(`  ..... it matched the canonical row after ${tries + 1} read(s)`);
 
     /*
      * The Done-when says "correct". Correct means it matches the answers he
@@ -160,10 +187,7 @@ async function main(): Promise<void> {
      * ADR 018: the row is canonical and the file is a rendering of it. If these
      * two ever differ, the project has two policies and one of them is a lie.
      */
-    const row = await pool.query<{ body: string }>(
-      `SELECT body FROM project_instructions_versions
-       WHERE project_id = (SELECT id FROM projects WHERE slug = $1)`, [slug]);
-    check("and the committed bytes are the canonical row, exactly", row.rows[0]?.body, committed);
+    check("and the committed bytes are the canonical row, exactly", canonical, committed);
   }
 
   await clean();
