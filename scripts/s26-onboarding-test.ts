@@ -70,6 +70,11 @@ async function clean(): Promise<void> {
        (SELECT id FROM projects WHERE slug LIKE $1)`, [`%${STAMP}%`]);
   await pool.query("DELETE FROM onboarding_sessions WHERE conversation_id IN (SELECT id FROM conversations WHERE title LIKE $1)", [`%${STAMP}%`]);
   await pool.query("DELETE FROM audit_events WHERE target LIKE $1", [`%${STAMP}%`]);
+  // Instruction writes audit against the project with target 'AGENTS.md', which
+  // carries no stamp — so this has to be by project, not by name.
+  await pool.query(
+    "DELETE FROM audit_events WHERE project_id IN (SELECT id FROM projects WHERE slug LIKE $1)",
+    [`%${STAMP}%`]);
   await pool.query("DELETE FROM projects WHERE slug LIKE $1", [`%${STAMP}%`]);
   await pool.query("DELETE FROM conversations WHERE title LIKE $1", [`%${STAMP}%`]);
 }
