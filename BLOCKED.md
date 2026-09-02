@@ -176,6 +176,32 @@ unblocked, finish it before starting anything new.
   file is beside it as `site.yaml.bak-*`. **S23 is still not done** — the first
   real dial after pinning it found a second defect; see the next entry.
 
+## Jarvis can reach the phone, but the phone will not ring for it
+
+- **Step:** S23
+- **Blocked on:** A setting on your handset. Nothing in the repo can do it.
+- **What I need you to do:** Save `+13057866217` as a contact. If **Silence
+  Unknown Callers** is on (Settings → Apps → Phone), an unknown number is
+  delivered silently and sent to voicemail, which is exactly what we saw.
+- **What happened:** the dial defect below is fixed and deployed, and the
+  production sweep placed a real call: Telnyx 200, a real `call_control_id`,
+  `outbound: blocked_task: retried at 08:00 — ringing`. You received it and it
+  did not ring. The webhook trail agrees with the handset explanation and not
+  with a Jarvis fault — we got **only** `call.hangup` for that leg, never
+  `call.initiated`, `call.ringing` or `call.answered`, and it arrived ~31s after
+  the dial, matching the 30-second `timeout_secs`. That is a delivered call that
+  was never picked up.
+- **Why this is not just cosmetic:** S23 exists so that a blocked task can
+  interrupt you. A pager that is delivered silently is not a pager, and every
+  one of the six reasons inherits the problem.
+- **What I did instead:** left S23 `blocked` and moved on. Its Done-when is "a
+  genuinely blocked task rings the phone during the day and stays silent at
+  21:00" — the placing half is now observed in production, the ringing half is
+  yours, and the 21:00 half is so far only proved in the fake (54 of the 61
+  assertions, including that the only thing that rings at 20:00 is a security
+  event).
+- **Raised:** 2026-09-02 17:15Z
+
 ## IN FLIGHT — S23 outbound dial sends a blank `from`
 
 - **Step:** S23
@@ -202,6 +228,16 @@ unblocked, finish it before starting anything new.
   ring Enrique twice in a minute, which the pager rule (§17) is against — place
   one, confirm, then decide about the second.
 - **Raised:** 2026-09-02 16:50Z
+- **Resolved:** 2026-09-02 17:05Z — PR #132. The dial reads `telnyx.from_e164`
+  and `telnyx.to_e164`, with the WhatsApp owner kept as a fallback for the
+  destination only and none at all for the sender; an unpinned sender is refused
+  by name instead of sent blank. Contrary to the note above, the fake CAN see
+  this once the recorded dial carries `from` and the fixture stops giving every
+  number the same value — 61 assertions, 7 of them seen red against the old two
+  lines, printing the WhatsApp pair as the actual. Deployed, and one real call
+  placed on row `aefc6805` via the retry path. Two things this uncovered have
+  their own entries: the sweep never looks at a `wanted` row, so the reset
+  above does nothing; and the call reached the handset but did not ring.
 
 ## Publishing `PROGRESS.json` is a habit, not a mechanism
 
@@ -220,6 +256,16 @@ unblocked, finish it before starting anything new.
 - **Interim:** run `scripts/progress-publish.sh` after every
   `progress-sync.mjs` **and** after every console deploy.
 - **Raised:** 2026-09-02 16:55Z
+- **Resolved:** 2026-09-02 17:11Z — structurally, as asked. `/PROGRESS.json` is
+  routed by Caddy to the API, which serves it from
+  `/opt/jarvis/core/PROGRESS.json`: the deployed source tree, which is also the
+  images' build context and what the host runner executes. One file on the box,
+  updated by the same action that ships code, and out of reach of the console
+  deploy's `rsync --delete`. The mount is the directory rather than the file,
+  because a deploy replaces the inode. `progress-publish.sh` is kept as a
+  signpost that explains why it now does nothing. Verified live: the URL
+  returned `S26 / 40 steps` with nobody running a script, alongside the
+  `charset=utf-8` and `Last-Modified` it had never sent before.
 
 ## Deployed files are owned by a Windows uid that does not exist on the box
 
