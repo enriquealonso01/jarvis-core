@@ -2625,6 +2625,33 @@ decision is needed.
 - The covering message is two lines: what it is, and what Enrique needs to decide.
 - The document is an artifact (S17), so it has provenance, a version history, and can be found again later.
 
+### Attachment or link is a confidentiality decision, not a convenience one
+
+This is the first thing in the plan that produces a file **for Enrique** rather
+than about the work, and sending it is the first time Jarvis's content leaves the
+box on purpose.
+
+**An attachment sent over WhatsApp has left the isolation boundary permanently.**
+It is on Meta's infrastructure, on his phone, and in whatever backs his phone up.
+Jarvis cannot un-send it, retention policy does not reach it, and deleting the
+artifact afterwards deletes only the copy Jarvis still holds.
+
+So the rule follows the project, not the message:
+
+- **Normal projects: attach.** That is the whole point — he reads it on his phone without opening anything.
+- **Confidential or restricted projects: link, never attach.** A short covering message and a link to the artifact in the console, behind his session. The content stays on the box; what crosses WhatsApp is a URL.
+- **Anything spanning both** — a weekly report covering several projects, a cross-project analysis — takes the strictest classification present. A mixed document is a confidential document.
+
+This is the same reasoning ADR 005 already applies to models: a confidential body
+does not go to a consumer endpoint. **A channel is an endpoint too**, and it was
+being treated as if it were not.
+
+### Links have to be worth trusting
+
+- The link resolves to the artifact behind the session (S17's download gate). No token in the URL that works without one.
+- It does not expire while the decision it supports is still open — a decision packet whose link died is worse than no link.
+- Following it on a phone lands on something readable, not a download prompt for a file he then cannot open.
+
 ### Build
 - A document renderer producing PDF from the same structured content the console shows, styled to I.3's visual direction.
 - A length policy in the notification path: over a threshold, or whenever the content is a decision packet, the message becomes covering-note-plus-attachment automatically. **The model does not decide this by taste.**
@@ -2635,6 +2662,9 @@ decision is needed.
 - The weekly Improvement report (S34) arrives as a document with a two-line message. **This is the worked example from the requirements and it is the acceptance case.**
 - A short answer stays a short answer — the rule must not turn "yes" into a PDF.
 - The document opens on a phone and is readable without zooming.
+- **A confidential project's report arrives as a link, and the content is not in the message.** Then a normal project's arrives as an attachment. **Both halves** — a rule that only ever links has not been tested, it has been disabled.
+- A report spanning a normal and a confidential project → treated as confidential.
+- Open the link from the phone with no session → refused, and refused in a way that tells him to sign in rather than looking broken.
 
 ### Debug
 If messages are still long, the length check is probably running after the model
