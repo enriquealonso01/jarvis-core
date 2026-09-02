@@ -1,5 +1,12 @@
 # Initial model routing
 
+> **The routes here are dead. Superseded by `JARVIS_MASTER_PLAN_V2.md` §VI.0.**
+>
+> Its free-tier chain was measured serving 9 turns out of 153 and replaced with
+> paid hosted open-weights. **The shape still holds** — one auth profile per
+> provider, roles as the routing key, no model routable until a real tool-enabled
+> call has succeeded. The specific providers and models do not.
+
 Plan §35 candidates, turned into **bootstrap routes**. IDs are verified against the live catalog when the Netcup box is set up. If a named candidate is gone, pick the closest current model from the **same provider + same role** and record it in `model_registry` — do not silently switch providers or enable paid APIs.
 
 This is **Groq** (groq.com inference), not xAI Grok.

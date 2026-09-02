@@ -1,5 +1,12 @@
 # First vertical slice
 
+> **SUPERSEDED by `JARVIS_MASTER_PLAN_V2.md`. Do not build from this file.**
+>
+> This is the document that put worktrees, GitHub keys and harness spawn out of
+> scope — the deferral that left v1 with a chassis and no engine.
+> `GAP_ANALYSIS.md` is the post-mortem. Kept because the failure is more
+> instructive than the plan was.
+
 Runs **on Netcup only** (ADR 014). Laptop is SSH/Tailscale/browser.
 
 Build this **before** WhatsApp, Telnyx, and coding harnesses. Do **not** skip provider bootstrap.

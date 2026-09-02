@@ -1,5 +1,11 @@
 # Phase checklist
 
+> **SUPERSEDED by `JARVIS_MASTER_PLAN_V2.md`. Do not sequence work from this file.**
+>
+> Its phases map onto v1.2's section numbers, which no longer exist. The plan's
+> S1–S37 replace them. Kept as the record of how the work was originally
+> divided.
+
 Schema for **all** tables in DATA_MODEL is migrated in **Phase 1**. Later phases fill workers, not new product concepts.
 
 Exit a phase only when its exit criteria are true. Do not skip Core tables because “UI is next.”
