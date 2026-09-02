@@ -36,10 +36,24 @@ is two or three entries, and it is where the time is actually saved.
 - [Watchdog tickets were opened and never closed](#watchdog-tickets-were-opened-and-never-closed)
 
 **Credentials and routing**
+- [The `to_e164` in `site.yaml` is not the number the outbound dial uses](#the-to_e164-in-siteyaml-is-not-the-number-the-outbound-dial-uses)
+- [The outbound sweep never looks at a `wanted` row](#the-outbound-sweep-never-looks-at-a-wanted-row)
+- [A delivered call is not a ringing phone](#a-delivered-call-is-not-a-ringing-phone)
+- [One sweep dialled twice, and the carrier stopped the second one](#one-sweep-dialled-twice-and-the-carrier-stopped-the-second-one)
 - [Every model route failed and the reason was unknowable](#every-model-route-failed-and-the-reason-was-unknowable)
 - [Host logins were completed and Jarvis kept asking for them](#host-logins-were-completed-and-jarvis-kept-asking-for-them)
 
 **Backups and deploys**
+- [`deploy-control-center.sh` republished a stale build, silently](#deploy-control-centersh-republished-a-stale-build-silently)
+- [There are two `/opt/jarvis` trees and only one of them is the build context](#there-are-two-optjarvis-trees-and-only-one-of-them-is-the-build-context)
+- [The console has been reporting a build state from a file nobody updates](#the-console-has-been-reporting-a-build-state-from-a-file-nobody-updates)
+- [The em-dashes were never mis-encoded; the header was missing](#the-em-dashes-were-never-mis-encoded-the-header-was-missing)
+- [GitHub acknowledged the commit and then served the old file](#github-acknowledged-the-commit-and-then-served-the-old-file)
+- [The Supervisor read project instructions from a key nothing writes](#the-supervisor-read-project-instructions-from-a-key-nothing-writes)
+- [The canonical row and the committed file differed by one newline](#the-canonical-row-and-the-committed-file-differed-by-one-newline)
+- [Two writers bypassed the versioning path, and every test stayed green](#two-writers-bypassed-the-versioning-path-and-every-test-stayed-green)
+- [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
+- [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
 - [Deploying the console 404'd the whole site](#deploying-the-console-404d-the-whole-site)
 - [The dev harness profile evaporated the first time the worker ran](#the-dev-harness-profile-evaporated-the-first-time-the-worker-ran)
@@ -60,6 +74,8 @@ is two or three entries, and it is where the time is actually saved.
 - [The runner had no memory ceiling](#the-runner-had-no-memory-ceiling)
 
 **Test environment**
+- [Deleting a test project needs eight tables and one circular link](#deleting-a-test-project-needs-eight-tables-and-one-circular-link)
+- [A suite failed on the consequence of its own second case](#a-suite-failed-on-the-consequence-of-its-own-second-case)
 - [The API could not start anywhere except the box](#the-api-could-not-start-anywhere-except-the-box)
 - [A test changed the API container's environment and every later suite lied](#a-test-changed-the-api-containers-environment-and-every-later-suite-lied)
 - [A bind mount left a directory where the test expected a file](#a-bind-mount-left-a-directory-where-the-test-expected-a-file)
@@ -87,6 +103,10 @@ is two or three entries, and it is where the time is actually saved.
 
 **Process**
 - [Thirty-one overnight ticks produced no progress on the thing that mattered](#thirty-one-overnight-ticks-produced-no-progress-on-the-thing-that-mattered)
+- [Five defects reached him at once, all above the layer the tests covered](#five-defects-reached-him-at-once-all-above-the-layer-the-tests-covered)
+- [A CHECK constraint rejected every verdict and nothing said so](#a-check-constraint-rejected-every-verdict-and-nothing-said-so)
+- [Three probes lied because MSYS rewrote the path](#three-probes-lied-because-msys-rewrote-the-path)
+- [A stray container claimed every task and looked like a regression](#a-stray-container-claimed-every-task-and-looked-like-a-regression)
 
 
 ---
@@ -1012,6 +1032,269 @@ never created looks exactly like a branch you are already on.
 
 ---
 
+### `deploy-control-center.sh` republished a stale build, silently
+**Symptom:** the console was redeployed and came back one version BEHIND — the
+new page was missing and an older one was live.
+**Cause:** the script takes a tarball of the **built static export** (`out/`) and
+defaults to `/tmp/cc-out.tgz`. It was called with no argument after a tarball of
+the SOURCE tree had been copied to the box, so it re-published whatever
+`/tmp/cc-out.tgz` still held from the previous deploy. Its only sanity check is
+that the tarball has `index.html` at its root, which a stale build passes.
+**Fix:** `pnpm build` in `jarvis-control-center`, then `cd out && tar czf
+/tmp/cc-out.tgz .`, scp it, then run the script **with that path**. It rsyncs
+`--delete` into `/opt/jarvis/control-center`, which also means a source tree
+untarred there beforehand is cleaned up.
+**Lesson:** a publish step with a default input path will eventually publish the
+default. Pass the argument every time.
+
+### There are two `/opt/jarvis` trees and only one of them is the build context
+**Symptom:** `docker compose up -d --build api worker` printed "Running" for
+both, the containers were not recreated, and `dist/callreview.js` was absent
+from the image after a deploy that reported success.
+**Cause:** the compose file lives at `/opt/jarvis/deploy/compose.yaml` (which is
+the project working dir) but its **build context is `/opt/jarvis/core`**. Code
+extracted into `/opt/jarvis` changes nothing the image is built from. The host
+runner (`jarvis-runner.service`, `User=jarvis`) also runs from
+`/opt/jarvis/core/dist`, so that one tree feeds both.
+**Fix:** extract into `/opt/jarvis/core`, `chown -R jarvis:jarvis dist`,
+`sudo -u jarvis pnpm build`, then `cd /opt/jarvis/deploy && docker compose up -d
+--build api worker`, then `systemctl restart jarvis-runner`.
+**Lesson:** "compose said Running" is not "the new code is deployed". Check for a
+file you just added inside the container before believing a deploy.
+
+### The console has been reporting a build state from a file nobody updates
+**Symptom:** the Control Center build bar sat at S5 / 37 steps / plan_sha
+`b02f8f8` while the repo was on S25 / 40 steps — 21 hours stale.
+**Cause:** the bar fetches `/PROGRESS.json`, served from
+`/opt/jarvis/control-center/PROGRESS.json`, which is a **copy** published by
+`scripts/progress-publish.sh`. That script is run by hand, and its own comment
+tells you to run it "in the same breath" as updating `PROGRESS.json` — an
+instruction, not a mechanism. It was run once and never again. Note also that
+`deploy-control-center.sh` rsyncs `--delete`, so a console deploy REMOVES the
+published copy unless it is re-published afterwards.
+**Fix (not yet done — see BLOCKED.md):** serve the file from one source rather
+than copying it, or publish on every state change. Until then, run
+`scripts/progress-publish.sh` after every `progress-sync.mjs` AND after every
+console deploy.
+**Lesson:** a second copy of the truth, kept in step by a documented habit, is
+the orphan pattern this plan keeps naming. The bar was not wrong about anything
+except which file it was reading.
+
+### The `to_e164` in `site.yaml` is not the number the outbound dial uses
+**Symptom:** with `telnyx.connection_id` finally pinned, a real outbound dial
+returned `422 10004 Missing required parameter /from`.
+**Cause:** `placeCall` in `src/outbound.ts` reads `whatsapp.owner_e164` and
+`whatsapp.jarvis_e164` for a **phone call**. The phone pair lives under
+`telnyx.from_e164` / `telnyx.to_e164`; `whatsapp.jarvis_e164` is blank, so the
+`from` went out empty. Only a real dial finds this — every fake-mode test passes,
+because `FAKE` returns before `telnyxDial` is reached.
+**Fix (in flight — see BLOCKED.md):** read the telnyx pair for voice.
+**Second trap on the retry:** `placeCall` refuses when `attempts > 0`
+("Jarvis does not redial"), and `reasonsToCall` skips any task that already has
+an `outbound_calls` row. So re-testing needs the row reset —
+`UPDATE outbound_calls SET state='wanted', blocked_reason=NULL, attempts=0` — not
+just another sweep.
+
+### Deleting a test project needs eight tables and one circular link
+**Symptom:** suite cleanup aborted on `tasks_project_id_fkey`, leaving the
+project, its tasks and its auth profiles behind for the next run to trip over.
+**Cause:** everything with a foreign key to `tasks` has to go first
+(`task_transitions`, `task_events`, `task_attempts`, `task_checkpoints`,
+`task_context`, `artifacts`, `outbound_calls`, `schedule_runs`,
+`call_turns.handover_task_id`), plus `issues` — and `tasks.blocked_by_issue_id`
+points BACK at `issues`, so one of the two links must be nulled before either
+row can go. `user_action_requests` hangs off `issues` as well.
+**Fix:** see `cleanup()` in `scripts/s25-routing-test.sh`, which does it in the
+working order. `SELECT conname FROM pg_constraint WHERE confrelid =
+'tasks'::regclass` is how to regenerate the list rather than guessing it.
+
+### A suite failed on the consequence of its own second case
+**Symptom:** after S25, `s11-recovery-test` reported 18 failures with
+`attempts=0` and `phases_kept=0` for every case after the second.
+**Cause:** case 2 deliberately provokes a subscription limit. S25 made that mark
+the profile spent for five hours, and dev has exactly one usable engine, so every
+later case parked with "every engineering route is spent" before running.
+**Fix:** `clearqueue()` now also clears `quota_json` for subscription profiles.
+**Lesson:** when a step changes what a failure MEANS, the suites that provoke
+that failure on purpose need their fixtures re-read, not just their assertions.
+
+---
+
+### The outbound sweep never looks at a `wanted` row
+**Symptom:** the S23 dial defect was fixed and deployed, the failed
+`outbound_calls` row was reset to `state='wanted', attempts=0` exactly as the
+blocker said to, and then nothing happened. No dial, no log line, no error. The
+row sat at `wanted` through many sweeps.
+**Cause:** `sweepOutboundCalls` has two sources and `wanted` is neither of them.
+It iterates `reasonsToCall`, which **skips any task that already has an
+`outbound_calls` row** — and the reset row is that row — and then it picks up
+`state='blocked'` rows whose `retry_after` has passed. A `wanted` row created by
+nothing is unreachable: `wantCall` produces one and hands it straight to
+`placeCall` in the same pass, so it never has to be swept.
+**Fix:** to re-place a call, put the row on the retry path rather than at the
+start: `state='blocked', retry_after=now() - interval '1 minute', attempts=0`.
+The next sweep re-checks quiet hours through `mayDial` and places it, which also
+means the retry is exercised by the same code that would run at 08:00 rather
+than by a hand-written call into `placeCall`.
+**Lesson:** "reset it to the initial state" assumes the initial state is one the
+system polls. Read the sweep before choosing which state to reset to — an
+unreachable row is indistinguishable from a broken sweep.
+
+---
+
+### A delivered call is not a ringing phone
+**Symptom:** the first successful outbound dial. Telnyx returned 200 with a real
+`call_control_id`, the sweep logged `ringing`, and Enrique reported no call. He
+then corrected it: the call did arrive, it just never rang.
+**Cause:** not Jarvis. The handset silenced it — the shape of iOS **Silence
+Unknown Callers**, which delivers an unknown number straight to voicemail. The
+evidence was already in the logs and was misread twice: we received **only**
+`call.hangup` for that leg, never `call.initiated`, `call.ringing` or
+`call.answered`, and the hangup landed ~31s after the dial, matching the
+`timeout_secs: 30` in `telnyxDial`. That is a call that was delivered and never
+picked up, not a call that failed to leave.
+**Fix:** the Telnyx number has to be a known contact on the handset. Recorded in
+BLOCKED.md, because it is a setting on Enrique's phone and nothing in the repo
+can do it.
+**Lesson:** two of them. First, "the API accepted it" and "the phone rang" are
+separated by an entire carrier and a device the code cannot see — S23's Done-when
+says *rings* for exactly that reason. Second, the missing webhooks were the
+diagnosis and they were sitting in `docker logs` the whole time: when a call ends
+with only a hangup event, ask what never happened before asking what broke.
+
+---
+
+### One sweep dialled twice, and the carrier stopped the second one
+**Symptom:** placing one call produced two. The `blocked_task` dial succeeded,
+and in the same sweep a `security_event` dial went out and came back
+`403 90042 OB profile channel limit exceeded`.
+**Cause:** `sweepOutboundCalls` walks every reason it finds and calls `placeCall`
+on each, with nothing between them. An open `security_event` issue — "[telnyx]
+rejected a call from an unrecognised number" — was a second legitimate reason, so
+two calls left within a second of each other. Telnyx's outbound profile channel
+limit is what actually prevented a double ring; the pager rule in plan §17 did
+not, because nothing in the sweep enforces one call at a time.
+**Fix:** none yet — recorded, not fixed, and the concurrency question belongs to
+S33 (notification policy) rather than to a fix smuggled into S23.
+**Lesson:** a per-call decision does not add up to a per-sweep decision. "Is this
+a reason to ring?" was answered six ways correctly, and the question nobody asked
+was "how many times may the phone ring in one pass?".
+
+---
+
+### The em-dashes were never mis-encoded; the header was missing
+**Symptom:** `PROGRESS.json` appeared to contain `â€"` where an em-dash belonged,
+which looks exactly like a write path that is not using UTF-8.
+**Cause:** the file was clean the whole time — on Windows, on the box, and in the
+published copy: zero mojibake bytes, five real U+2014. Caddy served it from the
+static file server as `Content-Type: application/json` with **no charset**, under
+`X-Content-Type-Options: nosniff`. A browser with nothing to sniff and no charset
+to obey falls back to its locale default, and cp1252 renders the three UTF-8
+bytes of an em-dash as exactly `â€"`.
+**Fix:** `/PROGRESS.json` is routed to the API, which sends
+`application/json; charset=utf-8`.
+**Lesson:** check the bytes before you go looking for the encoder. `grep -c` for
+the mojibake sequence in the actual file takes ten seconds and would have pointed
+at the transport immediately; "something in the write path" was a plausible story
+about a file that was never wrong.
+
+---
+
+### GitHub acknowledged the commit and then served the old file
+**Symptom:** the S26 live test passed 11/11, and the very next run failed three
+assertions — with the PREVIOUS run's `AGENTS.md` printed as the actual value. The
+run after that passed again.
+**Cause:** not the code. `PUT /repos/.../contents/AGENTS.md` returned 200 with a
+commit sha, and a `GET` of the same path microseconds later returned the blob
+that was there before. The Contents API is eventually consistent on read-back;
+the first run had no prior file to serve, which is why creating passed and
+replacing flaked.
+**Fix:** the test reads back until it matches the canonical row, bounded at eight
+attempts with 750ms between, and prints how many reads it took. Converging after
+three is information; never converging is a real failure.
+**How it was confirmed rather than assumed:** the sabotage round. With
+`githubPutFile` returning a fake success without writing, the failure was
+**exactly** the same three assertions with exactly the same actual value — which
+is what proved the flake had been a stale read of a write that did happen, and
+not a write that silently did not.
+**Lesson:** a read-after-write against someone else's API is not a read of your
+own database. If a test asserts on a remote resource it just changed, it has to
+converge on the expected value or say it could not — reading once and re-running
+on failure is how a real regression gets classified as a flake.
+
+---
+
+### The Supervisor read project instructions from a key nothing writes
+**Symptom:** none. That is the point. Every project-scoped conversation Jarvis
+has ever had was missing the project's own rules, and nothing anywhere said so.
+**Cause:** the project-context builder in `runSupervisorTurn` selected
+`config_versions` where `key = 'instructions'`. Nothing has ever written that
+key — one read, no writer, zero rows in production. The template line was
+conditional, so an empty result rendered nothing at all, which is
+indistinguishable from a project that genuinely has no instructions.
+**Found by:** reading the code on the way to S27, not by a failure. It surfaced
+only because S26 gave instructions a real home
+(`project_instructions_versions`), and the obvious next question — "so who reads
+them?" — had the answer "nobody, and the thing that tried was pointed at the
+wrong table".
+**Fix:** `projectContextFor` reads the latest row from
+`project_instructions_versions`, canonical per ADR 018, and says "no project
+instructions have been written yet" when there are none, so absence is visible
+rather than silent. Extracted from `runSupervisorTurn` so it can be asserted
+without a model call. The body goes in whole; it used to be JSON-stringified and
+cut at 800 characters, and a Supervisor handed the first two thirds of a
+project's rules will confidently break the last third.
+**Lesson:** a dead read is invisible in a way a dead write is not. Nothing
+errors, nothing logs, and the feature simply never happens. When a table is
+added, grep for its readers; when a read is added, grep for its writers. A
+`SELECT` whose `WHERE` clause no `INSERT` can satisfy is a silent feature-off
+switch, and the only way it shows up is somebody asking who consumes this.
+
+---
+
+### The canonical row and the committed file differed by one newline
+**Symptom:** after routing S26 onboarding through S27's single write function,
+the offline suite stayed 59/59 green and the LIVE test failed one assertion:
+"the committed bytes are the canonical row, exactly". It had also stopped
+converging — nine read-backs, all mismatching.
+**Cause:** `applyInstructionsChange` does `args.body.trim()` before storing, and
+the renderer ends the file with a newline. The commit was sending
+`rendered.body`. So the row lost the trailing newline, the file kept it, and the
+two differed by one character.
+**Fix:** the commit reads the stored row back and sends that. ADR 018 says the
+file is a rendering of the row; committing what was stored makes that true by
+construction instead of by two code paths happening to agree. It converges on
+the first read now, which is itself the tell — the polling loop existed for
+GitHub's eventual consistency, and a mismatch that survives nine reads was never
+eventual consistency.
+**Lesson:** two places that "produce the same bytes" produce the same bytes
+until one of them normalises. If a value must be byte-identical in two systems,
+one of them has to be the source and the other has to read it — not re-derive
+it. And note which suite caught this: the offline one could not, because both
+its halves came from the same variable.
+
+---
+
+### Two writers bypassed the versioning path, and every test stayed green
+**Symptom:** none, again. S27's suite asserted the versioning function
+thoroughly and could not see that two other places wrote the same tables
+directly.
+**Cause:** `product.ts` (the schedule-edit route) and `supervisor.ts` (S26
+onboarding) each had their own `INSERT`. The schedule one also computed
+`version` with `max(version)` over the key across EVERY project, so two projects
+with a same-named schedule shared one sequence. The onboarding one had no
+provenance and skipped the placeholder guard.
+**Fix:** both call `applyConfigChange` / `applyInstructionsChange`. The suite now
+reads `src/` and asserts that exactly one file contains an `INSERT INTO` either
+version table.
+**Lesson:** "everything goes through one function" is an architectural claim, and
+an architectural claim needs an architectural test. No amount of behavioural
+testing of the right path can see the wrong path — the tests and the bypass do
+not touch. Grepping your own source in a test feels crude and is the only thing
+that actually holds the invariant.
+
+---
+
 ## Process
 
 ### Thirty-one overnight ticks produced no progress on the thing that mattered
@@ -1024,3 +1307,107 @@ ADR sweeps — while the heavy lane stayed parked.
 suite again.
 **Lesson:** an optimiser improves what you measure. If the measurement does not
 include "it did the job", the optimiser will never make it do the job.
+
+---
+
+### Five defects reached him at once, all above the layer the tests covered
+**Symptom:** Enrique tried to create a project by voice. Six turns, no project.
+He was answered "remembered: I want to create a project called Test Project",
+then asked for confidentiality and production status on a project he had called
+personal, then read the classifier's own notes aloud in the third person — "He
+wants to create…", "The user asks…", "The message is a fragment with no clear
+subject" — and finally told that neither name "matches any project in the
+existing list".
+**Cause:** five separate defects, and one thing they had in common. The router
+had no category for creating a project, so the request could only land in
+`capture`; its prompt said an unknown project name makes a segment `ambiguous`,
+which is backwards for a request to CREATE one; `segment.reason` (a diagnostic
+field) was wired into the question asked back to him; `classifyInbox` received
+the current utterance and nothing else, so a fragment three turns in had no
+subject; and the Supervisor prompt described only the professional case, so with
+no type recorded it asked for the professional four.
+**Why the tests were green:** S26 had 59 offline assertions and 11 live ones,
+and every one of them drove `runTool` directly. They prove the onboarding tools
+work. They are structurally incapable of seeing whether anything ever CALLS
+them — and nothing did. A sixth defect was mine: rendering `AGENTS.md` demanded
+twenty answers while the plan asks eight, and "just use the defaults" had no
+representation, so even a perfectly routed request could not have finished.
+**Fix:** a `create_project` category that hands the utterance to the desk where
+the onboarding tools live; a question built from his own words; the last eight
+turns given to the classifier; the prompt teaching type-first; and
+`project_onboarding_defaults`, which answers how a project is BUILT and never
+what it IS. Then the tests that were missing: one driving `ingestUserMessage`
+end to end, and one putting his six real sentences through the LIVE classifier.
+**Lesson:** a test that starts below the layer that failed cannot fail. When a
+step's Done-when says "by voice", the test has to start where the voice does —
+and if that is expensive, the expense is the point. Ask what the suite would
+still pass with if the feature were entirely unreachable; if the answer is
+"everything", the suite is measuring the wrong end.
+
+---
+
+### A CHECK constraint rejected every verdict and nothing said so
+**Symptom:** the new `create_project` route worked perfectly — message routed,
+project created, correct reply — and `inbox_events.route_category` was null for
+every one of them.
+**Cause:** `inbox_events_route_category_check` still listed the original five
+categories plus `mixed`. Every `create_project` UPDATE violated it and threw.
+The write is wrapped in `.catch(() => undefined)`, on the correct reasoning that
+a routing RECORD must never take a message down — so the throw was swallowed and
+the behaviour was flawless with no trace of itself.
+**Why it matters more than it looks:** `routing.ts` opens by saying "Wrong
+routing is invisible otherwise, and the documented way to find the bug is to
+read a day of verdicts." A verdict that cannot be written is that sentence
+quietly failing, and the next routing bug would have been undiagnosable.
+**Fix:** migration 031 widens the constraint. The catch still cannot throw and
+can no longer be silent — it logs the category and the reason.
+**Lesson:** adding a value to an enum in code means adding it everywhere the
+value is stored. And a deliberate catch is a decision to lose information: it is
+right often enough to be worth keeping, and it must always say what it lost.
+This was found only because a null column looked odd next to nineteen passing
+assertions — the suite and the record disagreed, and the suite was the one that
+was wrong.
+
+---
+
+### Three probes lied because MSYS rewrote the path
+**Symptom:** an ad-hoc `docker compose run -e JARVIS_FAKE_MODEL_SCRIPT=/app/...`
+reported that the classifier was never invoked at all. It led to a conclusion,
+briefly reported as fact, that an entire test was passing through a degradation
+path and proving nothing.
+**Cause:** Git Bash rewrote `/app/scripts/fixtures/x.json` into
+`C:/Program Files/Git/app/scripts/fixtures/x.json`. The fake found no script,
+returned an empty string, and the router recorded "no model route answered".
+Every `*-test.sh` in this repo exports `MSYS_NO_PATHCONV=1` and
+`MSYS2_ARG_CONV_EXCL='*'` for exactly this reason; a command typed directly into
+the shell has neither.
+**Fix:** export both before any ad-hoc `docker compose` invocation, or put the
+command in a `.sh` like every suite already does.
+**Lesson:** this is the third time path conversion has cost real time in one
+session, and the first time it produced a false FINDING rather than a failed
+command — which is much worse. A diagnostic tool that is not configured like the
+thing it is diagnosing is not measuring the same system. When a probe contradicts
+a passing suite, suspect the probe first.
+
+---
+
+### A stray container claimed every task and looked like a regression
+**Symptom:** immediately after a change to the engineering ladder, S1 went 14/23
+and S25 went 5/12. Every failing task was parked with "Claude Code: claude is not
+installed on this host" — the message from the new runtime-availability check,
+which looked exactly like the new code parking things it should not.
+**Cause:** not the code. A one-shot `docker compose run` runner from
+`s28-park-test.sh` was still alive, and that suite deliberately runs with
+`JARVIS_HARNESS=claude` so it can exercise the real selection path. The stray
+container polled the same queue as every other suite, claimed their tasks first,
+and correctly parked them for a binary that is not in the dev image. `docker ps`
+showed `jarvis-dev-runner-run-<hash>` with `JARVIS_HARNESS=claude` in its
+environment.
+**Fix:** `docker rm -f` the strays; both suites went straight back to 23/23 and
+12/12 with no code change at all.
+**Lesson:** the dev stack has one queue and any number of runners, so a container
+left behind by one suite silently competes with the next — and it fails in a way
+that reads as a regression in whatever you just changed. Before believing a
+sudden broad failure, run `docker ps` and check WHO is running and with what
+environment. Suites that deviate from the fake harness are the dangerous ones to
+leave lying around.

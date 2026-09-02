@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "e5e5b7d75a41d011621f2702c75ca442a907cd2d",
+  "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
   "total_steps": 40,
-  "updated_at": "2026-09-02T15:58:51.376Z",
-  "current_step": "S25",
+  "updated_at": "2026-09-02T18:59:58.093487Z",
+  "current_step": "S28",
   "steps": [
     {
       "id": "S1",
@@ -204,14 +204,14 @@
       "stage": 4,
       "state": "done",
       "pr": 94,
-      "evidence": "43/43 offline + 19/19 LIVE: a phone call produced PR #1 on enriquealonso01/s22-call-mtk4gjzz, confirmed by the GitHub API, with the completion report carrying the link"
+      "evidence": "43/43 offline + 19/19 LIVE: a phone call produced PR #1 on enriquealonso01/s22-call-mtk4gjzz, confirmed by the GitHub API, with the completion report carrying the link. CORRECTION 2026-09-02: the 'context across turns' clause of this evidence overclaimed and Enrique was right to challenge it. What that assertion actually tests is that the fourth turn was asked with MORE MESSAGES in front of it than the first - it counts rows. It never asserts that a fact stated in turn 1 is usable in turn 3, and the path that decides what a turn MEANS is a different code path entirely: classifyInbox, which received only the current utterance and no history at all until the voice-create fix. A live call on 2026-09-02 18:23Z failed on exactly that. The desk half of S22 stands; the context claim is narrowed to what was measured."
     },
     {
       "id": "S23",
       "title": "Jarvis calls Enrique",
       "stage": 4,
       "state": "blocked",
-      "evidence": "Built and merged (PR #123): six reasons, quiet hours, the WhatsApp fallback, 54/54 in the fake. NOT done — the Done-when is 'a genuinely blocked task rings the phone during the day', and no real dial has happened: telnyx.connection_id is not pinned in site.yaml, so the outbound sweep correctly reports it as unable to dial. Blocked on Enrique."
+      "evidence": "Two of three halves observed in the world. The dial defect is fixed and deployed (PR #132): placeCall read the WhatsApp pair, so `from` went out blank and Telnyx answered 422 10004; it now reads telnyx.from_e164/to_e164 and refuses an unpinned sender by name. 61 assertions in the fake, 7 seen red. PLACING observed: Telnyx 200 with a real call_control_id. RINGING observed 2026-09-02 18:21Z once Enrique saved the number and enabled Emergency Bypass - call_transitions shows call.answered entering from state 'ringing', greeting played, a transcription ('This is just a test. Thank you.'), an answer at 2793ms total, then call.hangup 24s in. Exactly one call placed, via placeCall rather than the sweep, which walks every reason and dialled twice last time. STILL BLOCKED on the third half: 'stays silent at 21:00' is proved only in the fake. A phone that has never been observed staying quiet has not been observed staying quiet. See BLOCKED.md for the two ways to close it."
     },
     {
       "id": "S24",
@@ -224,19 +224,22 @@
       "id": "S25",
       "title": "Shrink the model routing",
       "stage": 5,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
       "title": "Project onboarding and `AGENTS.md`",
       "stage": 5,
-      "state": "not_started"
+      "state": "blocked",
+      "evidence": "Built and tested. Onboarding renders AGENTS.md from the template or refuses and names what is missing - no code path substitutes a default, and 'none' is a real answer while blank is not. The canonical row goes to project_instructions_versions v1 (ADR 018: the row is canonical, the committed file is a rendering of it). githubPutFile commits it into the repository. A professional project is refused a free consumer account, with the tier derived from auth_type/metered_spend_allowed rather than a list of provider names, and the broker refuses it again at use. 52 offline assertions plus 11 LIVE against enriquealonso01/jarvis-s26-fixture, where the committed bytes equal the canonical row exactly. Seen red three times (13, 3, then 6). BLOCKED on the Done-when, which says VOICE: nothing has yet created a project by being spoken to. Also blocked-adjacent: every auth profile is seeded {normal} eligibility, so a confidential project can use no credential at all. Both in BLOCKED.md. VOICE PATH (2026-09-02, after a failed live attempt): five defects found above the tool layer, plus one of mine and one silent constraint. All fixed with tests that start where the voice does - an end-to-end through ingestUserMessage (19 assertions) and the six real utterances through the LIVE classifier on the box (4 assertions): turn 1 now create_project where production said capture, and the fragments stay on subject using the conversation history."
     },
     {
       "id": "S27",
       "title": "Configuration by conversation",
       "stage": 5,
-      "state": "not_started"
+      "state": "blocked",
+      "evidence": "Built and tested. applyConfigChange is the only way configuration changes - versioning, provenance and audit are the same statement as the write - and the suite proves that architecturally by reading src/ and asserting exactly one file INSERTs into either version table. It found two bypasses when written (the schedule route and S26 onboarding), both now routed through it. Migration 029 adds the conversation and his own words to both version tables and scopes the version sequence to (project, key), which was previously global per key. The section 59 immutable list is data, refuses, and raises an approval rather than discarding the ask; ambiguity returns one question and writes nothing; rollback restores a value exactly as a NEW version. Tools resolve the project from what he NAMED, not the conversation. 85 assertions, seen red three times (30, 7, 1). BLOCKED on the Done-when: it needs a spoken sentence, and 'auditable a week later' is so far proved by backdating a row, which tests the query and not the passage of time. See BLOCKED.md."
     },
     {
       "id": "S28",

@@ -9,13 +9,17 @@ import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
 import { FAKE_MODEL, fakeCompletion, fakeThinkingTime } from "./fakemodel.js";
 import { enforceSoftCeiling } from "./quota.js";
 import {
+  NEVER_DEFAULTED,
+  NON_MODEL_PROFILES,
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
+  profileTier,
   isBooleanish,
   toBoolean,
   validEnum,
   validSlug,
 } from "./policy.js";
+import { renderAgentsMd } from "./agentsfile.js";
 
 const TOOLS = [
   {
@@ -109,7 +113,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "project_onboarding_set",
-      description: "Set one onboarding field (name, slug, project_type, confidentiality, customer_facing, github optional).",
+      description:
+        "Record ONE answer Enrique has actually given. Never call this with a value he did not say - "
+        + "an invented answer becomes a line in the project's AGENTS.md and is obeyed by every future "
+        + "engineering task. Fields: " + ONBOARDING_FIELDS.join(", ") + ". "
+        + "For a command or policy that genuinely does not exist, the answer is the word none, which "
+        + "is different from not having asked.",
       parameters: {
         type: "object",
         properties: {
@@ -123,9 +132,93 @@ const TOOLS = [
   {
     type: "function",
     function: {
-      name: "project_onboarding_finalize",
-      description: "Create the project when name, slug, and project_type are set. GitHub may be omitted.",
+      name: "project_onboarding_defaults",
+      description:
+        "He said to use the defaults, or that he does not mind. Answers every remaining "
+        + "BUILD question at once - commands, branch, gates, queue priority - and records that he "
+        + "chose it. It will NOT answer what the project is or who may see it: type, "
+        + "confidentiality, repository, auth profiles and deploy policy stay his. Use this the "
+        + "moment he says anything like 'just use the defaults' - do not read him a list of "
+        + "twenty questions.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "project_onboarding_finalize",
+      description:
+        "Create the project and write its AGENTS.md. Call this only when every question has an answer: "
+        + "if any are still missing it refuses and names them, and the right response is to ask him, "
+        + "not to supply them yourself.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "config_change",
+      description:
+        "Change how Jarvis behaves for a project, when Enrique tells you to. "
+        + "'Stop doing X', 'always do Y in Alpha', 'change Beta's deploy policy' are this. "
+        + "It works on ANY project, not only the one you are talking about - name it. "
+        + "Use field for something that belongs in the project's AGENTS.md (deploy_policy, "
+        + "before_pr, before_deploy, migration_policy, test_command, and so on) and key for "
+        + "anything else. If you are not sure WHICH setting he means, pass ambiguous with the "
+        + "one question that would settle it: nothing is changed and he is asked. Never guess - "
+        + "a half-applied configuration change is worse than none.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Project slug or name." },
+          field: { type: "string", description: "An AGENTS.md field to change." },
+          key: { type: "string", description: "A configuration key, for anything not in AGENTS.md." },
+          value: { type: "string" },
+          ambiguous: {
+            type: "string",
+            description: "The single question to ask instead of changing anything.",
+          },
+          said: { type: "string", description: "What he actually said, in his words." },
+        },
+        required: ["project", "value"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "config_history",
+      description:
+        "What changed in a project's configuration, and why. Use it for any question about "
+        + "how a project came to be set up the way it is - 'what changed in Alpha last week', "
+        + "'why does Beta need approval to deploy'. Each entry carries what he said at the time.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string" },
+          days: { type: "string", description: "How far back to look. Default 30." },
+        },
+        required: ["project"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "config_rollback",
+      description:
+        "Put a project's configuration back to an earlier version. Use config_history first "
+        + "to find the version number. The old version is restored as a NEW version, so the "
+        + "record of what happened in between survives.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string" },
+          key: { type: "string", description: "Omit to roll back the project's AGENTS.md." },
+          to_version: { type: "string" },
+        },
+        required: ["project", "to_version"],
+      },
     },
   },
   {
@@ -300,7 +393,11 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   project_list: "project.list",
   project_onboarding_start: "project.onboarding_start",
   project_onboarding_set: "project.onboarding_set",
+  project_onboarding_defaults: "project.onboarding_defaults",
   project_onboarding_finalize: "project.onboarding_finalize",
+  config_change: "config.change",
+  config_history: "config.history",
+  config_rollback: "config.rollback",
   conversation_create: "conversation.create",
   connection_list: "connection.list",
   connection_request: "connection.request",
@@ -308,7 +405,12 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   models_list: "models.list",
 };
 
-async function runTool(
+/**
+ * Exported for the S26 suite, which drives onboarding through the same
+ * dispatcher a model turn uses. A test that called the SQL directly would prove
+ * the SQL and not the refusal.
+ */
+export async function runTool(
   pool: pg.Pool,
   conversationId: string,
   inboxId: string,
@@ -463,6 +565,44 @@ async function runTool(
     );
     return "ok";
   }
+  if (name === "project.onboarding_defaults") {
+    const sess = await pool.query<{ id: string; answers: Record<string, string> }>(
+      `SELECT id, answers FROM onboarding_sessions WHERE conversation_id = $1 AND status = 'in_progress'
+       ORDER BY created_at DESC LIMIT 1`,
+      [conversationId],
+    );
+    if (!sess.rows[0]) return "no in-progress onboarding; call project.onboarding_start";
+    const a = sess.rows[0].answers ?? {};
+
+    /*
+     * "Use the defaults" is an answer, not a guess - but only about how the
+     * project is built. What it IS, and who may see it, stays his: those are the
+     * plan's must-ask questions, and defaulting them is how a professional
+     * project ends up on a free consumer account.
+     */
+    const filled: string[] = [];
+    const patch: Record<string, string> = {};
+    for (const field of ONBOARDING_FIELDS) {
+      if (NEVER_DEFAULTED.has(field)) continue;
+      if (a[field] && a[field].trim()) continue;
+      patch[field] = field === "default_branch" ? "main"
+        : field === "default_queue_priority" ? "normal"
+        : "none";
+      filled.push(field);
+    }
+    if (!filled.length) return "nothing left to default; every build question is already answered";
+
+    await pool.query(
+      `UPDATE onboarding_sessions SET answers = answers || $2::jsonb, updated_at = now() WHERE id = $1`,
+      [sess.rows[0].id, JSON.stringify(patch)],
+    );
+    const stillNeeded = [...NEVER_DEFAULTED].filter(
+      (f) => (ONBOARDING_FIELDS as readonly string[]).includes(f) && !a[f]);
+    return `defaulted ${filled.length} build questions at his request (${filled.join(", ")}). `
+      + (stillNeeded.length
+        ? `Still his to answer: ${stillNeeded.join(", ")}.`
+        : "Nothing else is outstanding.");
+  }
   if (name === "project.onboarding_finalize") {
     const sess = await pool.query<{ id: string; answers: Record<string, string> }>(
       `SELECT id, answers FROM onboarding_sessions WHERE conversation_id = $1 AND status = 'in_progress'
@@ -494,6 +634,81 @@ async function runTool(
       if (missing.length) {
         return `a professional project needs answers for: ${missing.join(", ")}`;
       }
+
+      /*
+       * S26: "paid/subscription profiles only". A professional project's work is
+       * somebody else's code, and a free consumer tier is exactly the kind of
+       * endpoint whose terms allow training on what it is sent. Checked here, at
+       * onboarding, because this is where the answer is given — the broker
+       * refuses the same thing again at use (checkProfileAccess), and a rule
+       * enforced only at the far end produces a project that looks configured
+       * and cannot do anything.
+       *
+       * Names that are not profiles at all are refused too: an allowlist of
+       * things that do not exist is not an allowlist.
+       */
+      const named = (a.allowed_auth_profiles ?? "")
+        .split(",").map((s) => s.trim()).filter(Boolean)
+        .filter((s) => !["none", "n/a", "na", "-"].includes(s.toLowerCase()));
+      if (named.length) {
+        const known = await pool.query<{ id: string; auth_type: string; metered_spend_allowed: boolean }>(
+          `SELECT id, auth_type, metered_spend_allowed FROM auth_profiles WHERE id = ANY($1::text[])`,
+          [named],
+        );
+        const byId = new Map(known.rows.map((r) => [r.id, r]));
+        /*
+         * A deploy key for this project's own repository does not exist yet — it
+         * is provisioned after the project is. A name that looks like this
+         * project's own key is allowed through; anything else must be real.
+         */
+        const unknown = named.filter((n) => !byId.has(n) && !n.startsWith(`${a.slug}-`));
+        if (unknown.length) {
+          return `these are not auth profiles: ${unknown.join(", ")}. `
+            + "Ask him which existing profile he means.";
+        }
+        const free = known.rows
+          .filter((r) => !NON_MODEL_PROFILES.has(r.id) && profileTier(r) === "free_consumer")
+          .map((r) => r.id);
+        if (free.length) {
+          return `a professional project cannot use a free consumer account: ${free.join(", ")}. `
+            + "Its source code would go to an endpoint whose terms allow training on it. "
+            + "Use a subscription or a metered account, or ask him which he wants billed.";
+        }
+      }
+    }
+
+    /*
+     * S26. The instructions are rendered BEFORE the project row exists, because
+     * a half-created project is worse than none: if an answer is missing, this
+     * returns the question rather than a project whose AGENTS.md has a hole in
+     * it. The plan is explicit that a surviving placeholder means finalize ran
+     * too early, and that the cure is refusing rather than defaulting.
+     */
+    const rendered = renderAgentsMd({
+      project_name: a.name,
+      project_type: a.project_type,
+      production_status: a.production_status || "non_production",
+      customer_facing: toBoolean(a.customer_facing) ? "yes" : "no",
+      confidentiality: a.confidentiality || "normal",
+      github_owner: a.github_owner,
+      github_repo: a.github_repo,
+      default_branch: a.default_branch,
+      allowed_auth_profiles: a.allowed_auth_profiles,
+      approved_data_processors: a.approved_data_processors,
+      setup_command: a.setup_command,
+      test_command: a.test_command,
+      lint_command: a.lint_command,
+      safe_environments: a.safe_environments,
+      deploy_policy: a.deploy_policy,
+      project_forbidden: a.project_forbidden,
+      before_pr: a.before_pr,
+      before_deploy: a.before_deploy,
+      migration_policy: a.migration_policy,
+      default_queue_priority: a.default_queue_priority || "normal",
+    });
+    if (!rendered.ok) {
+      return `cannot write AGENTS.md yet — still unanswered: ${rendered.missing.join(", ")}. `
+        + "Ask him for these; do not fill them in.";
     }
 
     const inserted = await pool.query<{ id: string }>(
@@ -528,6 +743,33 @@ async function runTool(
     } catch {
       /* ignore if permission or dir exists */
     }
+    /*
+     * Version 1 of the instructions, written by Jarvis. This row is canonical
+     * (ADR 018): the file committed into the repository is a rendering of it,
+     * not a second source of project policy.
+     *
+     * It goes through `applyInstructionsChange` rather than its own INSERT —
+     * S27's Debug section is explicit that every config write goes through one
+     * function, and this was one of the two that did not. Routing it here also
+     * gets it the things it was quietly missing: the conversation it happened
+     * in, the placeholder guard applied to every version rather than only to
+     * later ones, and an audit line.
+     */
+    const { applyInstructionsChange } = await import("./config.js");
+    const stored = await applyInstructionsChange(pool, {
+      projectId: inserted.rows[0].id,
+      body: rendered.body,
+      actor: "jarvis",
+      conversationId,
+      causedByMessage: `onboarding ${a.slug}`,
+      parsedPolicy: a,
+    });
+    if ("error" in stored) {
+      // The project row exists and its instructions do not, which is worth
+      // saying out loud rather than returning a success that hides it.
+      return `project ${a.slug} was created but its instructions were refused: ${stored.error}`;
+    }
+
     await pool.query(
       `UPDATE onboarding_sessions SET status = 'finalized', project_id = $2, updated_at = now() WHERE id = $1`,
       [sess.rows[0].id, inserted.rows[0].id],
@@ -537,7 +779,165 @@ async function runTool(
        VALUES ('supervisor', 'project.create', $1, $2, $3)`,
       [a.slug, inserted.rows[0].id, JSON.stringify({ name: a.name, type: a.project_type })],
     );
-    return JSON.stringify({ project_id: inserted.rows[0].id, slug: a.slug });
+
+    /*
+     * S26's Done-when: the instructions are COMMITTED, not merely stored. The
+     * row is canonical (ADR 018) and is already written, so a failure here
+     * leaves a real project with real instructions and an uncommitted file —
+     * which is recoverable — rather than losing the onboarding. It is reported
+     * rather than swallowed: the Supervisor has to be able to tell him the file
+     * is not in the repository yet.
+     *
+     * A project may legitimately have no repository. "none" is a real answer to
+     * the repository question, and it means there is nowhere to commit.
+     */
+    const noRepo = (v: string) => ["none", "n/a", "na", "-"].includes(v.trim().toLowerCase());
+    let committed: string | null = null;
+    let commitError: string | null = null;
+    if (a.github_owner && a.github_repo && !noRepo(a.github_owner) && !noRepo(a.github_repo)) {
+      /*
+       * The bytes that are committed are read back from the stored row, never
+       * the ones that were just rendered.
+       *
+       * They were the rendered ones, and the live test caught the consequence:
+       * `applyInstructionsChange` trims the body before storing it, the render
+       * ends with a newline, and so the committed file and the canonical row
+       * differed by one character. ADR 018 says the row is canonical and the
+       * file is a rendering of IT — committing what was stored makes that true
+       * by construction rather than by two code paths agreeing.
+       */
+      const canonical = await pool.query<{ body: string }>(
+        `SELECT body FROM project_instructions_versions
+         WHERE project_id = $1 ORDER BY version DESC LIMIT 1`,
+        [inserted.rows[0].id],
+      );
+      const { githubPutFile } = await import("./github.js");
+      const put = await githubPutFile(pool, {
+        owner: a.github_owner.trim(),
+        repo: a.github_repo.trim(),
+        path: "AGENTS.md",
+        content: canonical.rows[0].body,
+        message: `Add Jarvis agent instructions for ${a.name}`,
+        branch: a.default_branch && !noRepo(a.default_branch) ? a.default_branch.trim() : undefined,
+      });
+      if ("error" in put) {
+        commitError = put.error;
+      } else {
+        committed = put.commit_sha;
+      }
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+         VALUES ('supervisor', 'project.instructions_commit', $1, $2, $3)`,
+        [a.slug, inserted.rows[0].id,
+         JSON.stringify({ outcome: commitError ? "failed" : "committed", commit_sha: committed, error: commitError })],
+      );
+    }
+
+    return JSON.stringify({
+      project_id: inserted.rows[0].id,
+      slug: a.slug,
+      instructions_version: 1,
+      agents_md: commitError
+        ? `stored but NOT committed: ${commitError}`
+        : committed ? `committed ${committed.slice(0, 7)}` : "stored (no repository)",
+    });
+  }
+  if (name === "config.change" || name === "config.history" || name === "config.rollback") {
+    /*
+     * S27's whole point is that these reach a project he is not talking about,
+     * so the project is resolved from what he named rather than from the
+     * conversation's scope. A name that matches nothing is a question, not a
+     * default: applying a change to the wrong project is exactly the kind of
+     * silent damage the step is trying to prevent.
+     */
+    const wanted = (args.project ?? "").trim();
+    const target = await pool.query<{ id: string; slug: string; name: string }>(
+      `SELECT id, slug, name FROM projects
+       WHERE archived_at IS NULL AND (slug = $1 OR lower(name) = lower($1))`,
+      [wanted],
+    );
+    if (!target.rows[0]) {
+      const all = await pool.query<{ slug: string }>(
+        `SELECT slug FROM projects WHERE archived_at IS NULL ORDER BY slug`);
+      return `no project called ${wanted || "(nothing)"}. There is: ${all.rows.map((r) => r.slug).join(", ") || "none yet"}`;
+    }
+    const projectId = target.rows[0].id;
+    const said = (args.said ?? userText ?? "").trim() || null;
+    const cfg = await import("./config.js");
+
+    if (name === "config.history") {
+      const days = Number((args.days ?? "30").trim()) || 30;
+      const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+      const rows = await cfg.configHistory(pool, { projectId, since });
+      const instructions = await pool.query<{ version: number; at: string; caused_by_message: string | null }>(
+        `SELECT version, created_at::text AS at, caused_by_message
+         FROM project_instructions_versions
+         WHERE project_id = $1 AND created_at >= $2 ORDER BY version DESC`,
+        [projectId, since.toISOString()],
+      );
+      return JSON.stringify({
+        project: target.rows[0].slug,
+        since: since.toISOString(),
+        config: rows.map((r) => ({
+          key: r.key, version: r.version, at: r.at, asked: r.caused_by_message, value: r.value,
+        })),
+        agents_md: instructions.rows.map((r) => ({
+          version: r.version, at: r.at, asked: r.caused_by_message,
+        })),
+      });
+    }
+
+    if (name === "config.rollback") {
+      const to = Number((args.to_version ?? "").trim());
+      if (!Number.isInteger(to) || to < 1) return "to_version must be a version number";
+      if (args.key) {
+        const r = await cfg.rollbackConfig(pool, {
+          projectId, key: args.key.trim(), toVersion: to, actor: "user",
+          conversationId, causedByMessage: said,
+        });
+        return r.applied
+          ? `restored ${args.key} to version ${to}, recorded as version ${r.version}`
+          : `could not roll back: ${"reason" in r ? r.reason : "refused"}`;
+      }
+      const r = await cfg.rollbackInstructions(pool, {
+        projectId, toVersion: to, actor: "user", conversationId,
+      });
+      if ("error" in r) return `could not roll back: ${r.error}`;
+      await cfg.commitInstructions(pool, projectId, `Roll back agent instructions to v${to}`);
+      return `restored ${target.rows[0].slug}'s AGENTS.md to version ${to}, recorded as version ${r.version}`;
+    }
+
+    // config.change
+    const ambiguous = (args.ambiguous ?? "").trim() || null;
+    if (args.field) {
+      if (ambiguous) return `ask him: ${ambiguous}`;
+      const r = await cfg.applyInstructionsField(pool, {
+        projectId, field: args.field.trim(), value: args.value ?? "", actor: "user",
+        conversationId, causedByMessage: said,
+      });
+      if ("error" in r) return `not changed: ${r.error}`;
+      const commit = await cfg.commitInstructions(
+        pool, projectId, `Update ${args.field.trim()} for ${target.rows[0].name}`);
+      return `${target.rows[0].slug}: ${args.field} is now "${args.value}" (AGENTS.md v${r.version}${commit})`;
+    }
+
+    const r = await cfg.applyConfigChange(pool, {
+      scope: "project",
+      projectId,
+      key: (args.key ?? "").trim(),
+      value: args.value ?? "",
+      actor: "user",
+      note: "spoken instruction",
+      conversationId,
+      causedByMessage: said,
+      ambiguous,
+    });
+    if (r.applied) return `${target.rows[0].slug}: ${args.key} set (version ${r.version})`;
+    if (r.refused === "ambiguous") return `ask him: ${r.question}`;
+    if (r.refused === "immutable") {
+      return `refused, and an approval is waiting for him: ${r.reason}. Nothing was changed.`;
+    }
+    return `not changed: ${r.reason}`;
   }
   if (name === "conversation.create") {
     let projectId: string | null = null;
@@ -1046,6 +1446,67 @@ export async function quickCompletion(
 }
 
 
+/**
+ * What the Supervisor is told about the project a conversation is scoped to.
+ *
+ * Extracted from `runSupervisorTurn` so it can be asserted without a model
+ * call — and it needed asserting, because it was reading the wrong table.
+ *
+ * The instructions line used to select `config_versions` where `key =
+ * 'instructions'`. **Nothing has ever written that key.** One read, no writer,
+ * zero rows in production: every project conversation Jarvis has ever had was
+ * missing the project's own rules, and the line simply rendered empty, which is
+ * indistinguishable from a project that has none. S26 gave the system a real
+ * home for this — `project_instructions_versions`, canonical per ADR 018 — and
+ * this now reads it.
+ *
+ * The body goes in whole rather than JSON-stringified and truncated at 800
+ * characters. It is the project's rules; a Supervisor that has been handed the
+ * first two thirds of them will confidently break the last third.
+ */
+export async function projectContextFor(
+  pool: pg.Pool,
+  projectId: string | null,
+): Promise<string> {
+  if (!projectId) return "";
+  const proj = await pool.query<{
+    name: string;
+    slug: string;
+    project_type: string;
+    confidentiality: string;
+    production_status: string;
+    customer_facing: boolean;
+    github_owner: string | null;
+    github_repo: string | null;
+    metered_spend_allowed: boolean;
+  }>(
+    `SELECT name, slug, project_type, confidentiality, production_status, customer_facing,
+            github_owner, github_repo, metered_spend_allowed
+     FROM projects WHERE id = $1`,
+    [projectId],
+  );
+  const pr = proj.rows[0];
+  if (!pr) return "";
+
+  const instructions = await pool.query<{ body: string; version: number }>(
+    `SELECT body, version FROM project_instructions_versions
+     WHERE project_id = $1
+     ORDER BY version DESC LIMIT 1`,
+    [projectId],
+  );
+  const latest = instructions.rows[0];
+
+  return `
+This conversation is scoped to the project ${pr.name} (${pr.slug}):
+- type ${pr.project_type}, confidentiality ${pr.confidentiality}, ${pr.production_status.replace(/_/g, " ")}
+- customer facing: ${pr.customer_facing ? "yes — always-confirm applies" : "no"}
+- repository: ${pr.github_owner && pr.github_repo ? `${pr.github_owner}/${pr.github_repo}` : "not linked yet"}
+- metered spend: ${pr.metered_spend_allowed ? "allowed" : "off"}
+${latest
+  ? `\nIts instructions (AGENTS.md v${latest.version}) say:\n${latest.body.trim()}\n`
+  : "- no project instructions have been written yet"}`;
+}
+
 export async function runSupervisorTurn(
   pool: pg.Pool,
   args: {
@@ -1081,41 +1542,7 @@ export async function runSupervisorTurn(
     [projectId],
   );
 
-  let projectContext = "";
-  if (projectId) {
-    const proj = await pool.query<{
-      name: string;
-      slug: string;
-      project_type: string;
-      confidentiality: string;
-      production_status: string;
-      customer_facing: boolean;
-      github_owner: string | null;
-      github_repo: string | null;
-      metered_spend_allowed: boolean;
-    }>(
-      `SELECT name, slug, project_type, confidentiality, production_status, customer_facing,
-              github_owner, github_repo, metered_spend_allowed
-       FROM projects WHERE id = $1`,
-      [projectId],
-    );
-    const pr = proj.rows[0];
-    if (pr) {
-      const instructions = await pool.query<{ value: unknown }>(
-        `SELECT value FROM config_versions
-         WHERE project_id = $1 AND key = 'instructions'
-         ORDER BY version DESC LIMIT 1`,
-        [projectId],
-      );
-      projectContext = `
-This conversation is scoped to the project ${pr.name} (${pr.slug}):
-- type ${pr.project_type}, confidentiality ${pr.confidentiality}, ${pr.production_status.replace(/_/g, " ")}
-- customer facing: ${pr.customer_facing ? "yes — always-confirm applies" : "no"}
-- repository: ${pr.github_owner && pr.github_repo ? `${pr.github_owner}/${pr.github_repo}` : "not linked yet"}
-- metered spend: ${pr.metered_spend_allowed ? "allowed" : "off"}
-${instructions.rows[0] ? `- project instructions: ${JSON.stringify(instructions.rows[0].value).slice(0, 800)}` : ""}`;
-    }
-  }
+  const projectContext = await projectContextFor(pool, projectId);
   const recent = await pool.query(
     // Four exchanges is enough to hold a phone conversation together; twelve is
     // for a console thread being read back.
@@ -1149,8 +1576,15 @@ Rules:
   was created - say what you need from him, do not report it as done.
 - Seeing an earlier identical request in this thread does not satisfy a new one. If he asks again,
   call the tool again — memory_upsert is idempotent. Never answer "Stored" from history alone.
-- A professional project must answer confidentiality, production_status, customer_facing and
-  metered_spend_allowed before onboarding_finalize will create it. Ask for them.
+- Creating a project: ask "personal or professional?" FIRST and record it with
+  project_onboarding_set before anything else. A PERSONAL project needs none of confidentiality,
+  production_status, customer_facing or metered_spend_allowed — do not ask for them. Only a
+  PROFESSIONAL project must answer all four before onboarding_finalize will create it.
+  Never assume professional. He was once asked for confidentiality, production status,
+  customer-facing and metered spend on a project he had said was personal, because this rule
+  used to describe only the professional case.
+- Ask for one thing at a time on a phone call. A list of four questions read aloud is not a
+  question, it is a form.
 - If something is blocked on a credential Enrique has not provided, call connection.request.
   It opens an action page he can complete. Never tell him to edit files or paste keys into chat.
 - GitHub is optional. Metered spend stays off unless he sets a ceiling.

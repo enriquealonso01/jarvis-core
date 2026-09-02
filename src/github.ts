@@ -253,3 +253,71 @@ export async function githubMergePullRequest(
   const json = (await res.json()) as { merged: boolean; message: string };
   return { merged: json.merged, message: json.message };
 }
+
+/**
+ * Commit one file, creating or replacing it.
+ *
+ * S26 uses this to put the rendered AGENTS.md into a project repository at
+ * onboarding. It goes through the broker-only personal admin credential, the
+ * same one that creates the repository and registers its deploy key: this runs
+ * at project creation, before the project has a credential of its own, and it
+ * is a broker operation rather than anything a project worker may do.
+ *
+ * The GitHub Contents API needs the current blob sha to REPLACE a file and
+ * refuses one to CREATE it, so the sha is looked up first and omitted when the
+ * file is absent. Sending a stale sha is how a concurrent write gets silently
+ * clobbered; sending none against an existing file is a 422.
+ */
+export async function githubPutFile(
+  pool: pg.Pool,
+  args: {
+    owner: string; repo: string; path: string; content: string;
+    message: string; branch?: string;
+  },
+): Promise<{ commit_sha: string; html_url: string } | { error: string }> {
+  let token: string;
+  try {
+    token = await adminToken(pool);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "admin token error" };
+  }
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "jarvis-core",
+  };
+  const base = `https://api.github.com/repos/${args.owner}/${args.repo}/contents/${args.path}`;
+  const ref = args.branch ? `?ref=${encodeURIComponent(args.branch)}` : "";
+
+  let sha: string | undefined;
+  const existing = await fetch(`${base}${ref}`, { headers });
+  if (existing.ok) {
+    const json = (await existing.json()) as { sha?: string };
+    sha = json.sha;
+  } else if (existing.status !== 404) {
+    return { error: `github read ${args.path} failed status=${existing.status}` };
+  }
+
+  const res = await fetch(base, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({
+      message: args.message,
+      content: Buffer.from(args.content, "utf8").toString("base64"),
+      ...(sha ? { sha } : {}),
+      ...(args.branch ? { branch: args.branch } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.text()).replace(/\s+/g, " ").slice(0, 200);
+    return { error: `github put ${args.path} failed status=${res.status} ${detail}` };
+  }
+  const json = (await res.json()) as {
+    commit?: { sha?: string }; content?: { html_url?: string };
+  };
+  return {
+    commit_sha: json.commit?.sha ?? "",
+    html_url: json.content?.html_url ?? "",
+  };
+}

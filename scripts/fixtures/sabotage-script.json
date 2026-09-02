@@ -1,0 +1,127 @@
+{
+ "classifier": [
+  {
+   "match": "create a project called Test Project",
+   "json": {
+    "segments": [
+     {
+      "category": "capture",
+      "project": null,
+      "text": "I want to create a project called Test Project.",
+      "reason": "he is asking for a new project to be made"
+     }
+    ],
+    "reason": "create_project"
+   }
+  },
+  {
+   "match": "personal",
+   "json": {
+    "segments": [
+     {
+      "category": "create_project",
+      "project": null,
+      "text": "personal, and just use the defaults",
+      "reason": "answering a question asked while creating a project"
+     }
+    ],
+    "reason": "create_project"
+   }
+  },
+  {
+   "match": "no repository",
+   "json": {
+    "segments": [
+     {
+      "category": "create_project",
+      "project": null,
+      "text": "no repository, no auth profiles, nobody deploys it",
+      "reason": "answering the remaining must-ask questions"
+     }
+    ],
+    "reason": "create_project"
+   }
+  }
+ ],
+ "supervisor": [
+  {
+   "match": "create a project called Test Project",
+   "tool_calls": [
+    {
+     "name": "project_onboarding_start",
+     "arguments": {}
+    },
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "name",
+      "value": "Test Project"
+     }
+    },
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "slug",
+      "value": "test-project-voice"
+     }
+    }
+   ],
+   "content": "Is that a personal project or a professional one, sir?"
+  },
+  {
+   "match": "personal",
+   "tool_calls": [
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "project_type",
+      "value": "personal"
+     }
+    },
+    {
+     "name": "project_onboarding_defaults",
+     "arguments": {}
+    }
+   ],
+   "content": "Very good. A repository for it, sir, or none?"
+  },
+  {
+   "match": "no repository",
+   "tool_calls": [
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "github_owner",
+      "value": "none"
+     }
+    },
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "github_repo",
+      "value": "none"
+     }
+    },
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "allowed_auth_profiles",
+      "value": "none"
+     }
+    },
+    {
+     "name": "project_onboarding_set",
+     "arguments": {
+      "field": "deploy_policy",
+      "value": "none"
+     }
+    },
+    {
+     "name": "project_onboarding_finalize",
+     "arguments": {}
+    }
+   ],
+   "content": "Test Project is created, sir."
+  }
+ ]
+}

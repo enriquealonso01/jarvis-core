@@ -170,4 +170,230 @@ unblocked, finish it before starting anything new.
   genuinely blocked task rings the phone during the day and stays silent at
   21:00", and a phone that has never rung has not been observed ringing.
 - **Raised:** 2026-09-02 18:05
+- **Resolved:** 2026-09-02 16:30Z — `telnyx.connection_id = 3039460355509061310`
+  (the "JARVIS" call-control application, the same connection inbound arrives
+  through) is pinned in `/etc/jarvis/site.yaml` on the box. A backup of the old
+  file is beside it as `site.yaml.bak-*`. **S23 is still not done** — the first
+  real dial after pinning it found a second defect; see the next entry.
 
+## Jarvis can reach the phone, but the phone will not ring for it
+
+- **Step:** S23
+- **Blocked on:** A setting on your handset. Nothing in the repo can do it.
+- **What I need you to do:** Save `+13057866217` as a contact. If **Silence
+  Unknown Callers** is on (Settings → Apps → Phone), an unknown number is
+  delivered silently and sent to voicemail, which is exactly what we saw.
+- **What happened:** the dial defect below is fixed and deployed, and the
+  production sweep placed a real call: Telnyx 200, a real `call_control_id`,
+  `outbound: blocked_task: retried at 08:00 — ringing`. You received it and it
+  did not ring. The webhook trail agrees with the handset explanation and not
+  with a Jarvis fault — we got **only** `call.hangup` for that leg, never
+  `call.initiated`, `call.ringing` or `call.answered`, and it arrived ~31s after
+  the dial, matching the 30-second `timeout_secs`. That is a delivered call that
+  was never picked up.
+- **Why this is not just cosmetic:** S23 exists so that a blocked task can
+  interrupt you. A pager that is delivered silently is not a pager, and every
+  one of the six reasons inherits the problem.
+- **What I did instead:** left S23 `blocked` and moved on. Its Done-when is "a
+  genuinely blocked task rings the phone during the day and stays silent at
+  21:00" — the placing half is now observed in production, the ringing half is
+  yours, and the 21:00 half is so far only proved in the fake (54 of the 61
+  assertions, including that the only thing that rings at 20:00 is a security
+  event).
+- **Raised:** 2026-09-02 17:15Z
+- **Resolved:** 2026-09-02 18:21Z — Enrique saved the number and turned on
+  Emergency Bypass, and the next call rang. One call placed (not two — through
+  `placeCall` directly rather than the sweep, which walks every reason and
+  dialled twice last time). The trail, from `call_transitions`:
+  `call.answered` at 18:21:22 entering from state **`ringing`**, greeting
+  played, `call.playback.ended`, `call.transcription` at 18:21:38 — he said
+  "This is just a test. Thank you." — Jarvis answered (ack 899ms, model 822ms,
+  total 2793ms), then `call.hangup` at 18:21:46. One row in `calls`, and the
+  `security_event` row stayed `failed` and untouched.
+  **S23 is still not done: two of its three halves are observed.** Placing and
+  ringing are real; "stays silent at 21:00" is so far only proved in the fake.
+  See the next entry.
+
+## S23's third half: nothing has been observed staying silent
+
+- **Step:** S23
+- **Blocked on:** A decision from you, or one call attempt after 19:30.
+- **The Done-when is a conjunction:** "a genuinely blocked task rings the phone
+  during the day **and** stays silent at 21:00." The first half is now observed
+  in the world. The second is proved only in the fake — 54 of the 61 assertions,
+  including the one that matters most, that the *only* thing which rings at 20:00
+  is a security event, and that a blocked task at 20:00 becomes a WhatsApp plus
+  an Issue plus an 08:00 retry.
+- **Two ways to close it, both yours:**
+  1. After 19:30, tell me and I will put a blocked task on the retry path. The
+     phone should stay silent, a WhatsApp should arrive instead, and an Issue
+     should open with a retry time. That is the Done-when observed.
+  2. Say the fake's proof is enough for the quiet-hours half, and I will mark
+     S23 done recording exactly which half was observed where.
+- **Why I am not choosing:** the whole reason S23 sat blocked for a day was that
+  a phone which had never rung had not been observed ringing. The same sentence
+  applies to a phone that has never been observed staying quiet, and I would
+  rather ask once than quietly weaken the standard I was held to yesterday.
+- **Raised:** 2026-09-02 18:35Z
+
+## IN FLIGHT — S23 outbound dial sends a blank `from`
+
+- **Step:** S23
+- **Blocked on:** Nothing of Enrique's. This is unfinished work, recorded here so
+  it is not lost.
+- **State:** `telnyx.connection_id` is pinned and read correctly — the refusal is
+  no longer "no connection_id pinned". A real `POST /v2/calls` now returns
+  `422 10004 Missing required parameter /from`.
+- **Cause, already found:** `placeCall` in `src/outbound.ts` (~line 183) reads
+  `whatsapp.owner_e164` and `whatsapp.jarvis_e164` for a **voice** call. The
+  phone pair is `telnyx.from_e164` (`+13057866217`) and `telnyx.to_e164`
+  (`+13055052646`); `whatsapp.jarvis_e164` is blank, so `from` went out empty.
+  Both are in `SiteConfig` already (`src/siteconfig.ts`).
+- **The fix:** read the telnyx pair for the dial, falling back to the WhatsApp
+  owner number for `to` only. Then place a real call and observe the phone ring.
+  No fake-mode test can catch this: `placeCall` returns before `telnyxDial` when
+  `JARVIS_TELNYX=fake`, so the live call IS the test.
+- **Two traps on the retry** (also in DEBUG_NOTES): `placeCall` refuses when
+  `attempts > 0`, and `reasonsToCall` skips any task that already has an
+  `outbound_calls` row. Reset the row first:
+  `UPDATE outbound_calls SET state='wanted', blocked_reason=NULL, attempts=0 WHERE id = ...`
+- **Current rows:** two `blocked_task` calls for the two `waiting_for_user`
+  tasks, both `state='failed'`, `attempts=1`. Placing both back to back would
+  ring Enrique twice in a minute, which the pager rule (§17) is against — place
+  one, confirm, then decide about the second.
+- **Raised:** 2026-09-02 16:50Z
+- **Resolved:** 2026-09-02 17:05Z — PR #132. The dial reads `telnyx.from_e164`
+  and `telnyx.to_e164`, with the WhatsApp owner kept as a fallback for the
+  destination only and none at all for the sender; an unpinned sender is refused
+  by name instead of sent blank. Contrary to the note above, the fake CAN see
+  this once the recorded dial carries `from` and the fixture stops giving every
+  number the same value — 61 assertions, 7 of them seen red against the old two
+  lines, printing the WhatsApp pair as the actual. Deployed, and one real call
+  placed on row `aefc6805` via the retry path. Two things this uncovered have
+  their own entries: the sweep never looks at a `wanted` row, so the reset
+  above does nothing; and the call reached the handset but did not ring.
+
+## Publishing `PROGRESS.json` is a habit, not a mechanism
+
+- **Step:** S13b (the build bar), surfaced 2026-09-02
+- **Blocked on:** Nothing of Enrique's — this is a design choice inside the
+  console deploy, and it is mine to make. Recorded because it is not done.
+- **What is wrong:** the bar fetches `/PROGRESS.json`, served from
+  `/opt/jarvis/control-center/PROGRESS.json` — a copy published by
+  `scripts/progress-publish.sh`, which is run by hand. It was published once at
+  00:41 and went 21 hours stale, reporting S5 / 37 steps against a repo on
+  S25 / 40. `deploy-control-center.sh` rsyncs `--delete`, so a console deploy
+  also removes the copy unless it is re-published afterwards.
+- **What Enrique asked for:** fix it structurally — one source, or publish on
+  every state change — and verify by advancing a step and watching the live URL
+  move with nobody running a script.
+- **Interim:** run `scripts/progress-publish.sh` after every
+  `progress-sync.mjs` **and** after every console deploy.
+- **Raised:** 2026-09-02 16:55Z
+- **Resolved:** 2026-09-02 17:11Z — structurally, as asked. `/PROGRESS.json` is
+  routed by Caddy to the API, which serves it from
+  `/opt/jarvis/core/PROGRESS.json`: the deployed source tree, which is also the
+  images' build context and what the host runner executes. One file on the box,
+  updated by the same action that ships code, and out of reach of the console
+  deploy's `rsync --delete`. The mount is the directory rather than the file,
+  because a deploy replaces the inode. `progress-publish.sh` is kept as a
+  signpost that explains why it now does nothing. Verified live: the URL
+  returned `S26 / 40 steps` with nobody running a script, alongside the
+  `charset=utf-8` and `Last-Modified` it had never sent before.
+
+## Deployed files are owned by a Windows uid that does not exist on the box
+
+- **Step:** operational, surfaced by Enrique 2026-09-02
+- **Blocked on:** Nothing. Recorded so it is fixed before it bites.
+- **What is wrong:** `/opt/jarvis` and `/opt/jarvis/core` hold files owned by
+  `197609:197609` — the uid `tar` preserved from the Windows side. Harmless at
+  0644, and it will bite the moment permissions tighten the way ADR 016 tightened
+  them. Related: `dist/` had 28 root-owned files that made `pnpm build` as
+  `jarvis` half-fail for days (DEBUG_NOTES).
+- **The fix:** `tar --no-same-owner` on extraction, or `chown -R` after, and a
+  one-off `chown` of the two trees.
+- **Raised:** 2026-09-02 17:00Z
+
+## Every auth profile is eligible for `normal` only, so a confidential project can use nothing
+
+- **Step:** S26 (surfaced), S12/§80.1 (the mechanism)
+- **Blocked on:** A decision about which accounts may see confidential work.
+  That is a trust boundary, so it is yours.
+- **What I found:** `auth_profiles.confidentiality_eligibility` exists, is
+  enforced by `checkProfileAccess`, and every one of the 13 rows on the box is
+  seeded `{normal}`. `anthropic_personal`, `openai_codex_personal` and
+  `cursor_personal` included. So a project with `confidentiality = confidential`
+  is refused **every** credential in the system — correctly, fail-closed, and
+  uselessly: it can be created and can then do nothing at all.
+- **What I need you to do:** say which profiles may serve `confidential` work,
+  and which may serve `restricted`. My reading is that the three subscription
+  logins qualify for `confidential` (you pay for them, and a subscription is not
+  a training-data tier) and that nothing currently qualifies for `restricted`,
+  but I am not widening an isolation rule on my own reading. Give me the list and
+  it is one UPDATE.
+- **What I did instead:** built the half that narrows rather than widens.
+  Onboarding now refuses to give a professional project a free consumer account,
+  deriving the tier from what is recorded (`subscription_login` = subscription,
+  `metered_spend_allowed` = billed, an API key with neither = free tier) rather
+  than from a list of provider names. The broker refuses the same thing again at
+  use. 52/52, six seen red.
+- **Raised:** 2026-09-02 17:55Z
+
+## S26's Done-when needs you to talk to Jarvis
+
+- **Step:** S26
+- **Blocked on:** One phone call. Only you can make it.
+- **The Done-when:** "a project created by **voice** ends with a correct
+  committed `AGENTS.md`."
+- **Where it stands:** everything up to the voice is done and proved. Onboarding
+  renders the file or refuses and names what is missing; the canonical row is
+  written; the file is committed into a real private repository, and the live
+  test asserts the committed bytes equal the canonical row exactly (11/11 against
+  `enriquealonso01/jarvis-s26-fixture`). The live test drives the same dispatcher
+  a model turn drives, on a conversation whose channel is `voice` — but nothing
+  has yet been said out loud to create a project.
+- **What I need you to do:** call Jarvis and create a project by talking to it.
+  Give it a name, a slug, and answer the questions it asks. It should end with a
+  repository containing an `AGENTS.md` that says what you said.
+- **Why I am not claiming it without that:** the same reason S23 is not done. A
+  test that drives the tool layer proves the tool layer. The step says voice, and
+  the interesting failures — a slug misheard, a question skipped because the
+  model decided it knew, an answer recorded that you did not give — all live
+  above the layer the test touches.
+- **Raised:** 2026-09-02 17:55Z
+
+## S27's Done-when needs a spoken sentence too
+
+- **Step:** S27
+- **Blocked on:** You saying something to Jarvis. Same shape as S26's blocker.
+- **The Done-when:** "a sentence changes a different project's behaviour, is
+  auditable a week later, and can be rolled back."
+- **Where it stands:** all three are built and proved through the dispatcher a
+  model turn drives — 85 assertions. A change lands on the project he NAMED
+  while the conversation is scoped to another one; the immutable list refuses and
+  raises an approval; an ambiguous instruction returns one question and writes
+  nothing at all; rollback restores a previous value exactly by writing a new
+  version, so history is never rewritten. There is exactly one writer, asserted
+  by reading `src/`.
+- **What I need you to do:** tell Jarvis to change something about a project you
+  are not talking about — "from now on nobody deploys Alpha without asking me" —
+  and then, later, ask it what changed and to put it back.
+- **The honest gap besides the voice:** "auditable a week later" is proved by
+  backdating a row and asking for the last seven days. That tests the query, not
+  the passage of time. Only time tests the passage of time; the first real
+  question you ask a week from now is the real assertion.
+- **Raised:** 2026-09-02 18:40Z
+
+## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
+
+- **Step:** S37
+- **Blocked on:** A decision only Enrique makes. Not urgent; the build continues
+  in order unless he says otherwise.
+- **The question:** the WhatsApp number is registered and pairs by QR, and he
+  reported openclaw was never configured (`exit 78`, missing gateway config,
+  empty state dir; container stopped, not looping). The untrusted-content rule
+  has **no implementation anywhere** — no flag, no `is_forward`, nothing in
+  `src/` or the migrations — and S37 calls that the injection vector for the
+  whole system. It is recorded as S37's first build item, before any pairing.
+  If he wants WhatsApp sooner, S37 moves ahead of S26–S36; otherwise it waits.
+- **Raised:** 2026-09-02 17:05Z

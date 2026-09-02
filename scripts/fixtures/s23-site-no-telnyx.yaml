@@ -1,0 +1,13 @@
+# The same pins as s19-site.yaml with the whole `telnyx` block removed.
+#
+# This is the shape production was in when the first real outbound dial went out
+# with an empty `from`: WhatsApp numbers present, Telnyx pair absent. The second
+# S23 pass runs against this file to prove Jarvis now refuses the dial and says
+# which pin is missing, instead of handing Telnyx a blank sender.
+site:
+  public_url: "http://api:8080"
+whatsapp:
+  jarvis_e164: "+15550000000"
+  owner_e164: "+15551234567"
+elevenlabs:
+  voice_id: "s19-fake-voice"

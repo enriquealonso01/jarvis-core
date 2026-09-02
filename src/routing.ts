@@ -24,7 +24,9 @@ import { createTask, projectSlug, resolveProject } from "./work.js";
 
 const NEWLINE = "\n";
 
-export const CATEGORIES = ["capture", "question", "work", "instruction", "ambiguous"] as const;
+export const CATEGORIES = [
+  "capture", "question", "work", "instruction", "create_project", "ambiguous",
+] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export type Segment = {
@@ -69,9 +71,12 @@ export const ROUTE_CLASSIFIER_MARKER = "ROUTE CLASSIFIER";
 
 export type OpenTask = { short: string; title: string; state: string; slug: string | null };
 
-function systemPrompt(
+export type PriorTurn = { role: string; body: string };
+
+export function systemPrompt(
   projects: { slug: string; name: string }[],
   openTasks: OpenTask[],
+  history: PriorTurn[] = [],
 ): string {
   const known = projects.map((p) => `- ${p.slug} (${p.name})`).join("\n") || "(none)";
   const open_ = openTasks.length
@@ -79,6 +84,23 @@ function systemPrompt(
         .map((t) => `- ${t.short} [${t.state}] ${t.title}${t.slug ? " (" + t.slug + ")" : ""}`)
         .join(NEWLINE)
     : "(none)";
+  /*
+   * What was already said in this conversation.
+   *
+   * The router used to get the current utterance and nothing else, and on a
+   * phone call that is close to useless: he says "a project called Test Project"
+   * and two turns later "just use the defaults", and the second sentence on its
+   * own has no subject at all. It was classified ambiguous with the reason "no
+   * project name is given" - which was true of the sentence and false of the
+   * conversation.
+   *
+   * Only what has already been through this same gate is included, so this adds
+   * no new class of content to a model call.
+   */
+  const said = history.length
+    ? history.map((h) => `- ${h.role === "user" ? "Enrique" : "Jarvis"}: ${h.body}`).join(NEWLINE)
+    : "(nothing yet - this is the first thing said)";
+
   return [
     `${ROUTE_CLASSIFIER_MARKER}. You are the router for Enrique's assistant, Jarvis.`,
     "",
@@ -93,17 +115,28 @@ function systemPrompt(
     "- question     something to ANSWER now.",
     "- work         something to DO. Code changed, a bug fixed, a PR opened, data gathered.",
     "- instruction  a change to how Jarvis BEHAVES from now on.",
+    "- create_project  he wants a NEW project made, or is answering questions about one being made.",
     "- ambiguous    you cannot tell, or you cannot tell which project it belongs to.",
     "",
     "Rules:",
     "- One segment per distinct destination. A message naming two projects and a reminder is THREE segments.",
     "- Do not invent a project. If the project he names is not in the list below, the segment is",
-    "  ambiguous and its reason says which name he used.",
+    "  ambiguous and its reason says which name he used. THE ONE EXCEPTION is create_project: a name",
+    "  that matches nothing is the normal case there, because the project does not exist yet. Never",
+    "  call a request to CREATE something ambiguous merely because it is not in the list.",
+    "- \"Create a project called X\", \"set up a new project\", \"make me a repo for X\" are create_project,",
+    "  never capture. He is asking for something to be made, not telling you a fact to remember.",
+    "  So is an answer to a question you asked while making one - a name, a yes, \"personal\",",
+    "  \"just use the defaults\" - when the last thing discussed was creating a project.",
     "- Only a 'work' segment gets a title and an objective. The objective says what done looks like,",
     "  written for someone who cannot see this conversation - never a copy of his words.",
     "- Over-creating work is as wrong as creating none. If he is telling you something rather than",
     "  asking for it, that is capture, not work.",
     "- Keep 'text' close to his own wording for that segment.",
+    "",
+    "Earlier in this conversation, oldest first. A fragment often only makes sense",
+    "against these - a name given three turns ago is still the name he means:",
+    said,
     "",
     "Projects that exist:",
     known,
@@ -241,6 +274,19 @@ export async function classifyInbox(
     [args.conversationId ?? null],
   );
 
+  /*
+   * The turns before this one. Bounded at eight and truncated per line: the
+   * router is a small fast model on the latency path of a phone call, and the
+   * point is to recover a name or a subject, not to re-read the conversation.
+   */
+  const history = args.conversationId
+    ? (await pool.query<{ role: string; body: string }>(
+        `SELECT role, left(body, 240) AS body FROM messages
+         WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 8`,
+        [args.conversationId],
+      )).rows.reverse()
+    : [];
+
   const unavailable = (reason: string, model: string): RouteDecision => ({
     segments: [{ category: "ambiguous", project: null, text: args.text, reason }],
     category: "ambiguous",
@@ -251,7 +297,7 @@ export async function classifyInbox(
 
   let decision: RouteDecision;
   try {
-    const raw = await quickCompletion(pool, systemPrompt(projects.rows, open.rows), args.text, {
+    const raw = await quickCompletion(pool, systemPrompt(projects.rows, open.rows, history), args.text, {
       maxTokens: 1200,
     });
     decision = raw
@@ -283,7 +329,21 @@ export async function classifyInbox(
         decision.reason.slice(0, 1000) || null,
       ],
     )
-    .catch(() => undefined);
+    /*
+     * Swallowed on purpose — a routing RECORD must never take a message down.
+     * But swallowed silently is how `create_project` verdicts went missing for
+     * a day: a CHECK constraint still listing the original five categories
+     * rejected every one of them, the message routed correctly anyway, and
+     * `route_category` was simply null. Nothing anywhere said so.
+     *
+     * So it still cannot throw, and it can no longer be quiet.
+     */
+    .catch((err: unknown) => {
+      console.error(
+        `route verdict not persisted for ${args.inboxId} (category ${decision.category}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
 
   return decision;
 }
@@ -399,13 +459,43 @@ export async function applyRoute(
     }
 
     if (segment.category === "ambiguous") {
+      /*
+       * What he HEARS must be addressed to him.
+       *
+       * This used to pass `segment.reason` straight through as the question, and
+       * `reason` is the classifier's note to itself — its own doc comment says
+       * "read back in bulk when a route goes wrong". On a phone call in
+       * production that meant Enrique heard, in a butler's voice: "He wants to
+       * create a personal project and repository, but no project name is given",
+       * "The user asks to create projects named...", "The message is a fragment
+       * with no clear subject, project, or intent". The system reasoning about
+       * him in the third person, read aloud, three turns running.
+       *
+       * The reason is still recorded on the destination's summary, where the
+       * diagnostics belong. The question is now a question.
+       */
       destinations.push(
         unclear(
-          segment.reason || "I could not tell what this was about.",
-          `asked about: ${segment.text.slice(0, 60)}`,
+          questionAboutUnplaced(segment.text),
+          `could not place (${segment.reason || "no reason given"}): ${segment.text.slice(0, 60)}`,
         ),
       );
       continue;
+    }
+
+    /*
+     * S26 lives in the Supervisor's tools, not here. A request to create a
+     * project — or an answer to a question asked while creating one — is handed
+     * to the desk whole, with `project_onboarding_start/set/finalize` in front
+     * of it.
+     *
+     * Routing it any other way is what broke the first voice attempt: "I want to
+     * create a project called Test Project" was filed as something to REMEMBER
+     * and answered "remembered: I want to create a project called Test Project",
+     * because capture was the closest of the five categories that existed.
+     */
+    if (segment.category === "create_project") {
+      return { destinations: [], questions: [], passthrough: true };
     }
 
     // S3c: this adds to work already under way rather than starting new work.
@@ -579,6 +669,24 @@ export async function applyRoute(
  * question however many segments were unclear - the plan is explicit that
  * ambiguity produces one short question, not a list of them.
  */
+/**
+ * A question for him about something we could not place.
+ *
+ * Quotes his own words back rather than describing them, so the reply is usable
+ * whether it is read on a screen or heard on a phone. Short on purpose: this is
+ * spoken aloud, and a paragraph read by a text-to-speech voice is worse than a
+ * sentence.
+ *
+ * Exported so a test can assert on it directly. What it must never contain is
+ * anything ABOUT him — see the ambiguous branch in `applyRoute`.
+ */
+export function questionAboutUnplaced(text: string): string {
+  const words = (text ?? "").trim().replace(/\s+/g, " ");
+  if (!words) return "Sorry, I did not catch that. What would you like me to do?";
+  const quoted = words.length > 70 ? `${words.slice(0, 70)}…` : words;
+  return `Sorry — what would you like me to do about "${quoted}"?`;
+}
+
 export function summariseRoute(outcome: RouteOutcome): string {
   const acted = outcome.destinations.filter((d) => !d.question && d.category !== "question");
   const unclear = outcome.destinations.filter((d) => d.question);
