@@ -247,8 +247,38 @@ async function main() {
     init();
     const jdir = path.join(cwd, ".jarvis");
     fs.mkdirSync(jdir, { recursive: true });
+    // S14: a real harness emits a tool_use for every file it reads and every
+    // command it runs, and the runner records those so the console can say what
+    // a run is DOING rather than only that it is doing something. A fixture that
+    // emits nothing but prose exercises the phase path and nothing else — the
+    // tool timeline would have been asserted against an empty list and passed.
+    const PHASE_TOOL = {
+      preserve: ["Bash", "git status --porcelain"],
+      context: ["Read", "AGENTS.md"],
+      reproduce: ["Bash", "npm test -- cart"],
+      inspect: ["Grep", "function total"],
+      root_cause: ["Read", "src/cart.js"],
+      plan: ["Write", ".jarvis/plan.md"],
+      change: ["Edit", "src/cart.js"],
+      tests: ["Bash", "npm test"],
+      checks: ["Bash", "npm run lint"],
+      commit: ["Bash", "git commit -m fix"],
+      push: ["Bash", "git push -u origin HEAD"],
+    };
+    // How long each phase takes. The default keeps every existing suite as fast
+    // as it was; a test that has to WATCH a run happen turns it up.
+    const phaseMs = Number(process.env.JARVIS_FAKE_PHASE_MS || 150);
     const announce = (phase, note) => {
       fs.appendFileSync(path.join(jdir, "phases.jsonl"), JSON.stringify({ phase, note }) + "\n");
+      const tool = PHASE_TOOL[phase];
+      if (tool) {
+        assistantToolUse(
+          tool[0],
+          tool[0] === "Bash" ? { command: tool[1] }
+            : tool[0] === "Grep" ? { pattern: tool[1] }
+            : { file_path: tool[1] },
+        );
+      }
       assistantText(`entering ${phase}: ${note}`);
     };
     const ALL = ["preserve","context","reproduce","inspect","root_cause","plan","change","tests","checks","commit","push"];
@@ -258,7 +288,7 @@ async function main() {
     for (let i = start; i < ALL.length; i += 1) {
       const ph = ALL[i];
       announce(ph, `fake harness at ${ph}`);
-      await sleep(150);
+      await sleep(phaseMs);
       if (ph === "change" && mode !== "scope" && mode !== "norepro") {
         fs.writeFileSync(path.join(cwd, "FIX.md"), `fixed by the fake harness (${mode})\n`);
       }

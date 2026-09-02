@@ -1,4 +1,5 @@
-import { createPool } from "./db.js";
+import { connectClient, createPool } from "./db.js";
+import { startSseBridge } from "./sse.js";
 import { claimTask, runSystemTask, transitionTask } from "./jobs.js";
 import { backoffSeconds, raiseIssue } from "./notify.js";
 import { cronMatches } from "./cron.js";
@@ -317,6 +318,10 @@ async function detectHostLogins(pool: ReturnType<typeof createPool>) {
 async function main() {
   const pool = createPool();
   await ensureDirs();
+  // Forward only. The watchdog's stalled -> recovering -> queued is the most
+  // useful thing the console can show live, and it was happening in a process
+  // no browser is connected to.
+  await startSseBridge(connectClient, { listen: false }).catch(() => undefined);
   console.log(`worker ${WORKER_ID} starting`);
   for (;;) {
     try {
