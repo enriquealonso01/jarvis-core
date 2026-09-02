@@ -18,7 +18,14 @@ export type SiteConfig = {
   site?: { public_url?: string };
   whatsapp?: { jarvis_e164?: string; owner_e164?: string };
   elevenlabs?: { voice_id?: string };
-  telnyx?: { from_e164?: string; to_e164?: string; public_key?: string; voice_name?: string };
+  telnyx?: {
+    from_e164?: string;
+    to_e164?: string;
+    public_key?: string;
+    voice_name?: string;
+    /** S23: the Call Control application an outbound dial is placed through. */
+    connection_id?: string;
+  };
 };
 
 const SITE_PATH = process.env.JARVIS_SITE_YAML ?? "/etc/jarvis/site.yaml";

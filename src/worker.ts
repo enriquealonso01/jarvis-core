@@ -9,6 +9,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { sweepCallDeadlines } from "./callcontrol.js";
+import { sweepOutboundCalls } from "./outbound.js";
 
 const WORKER_ID = process.env.WORKER_ID ?? "system-1";
 const ARTIFACTS = ARTIFACTS_DIR;
@@ -387,6 +388,13 @@ async function main() {
       // with the process. Swept from out here, a call survives an API restart.
       for (const note of await sweepCallDeadlines(pool).catch(() => [] as string[])) {
         console.log(`call sweep: ${note}`);
+      }
+      // S23: the six reasons Jarvis may ring Enrique, and no others.
+      for (const note of await sweepOutboundCalls(pool).catch((err) => {
+        console.error("outbound call sweep failed:", err instanceof Error ? err.message : err);
+        return [] as string[];
+      })) {
+        console.log(`outbound: ${note}`);
       }
       await reapWorktrees(pool).catch(() => undefined);
       const id = await claimTask(pool, "system", WORKER_ID);

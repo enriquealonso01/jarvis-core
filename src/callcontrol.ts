@@ -179,6 +179,60 @@ async function command(
 }
 
 /**
+ * Dial out (plan S23).
+ *
+ * The same carrier, the same voice, the same state machine as an inbound call —
+ * the only difference is who started it. Telnyx answers with a
+ * `call_control_id`, and from that moment every event arrives on the webhook
+ * exactly as it does for a call that came in, so nothing downstream needs to
+ * know which direction it went.
+ */
+export async function telnyxDial(
+  pool: pg.Pool,
+  args: { to: string; from: string; callId: string },
+): Promise<{ ok: boolean; callControlId: string | null; detail: string }> {
+  const key = await telnyxKey(pool);
+  if (!key) return { ok: false, callControlId: null, detail: "no telnyx credential" };
+  const connectionId = sitePin((c) => c.telnyx?.connection_id) ?? "";
+  if (!connectionId) {
+    return { ok: false, callControlId: null, detail: "no telnyx connection_id pinned in site.yaml" };
+  }
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 20_000);
+  try {
+    const res = await fetch(`${TELNYX_API}/calls`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: args.to,
+        from: args.from,
+        connection_id: connectionId,
+        // Carried back on every event for this call, so the webhook knows which
+        // outbound row it belongs to without a lookup table.
+        client_state: Buffer.from(`out:${args.callId}`).toString("base64"),
+        timeout_secs: 30,
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) {
+      const detail = (await res.text()).replace(/\s+/g, " ").slice(0, 200);
+      return { ok: false, callControlId: null, detail: `telnyx refused the dial: ${res.status} ${detail}` };
+    }
+    const json = (await res.json()) as { data?: { call_control_id?: string } };
+    const ccid = json.data?.call_control_id ?? null;
+    return { ok: Boolean(ccid), callControlId: ccid, detail: ccid ? "ringing" : "no call_control_id returned" };
+  } catch (err) {
+    return {
+      ok: false, callControlId: null,
+      detail: `telnyx dial threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Who is allowed to talk to Jarvis by phone.
  *
  * Caller ID is trivially spoofed on the PSTN, so matching `owner_e164` alone
