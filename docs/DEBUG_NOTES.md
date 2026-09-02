@@ -25,6 +25,7 @@ is two or three entries, and it is where the time is actually saved.
 
 **Phone**
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
+- [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
 - [One utterance produced several replies, and the call ran away](#one-utterance-produced-several-replies-and-the-call-ran-away)
 - [A python edit that asserted its anchors, failed, and left nothing behind](#a-python-edit-that-asserted-its-anchors-failed-and-left-nothing-behind)
@@ -120,6 +121,24 @@ is two or three entries, and it is where the time is actually saved.
 ---
 
 ## Phone
+
+### A pleasantry became a heavy task, twice over
+**Symptom:** a task titled `Hello, can you finish what you were saying?` in the
+heavy lane, with no project.
+**Not the router.** The router got this right - it classified the sentence
+`question` and filed nothing. The task came from the phone HANDOVER, which
+called `createTask` with `projectId: null` unconditionally whenever the phone
+budget expired and the router had filed nothing. So any turn the desk was slow
+to answer produced heavy work titled with the raw utterance, whether or not
+there was anything to do.
+**Fix:** `handoverTaskFor` - no project, no task. Heavy work needs a repository;
+without one there is nothing to check out and nothing to read, and the desk
+answers into the thread regardless, task or no task. A scoped conversation still
+files its task and it carries the project.
+**Where to look next time:** the routing verdict is stored on the inbox event
+(`route_category`, `route_segments`), so "what did the router think" is one
+query and does not need guessing. It said `question`. Believing the title of the
+task instead would have sent the fix into the classifier, which was not wrong.
 
 ### A CRITICAL isolation alert for an `ls`
 **Symptom:** `[isolation] harness wrote outside the worktree`, critical, evidence
