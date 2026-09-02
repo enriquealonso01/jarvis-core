@@ -405,6 +405,68 @@ export function toolCalls(event: Record<string, unknown>): { name: string; detai
  * this lived inline at the call site, where a test could assert what
  * `escapedPath` does with a list and nothing at all about the list it is given.
  */
+/**
+ * Turn a ladder refusal into a ticket that names the right remedy.
+ *
+ * Every failure to find an engine raised the same ticket: "[harness] no usable
+ * subscription login for the heavy lane", with the required action "Complete
+ * the Claude Code host login on the VPS". One of those sat in
+ * `waiting_for_user` while the actual reason, sitting in its own evidence
+ * field, was `anthropic_personal is not allowlisted for this project` - an
+ * allowlist row, nothing to do with a login, and the login in question was
+ * already done. A ticket that names the wrong remedy costs more than no ticket:
+ * it sends Enrique to redo something that already works.
+ *
+ * The reasons are matched on the strings the ladder actually produces, listed
+ * here so the next one can be added by reading this rather than by guessing.
+ */
+export function harnessIssueFor(reason: string): {
+  category: string;
+  title: string;
+  dedupeKey: string;
+  requiredAction: string;
+} {
+  if (/not allowlisted/i.test(reason)) {
+    return {
+      category: "config.invalid",
+      title: "[harness] no engine is allowlisted for this project",
+      dedupeKey: "harness.allowlist",
+      requiredAction:
+        "Allowlist an engineering profile for this project. The logins are fine - this is the "
+        + "per-project allowlist, which fails closed by design (S12b), so a new project has no "
+        + "engine until one is granted.",
+    };
+  }
+  if (/no completed host login/i.test(reason)) {
+    return {
+      category: "provider.cred_expired",
+      title: "[harness] no usable subscription login for the heavy lane",
+      dedupeKey: "setup.harness.login",
+      requiredAction: "Complete the Claude Code host login on the VPS as the jarvis user (ADR 006).",
+    };
+  }
+  if (/does not exist/i.test(reason)) {
+    return {
+      category: "config.invalid",
+      title: "[harness] this task asks for an auth profile that does not exist",
+      dedupeKey: "harness.profile.missing",
+      requiredAction:
+        "The task names an auth profile Jarvis has no record of. Fix the task, or add the profile "
+        + "on the Connections page.",
+    };
+  }
+  /*
+   * Anything else keeps the reason itself as the action. Inventing a remedy for
+   * a failure mode nobody has seen is how the misleading ticket above was born.
+   */
+  return {
+    category: "provider.cred_expired",
+    title: "[harness] no engine could take this task",
+    dedupeKey: "harness.no-route",
+    requiredAction: `The engineering ladder refused every route. It said: ${reason}`,
+  };
+}
+
 export function allowedPathsFor(slug: string | null, taskId: string): string[] {
   /*
    * What a task may touch under the root, as a LIST rather than as prose
@@ -955,19 +1017,8 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
 
   const profile = await resolveProfile(pool, task);
   if ("error" in profile) {
-    await park(
-      pool,
-      taskId,
-      "waiting_for_provider",
-      profile.error,
-      {
-        category: "provider.cred_expired",
-        title: "[harness] no usable subscription login for the heavy lane",
-        dedupeKey: "setup.harness.login",
-        requiredAction: "Complete the Claude Code host login on the VPS as the jarvis user (ADR 006).",
-      },
-      task.project_id,
-    );
+    await park(pool, taskId, "waiting_for_provider", profile.error,
+      harnessIssueFor(profile.error), task.project_id);
     return;
   }
 
