@@ -1301,6 +1301,11 @@ recorded on the task.
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
 
+**The output scrubber and its canary test** *(Part V asserted "never logged" and
+nothing enforced it).* Build the filter and the canary, and run the canary before
+this step is called done — the claim has been in the plan since the beginning
+with nothing behind it.
+
 **Internal HMAC idempotency** *(IV.7 named it; no step owned it).* Dedupe
 internal posts on their request id. It is the smallest of the five sources and
 the easiest to skip, which is why it is written down.
@@ -2281,6 +2286,35 @@ is worse than one in a log, because the audit trail is the thing kept forever.
 # PART V — SECURITY AND ISOLATION
 
 - **Secrets**: envelope encryption, master key on disk at 0400, per-credential DEKs. Never in git, never in logs, never in `NEXT_PUBLIC_`.
+
+### "Never logged" has to be proved, not asserted
+
+It is the easiest security property to state, the easiest to violate by accident,
+and invisible until the day it matters. Three mechanisms, because the property
+does not survive on good intentions:
+
+**A scrubber on the way out.** Every log line, issue evidence blob, audit
+`metadata` and artifact passes a filter that replaces any currently-live
+credential value with `[redacted:<connection-slug>]`. It matches on the actual
+decrypted values held in memory, not on patterns — pattern matching finds
+`sk-...` and misses a 44-character password.
+
+**A canary test.** Seed a credential whose value is a known unique string,
+exercise the system hard — a harness run, a failed provider call, a broker
+denial, a crash — then grep **every** log, audit row, issue, artifact and
+transcript for that string. Expect zero hits. This is the same "assert the
+absence" technique that S12 used for isolation, and it is the only way to turn an
+unfalsifiable claim into a test.
+
+**The tension with keeping provider error bodies, resolved.** `DEBUG_NOTES.md`
+says to store the provider's response body rather than the bare status code,
+because a bare status turned a five-minute diagnosis into an afternoon. Provider
+errors sometimes echo the request, including the `Authorization` header. Both
+rules are right and they conflict, so: **store the body, scrubbed.** Never drop
+the body to stay safe — that reintroduces the original bug — and never store it
+raw. If the scrubber cannot be trusted with a particular provider's shape, store
+the body and mark the row for redaction review rather than choosing between
+diagnosis and safety.
 - **Network**: no public SSH; Tailscale for admin; Caddy terminates TLS; Postgres bound to localhost; `/internal` is HMAC-only and not proxied.
 - **GitHub**: the personal admin credential is broker-only and is used solely to create repositories. A project worker gets only its own repo's deploy key. Professional repos never touch the personal credential.
 - **Professional projects**: dedicated unix user, project-owned model accounts only, no free or consumer endpoint whose terms permit training on submitted data. The Ticketflipping Anthropic subscription is used **only** for Ticketflipping.
@@ -2735,6 +2769,7 @@ below come from the planning conversation and are the point of the exercise.
 - **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
 - **N6** production deploy refused without a live approval
 - Search scoped to project A never returns project B (S18)
+- **The secret canary**: a credential with a known unique value, the system exercised until something fails, then every log, audit row, issue, artifact and transcript grepped for it. **Zero hits.** A property this easy to state needs a test this blunt
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
