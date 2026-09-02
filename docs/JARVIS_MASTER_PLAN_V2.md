@@ -368,13 +368,52 @@ So the watchdog reads two signals, not one:
 - **Heartbeat** — the process exists and its loop is turning.
 - **Progress events** — it did something: opened the repository, ran the tests, modified a file, called a tool. Every worker emits these as it goes.
 
-Alive with no progress for the silence window is **stuck**, and treated as such —
-CPU and network activity are corroborating evidence, not the verdict, because a
-process can spin busily while achieving nothing.
+The discrimination that matters is between these two:
 
-Recovery is: inspect → attempt recovery → terminate if necessary → restore from
-checkpoint → a new worker resumes. `running → stalled → recovering → running`,
-each step written down and visible in the console. **The task never disappears.**
+> *"pytest is legitimately running for six minutes."*
+> *"The agent has been doing absolutely nothing for six minutes."*
+
+They look identical from the agent's progress stream — a test suite emits no
+agent events either. So the tie-breaker is the **child process**: a spawned
+command burning CPU or waiting on the network is legitimate work, and the
+watchdog waits. No agent progress *and* no working child is stuck.
+
+This corrects the simpler rule of "alive with no progress is stuck", which would
+have killed every long test run on the box.
+
+The watchdog therefore reads: worker heartbeat, agent progress events, CPU and
+memory, child-process state, browser state, harness state, task duration,
+**repeated identical actions** (`agent.repeat`), tool errors, network waits, and
+queue health.
+
+### The recovery ladder
+
+Recovery escalates from cheapest to most expensive, and stops at the first rung
+that works. Jumping straight to a worker restart turns a two-second network blip
+into a lost quarter-hour:
+
+1. **Wait** — most stalls resolve themselves.
+2. **Nudge** — re-prompt the agent with its own last progress event.
+3. **Retry** the failed operation.
+4. **Reset** the tool or browser.
+5. **Restart the worker.**
+6. **Restart the coding session.**
+7. **Resume from checkpoint** with a fresh worker.
+8. **Switch model** within the approved pool.
+9. **Switch harness** (S28's runtime interface is what makes this possible).
+10. **Ask Enrique.**
+
+Every rung is recorded on the task, so the timeline shows what was tried rather
+than a bare "recovered". Each rung has its own limit and backoff — **repeated
+failure must never become an infinite retry loop**, and a ladder without limits
+is exactly how one is built.
+
+Rungs 8 and 9 are the interesting ones: they mean a task blocked by a *model's*
+inability rather than a *system* fault can still finish. That is only available
+because models and harnesses are both replaceable parts (II.2b).
+
+`running → stalled → recovering → running`, each step written down and visible in
+the console. **The task never disappears.**
 
 ### What a checkpoint must contain
 
