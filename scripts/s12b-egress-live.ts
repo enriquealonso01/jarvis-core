@@ -70,24 +70,27 @@ async function main(): Promise<void> {
   console.log(`  ${available.reason}`);
   if (!available.ok) throw new Error(available.reason);
 
-  console.log("\n########## and it is still not root in there ##########\n");
+  console.log("\n########## the blackhole routes actually installed ##########\n");
   {
     /*
-     * The namespace used to be created with `unshare -r`, which maps the caller
-     * to uid 0 inside it. That is the ordinary way to get the capabilities a
-     * network namespace needs, and it had a consequence nobody was looking for:
-     * Claude Code 2.1.252 refuses `--permission-mode bypassPermissions` when it
-     * finds itself running as root, so EVERY heavy task on Claude failed
-     * terminally with zero tool calls and a stderr line about sudo.
+     * They are added with `2>/dev/null`, so a failure to install them is
+     * SILENT — and the only symptom is a harness that can suddenly reach the
+     * Docker network. That is not hypothetical: switching the namespace to
+     * `unshare -c`, to stop the harness being root inside it, cleared
+     * capabilities on execve, every `ip route add` failed with EPERM, and the
+     * containment quietly disappeared while every other assertion here stayed
+     * green until the Docker-network one caught it.
      *
-     * `-c` maps the user to itself and still owns the namespace. This asserts
-     * the identity, because the network assertions below passed happily
-     * throughout — isolation was never the thing that broke.
+     * So the routes are asserted directly rather than only their consequence.
+     * A test that checks a consequence tells you something broke; one that
+     * checks the mechanism tells you what.
      */
-    const who = await inNamespace(`id -u`);
-    console.log(`  uid inside the namespace: ${who.out}`);
-    truthy("the harness is not uid 0 inside its own namespace", who.out !== "0");
-    check("it is the same unprivileged user as outside", process.getuid?.().toString() ?? "?", who.out);
+    const routes = await inNamespace(`ip route show | grep -c unreachable || echo 0`);
+    console.log(`  unreachable routes inside the namespace: ${routes.out}`);
+    check("all three private ranges are blackholed", "3", routes.out);
+
+    const transit = await inNamespace(`ip route show | grep -c '10.0.2.0/24' || echo 0`);
+    truthy("and slirp's own transit survived the 10/8 blackhole", Number(transit.out) >= 1);
   }
 
   console.log("\n########## what the run can still do ##########\n");

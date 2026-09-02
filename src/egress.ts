@@ -78,29 +78,27 @@ export async function planEgress(): Promise<EgressPlan> {
     isolated: true,
     command: "/usr/bin/unshare",
     /*
-     * `-c` (--map-current-user), NOT `-r` (--map-root-user).
+     * `-r` (--map-root-user), and it has to be.
      *
-     * `-r` was here because an unprivileged user cannot create a network
-     * namespace without capabilities, and mapping to root in a new user
-     * namespace grants them. It works, and it has a consequence nobody looked
-     * for: inside the namespace the harness IS uid 0. Claude Code 2.1.252
-     * refuses to bypass permissions as root — "--dangerously-skip-permissions
-     * cannot be used with root/sudo privileges for security reasons" — so every
-     * heavy task on Claude failed terminally with zero tool calls, and the
-     * runner reported it as a harness crash.
+     * An unprivileged user cannot create a network namespace, and mapping to
+     * root in a new USER namespace is how the capabilities are obtained. The
+     * obvious-looking alternative, `-c` (--map-current-user), was tried and is
+     * wrong: capabilities are cleared on execve for a non-root euid, so
+     * `ip route add unreachable ...` inside the namespace fails with EPERM. The
+     * blackhole routes are added with `2>/dev/null`, so that failure is SILENT
+     * and the only symptom is a harness that can suddenly reach the Docker
+     * network. Measured, not assumed: `-r` ROUTE_ADDED, `-c` "RTNETLINK
+     * answers: Operation not permitted".
      *
-     * `-c` maps the current user to ITSELF and still makes it the owner of the
-     * new user namespace, which is where the capabilities come from. Verified on
-     * the box: uid stays 1000, `unshare -cn` yields a namespace with only a
-     * down `lo`, and slirp4netns still brings up tap0 at 10.0.2.100/24 with DNS
-     * resolving. Same isolation, without telling the harness it is root.
-     *
-     * It is also more honest. ADR 016 went to some trouble to run the harness as
-     * an unprivileged, per-project user; handing it a namespace where it
-     * believes itself root undoes the story that code tells, even if the outer
-     * uid is unchanged.
+     * Being root inside the namespace made Claude Code 2.1.252 refuse to run
+     * ("--dangerously-skip-permissions cannot be used with root/sudo
+     * privileges"), which is what sent this looking. The answer is not to give
+     * up the capabilities; it is to tell the vendor the truth — see IS_SANDBOX
+     * in `runtime.ts`. It really is externally sandboxed: its own network
+     * namespace with no route to Jarvis, a dedicated unix user, and a path
+     * tripwire that kills the run.
      */
-    args: ["-cn", "--fork", "--pid", "--mount-proc", "/bin/sh", "-c", waiter(sentinel)],
+    args: ["-rn", "--fork", "--pid", "--mount-proc", "/bin/sh", "-c", waiter(sentinel)],
     sentinel,
     async ready(pid: number) {
       slirp = spawn(

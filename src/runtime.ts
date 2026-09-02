@@ -106,7 +106,26 @@ class ClaudeLikeRuntime implements AgentRuntime {
          */
         "--permission-mode", "bypassPermissions",
       ],
-      env: { CLAUDE_CONFIG_DIR: args.authDir },
+      env: {
+        CLAUDE_CONFIG_DIR: args.authDir,
+        /*
+         * A true statement, not a workaround.
+         *
+         * Claude Code 2.1.252 refuses to bypass permissions when it finds
+         * itself running as root, and inside Jarvis's egress namespace it IS
+         * root — `unshare -r` is how an unprivileged runner obtains the
+         * capabilities to build the namespace and install its blackhole routes
+         * (see `egress.ts`). Without this, every heavy task on Claude failed
+         * terminally with zero tool calls and a stderr line about sudo.
+         *
+         * The flag exists for exactly this case: a process that is externally
+         * sandboxed by something the CLI cannot see. Here that is its own
+         * network namespace with no route to Jarvis, a dedicated unix user
+         * (ADR 016), and a path tripwire that kills the run. If any of those
+         * three ever stop being true, this line becomes a lie and should go.
+         */
+        IS_SANDBOX: "1",
+      },
     };
   }
 
