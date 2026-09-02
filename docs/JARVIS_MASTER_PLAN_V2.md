@@ -577,6 +577,48 @@ A project is a security boundary. Concretely:
 - Professional and confidential projects get a dedicated unix user, created at project-create time. Until that exists, the heavy lane refuses them.
 - The Supervisor, Improvement, and Maintenance never use a project-owned auth profile.
 
+### The harness reaches the network, and the path guard does not help
+
+The third and broadest instance of the same pattern. S32 found that a browser
+bypasses the broker by clicking; S31 found that an MCP server bypasses it by
+holding its own credentials. **The coding harness bypasses it by having a
+shell.**
+
+It runs arbitrary commands in a worktree with network access. `escapedPath`
+guards the filesystem — that is the S12 fix and it works — but a secret does not
+leave by a path. It leaves by `curl`, or by a postinstall script in a dependency,
+or by a test that phones home. The path guard cannot see any of that.
+
+**Full egress allowlisting is not practical in V1, and pretending otherwise
+would produce a rule that gets disabled the first week.** A build pulls from
+registries, CDNs, and whatever a transitive dependency decided to use; a project's
+own tests hit whatever they hit. An allowlist that breaks every second build is
+an allowlist someone turns off.
+
+So: what is enforceable now, stated as a rule, and the rest deferred honestly.
+
+**The harness must not be able to reach Jarvis.** From the worktree's network
+namespace, deny `127.0.0.1`, the host's own addresses, and the Docker network:
+
+- the API, and `/internal/*` in particular — HMAC-only, but the HMAC secret lives in the environment of processes on that box
+- Postgres on `127.0.0.1:5432`
+- the OpenClaw gateway
+- the Docker socket
+
+A harness that can POST to `/internal/inbox/ingest` or open a Postgres connection
+has stepped around every control in Part IV at once, and it does not need a bug
+to do it — only a plausible-looking command.
+
+**Everything else is logged, not blocked.** Record the hosts each run contacted,
+surface anything new for that project, and let Maintenance flag a run that talked
+to somewhere the project has never talked to before. Detection is weaker than
+prevention and it is what is affordable; **saying which one we have is better
+than implying the stronger one.**
+
+Full per-project egress allowlisting needs its own ADR, a measurement of what
+real builds actually contact, and somewhere for a legitimate new host to be
+approved without stopping the run.
+
 ### What the path guard must cover, enumerated
 
 The plan described isolation in prose and left the guard to infer its own list.
@@ -3062,6 +3104,7 @@ below come from the planning conversation and are the point of the exercise.
 - **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
 - **N6** production deploy refused without a live approval
 - Search scoped to project A never returns project B (S18)
+- **The harness cannot reach Jarvis**: from inside a run, attempt `/internal/inbox/ingest`, a Postgres connection, and the OpenClaw gateway. All three refused at the network layer, not by the application. **An application-layer refusal proves the wrong thing** — it proves the request arrived.
 - **The secret canary**: a credential with a known unique value, the system exercised until something fails, then every log, audit row, issue, artifact and transcript grepped for it. **Zero hits.** A property this easy to state needs a test this blunt
 
 ## Gate 4 — It is usable
