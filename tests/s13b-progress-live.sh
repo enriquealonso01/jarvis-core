@@ -26,9 +26,15 @@ fail() { echo "  FAIL - $1"; fails=$((fails+1)); }
 
 served_steps() { curl -s "$URL/PROGRESS.json?t=$RANDOM" | python -c "import json,sys; print(json.load(sys.stdin)['total_steps'])" 2>/dev/null || echo ERR; }
 
-echo "1. PROGRESS.json is served as JSON"
-ct=$(curl -s -o /dev/null -w '%{content_type}' "$URL/PROGRESS.json")
-case "$ct" in application/json*) ok "content-type $ct";; *) fail "content-type was $ct";; esac
+echo "1. what is served IS what is published"
+# Not just "is it JSON": the 503 this route returns for a missing file is also
+# application/json, so a content-type check alone goes green on an outage. The
+# assertion is that the numbers on the bar are main numbers.
+want=$(git show origin/main:PROGRESS.json | python -c "import json,sys; print(json.load(sys.stdin)['total_steps'])")
+got=$(served_steps)
+[ "$got" = "$want" ] && ok "total_steps $got matches origin/main" || fail "serving $got, main says $want"
+has_working=$(curl -s "$URL/PROGRESS.json?t=$RANDOM" | python -c "import json,sys; print('yes' if json.load(sys.stdin).get('working_on') else 'no')" 2>/dev/null)
+[ "$has_working" = "yes" ] && ok "working_on present" || fail "working_on missing - the bar cannot say what is being built"
 
 echo "2. BLOCKED.md is the file, not the SPA"
 # Asserted on the CONTENT, not merely on not-being-HTML. The first version of
