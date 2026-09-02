@@ -58,6 +58,19 @@ unblocked, finish it before starting anything new.
   fired, and I will not claim it until a message arrives and OpenClaw stays
   silent. Send me any message after pairing and I will check.
 - **Raised:** 2026-09-02 22:20
+- **Since then:** the channel being *configured but not linked* changed the
+  failure text from `Channel is unavailable: whatsapp` to `OutboundDeliveryError:
+  No active WhatsApp Web listener`, which the deferral did not recognise - nine
+  queued notifications burned their whole retry budget in one sweep before I
+  caught it. Both strings now defer, the decision is a named function with the
+  real strings under test, and all 19 are back at `attempts = 0`.
+- **Voice notes are ready too:** audio is stored as a `raw_audio` artifact on the
+  same 7-day clock as call audio, transcribed with Groq Whisper, and the
+  transcript is routed exactly like typed text - including the untrusted rule, so
+  a FORWARDED voice note is filed as somebody else's words and obeys nothing.
+  Proven live by posting payloads at `/internal/inbox/ingest`. What the bridge
+  cannot know until you pair is which field carries the audio; it handles the
+  three the plugin uses and logs the shape of the first real one.
 
 ## WhatsApp is not paired, and 19 notifications are waiting on it
 
