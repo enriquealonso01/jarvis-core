@@ -588,6 +588,40 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### A line in an activity feed took down a state transition
+**Symptom:** S3c went from 22/22 to 9/22 after S18 added an activity feed.
+Symptoms in the database: a task that had genuinely been `running` ended
+`queued` with **zero attempts**, no delivered context and no checkpoint — a
+finished run that looked abandoned.
+**Cause:** `transitionTask` gained a feed write for the interesting states, and
+the metadata query plus the `await import("./search.js")` sat OUTSIDE any catch.
+`search.ts` pulls the whole route surface and `requireUser` with it; importing
+that inside the runner threw, the exception propagated out of `transitionTask`,
+and the runner's completion path died half-way — after the state change and
+before everything that follows it.
+**Fix:** two things, and both were needed. The feed write is wrapped whole, so
+nothing in it can fail a transition. And the writers moved to `src/activity.ts`,
+a leaf module with no route imports, so a hot path never drags the API surface
+into the runner for the sake of one INSERT.
+**Lesson:** anything added to a path as central as a state transition has to be
+unable to throw, and a dynamic import in that path imports everything the target
+module imports. Observability that can break the thing it observes is worse than
+no observability.
+
+### A script edited and run in the same command runs the version bash already read
+**Symptom:** twice — adding s16 and then s18 to `scripts/sweep.sh` and running the
+sweep in the same shell command produced a table with every suite EXCEPT the one
+just added. The file on disk plainly contained it.
+**Cause:** bash reads a script lazily, by byte offset, and the sweep was launched
+from a compound command that had already been parsed. Editing the file underneath
+a shell that is partway through it is undefined behaviour, and here it silently
+ran the older text.
+**Fix:** edit, then run in a SEPARATE command. Both times the second run was
+correct with no other change.
+**Lesson:** "the file says so" is not evidence that the process running it saw
+that. Anything that edits a script and then executes it needs the execution to be
+a new invocation, or the result is about a version that no longer exists.
+
 ### The keyboard test pressed Enter on whatever it found, and cancelled the task
 **Symptom:** L17's keyboard half started failing at "the health strip opens with
 Enter", and then the next three journeys failed too — the task they used had

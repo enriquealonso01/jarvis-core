@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "f8d203fca792f3efbb5e1fad11188fe418df6f70",
+  "plan_sha": "af862f6265bd8251739ca1564c262ab9c945923d",
   "total_steps": 37,
-  "updated_at": "2026-09-02T07:08:40.700Z",
+  "updated_at": "2026-09-02T08:02:33.605Z",
   "current_step": "S12",
   "steps": [
     {
@@ -139,14 +139,16 @@
       "title": "Artifacts and output control",
       "stage": 3,
       "state": "done",
-      "evidence": "75 assertions: 57 API + 18 browser. All twelve types render; provenance recorded AT registration; the full state path plus both exits; a rejection with a note creates a queued task against the same project; v2 supersedes v1 with both surviving and a line-level compare; superseding at the same path is REFUSED because the old bytes would be gone; quarantined artifacts cannot be downloaded at all; fifty artifacts paginate; a run with no output says so.",
-      "pr": 68
+      "pr": 68,
+      "evidence": "75 assertions: 57 API + 18 browser. All twelve types render; provenance recorded AT registration; the full state path plus both exits; a rejection with a note creates a queued task against the same project; v2 supersedes v1 with both surviving and a line-level compare; superseding at the same path is REFUSED because the old bytes would be gone; quarantined artifacts cannot be downloaded at all; fifty artifacts paginate; a run with no output says so."
     },
     {
       "id": "S18",
       "title": "Global search, the command palette, and the activity feed",
       "stage": 3,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone.",
+      "pr": 71
     },
     {
       "id": "S19",

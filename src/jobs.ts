@@ -34,6 +34,42 @@ export async function transitionTask(
     [taskId, from, toState, cause, actor],
   );
   sseBroadcast("task.updated", { id: taskId, state: toState });
+
+  /*
+   * Only the states a person would want to read about. Every transition would
+   * make the feed a log of the state machine, which is what task_transitions
+   * already is and what nobody scrolls.
+   */
+  /*
+   * Wrapped whole, and deliberately: a line in a feed must never be able to
+   * break a state change. The first version left the metadata query and the
+   * dynamic import outside a catch, so anything that threw in either took the
+   * transition down with it — and a transition that half-happened is how a
+   * finished run ends up looking abandoned.
+   */
+  if (["succeeded", "failed_terminal", "waiting_for_user", "waiting_for_provider", "stalled"].includes(toState)) {
+    try {
+      const meta = await pool.query<{ title: string; project_id: string | null }>(
+        "SELECT title, project_id FROM tasks WHERE id = $1",
+        [taskId],
+      );
+      const row = meta.rows[0];
+      if (row) {
+        const { recordActivity } = await import("./activity.js");
+        await recordActivity(pool, {
+          projectId: row.project_id,
+          kind: "task",
+          subjectId: taskId,
+          title: `${row.title} — ${toState.replace(/_/g, " ")}`,
+          detail: cause,
+          actor,
+          href: `/work/?task=${taskId}`,
+        });
+      }
+    } catch {
+      /* the feed is not worth a failed transition */
+    }
+  }
 }
 
 /**

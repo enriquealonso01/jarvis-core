@@ -1,4 +1,6 @@
 import { connectClient, createPool } from "./db.js";
+import { hostMetrics } from "./hostmetrics.js";
+import { sampleResources } from "./activity.js";
 import { startSseBridge } from "./sse.js";
 import { claimTask, runSystemTask, transitionTask } from "./jobs.js";
 import { backoffSeconds, raiseIssue } from "./notify.js";
@@ -322,6 +324,22 @@ async function main() {
   // useful thing the console can show live, and it was happening in a process
   // no browser is connected to.
   await startSseBridge(connectClient, { listen: false }).catch(() => undefined);
+
+  /*
+   * S18: keep the history the trend needs.
+   *
+   * Host metrics were computed live and thrown away, so the console could say
+   * "disk is at 84%" and never "disk has climbed nine points this week", and
+   * Maintenance could only act after a threshold rather than before it. One
+   * sample every five minutes is 288 rows a day — nothing, and enough for a
+   * slope.
+   */
+  const sampler = setInterval(() => {
+    void hostMetrics().then((h) => sampleResources(pool, h)).catch(() => undefined);
+  }, 5 * 60_000);
+  sampler.unref();
+  void hostMetrics().then((h) => sampleResources(pool, h)).catch(() => undefined);
+
   console.log(`worker ${WORKER_ID} starting`);
   for (;;) {
     try {

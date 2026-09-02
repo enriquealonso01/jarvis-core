@@ -115,5 +115,17 @@ export async function createTask(
   // Work view has a trail and STATE_MACHINES stays true.
   await transitionTask(pool, id, "classified", args.cause, "supervisor");
   await transitionTask(pool, id, "queued", args.cause, "supervisor");
+  // S18: "what has been happening on Alpha" is a different question from "who
+  // did what to the system", and this is the feed that answers it.
+  const { recordActivity } = await import("./activity.js");
+  await recordActivity(pool, {
+    projectId: args.projectId,
+    kind: "task",
+    subjectId: id,
+    title: args.title.slice(0, 200),
+    detail: args.cause,
+    actor: "jarvis",
+    href: `/work/?task=${id}`,
+  });
   return id;
 }
