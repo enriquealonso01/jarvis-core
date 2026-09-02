@@ -1335,6 +1335,32 @@ bug and stop trusting the page.
 matter most: a screen showing real numbers from twenty minutes ago, with no
 indication of that, is worse than a screen showing nothing.
 
+### A stat has to be defined before a page can be audited against it
+
+The audit above compares every page against real API fields. **The project card
+is where that comparison fails quietly**, because one item on it is not a fact the
+system holds. Name, type, repo, current work, open tasks, PRs, connection health
+and recent failures are direct reads. **"Time spent" is a decision nobody has
+made.**
+
+It also collides with the rule this step sets three paragraphs up. `unknown` must
+never render as `0` — correct — so a stat with no agreed source renders `unknown`
+on every card forever, and **a card with a permanently unknown field reads as
+broken rather than as honest.**
+
+The obvious definitions are each wrong in a specific way:
+
+- **Agent seconds** measures Jarvis's difficulty, not Enrique's investment. A project where forty minutes went into retrying a dead credential outranks one where three PRs shipped.
+- **Wall-clock since first activity** only ever increases. After a month every project reads *"six weeks"* and the column is dead weight.
+- **His own hours** are not visible to Jarvis at all. He works in an editor, not in here.
+
+What the card is *for* is answering **"which of these is real work right now"** at
+a glance. So:
+
+- **Time spent is executing time plus his conversation time, over a bounded recent window** — last 30 days on the card, all-time on the project's Overview but never as the headline. The bounded window is what lets the number *fall* when a project goes quiet, and falling is the only behaviour that makes it useful for deciding where to look.
+- **Retry and failure time is counted separately, never folded in.** A project that fought Jarvis all week must not look like a project that got a week of work done.
+- **Live or dormant is computed, never declared** — no activity in N days. A status somebody has to remember to set is a status that is wrong within a fortnight.
+
 ### Accessibility and mobile quality
 
 Not decoration — this console is used one-handed, on a phone, often outdoors,
@@ -1358,6 +1384,10 @@ sometimes while doing something else:
 - Run it in greyscale. Every status must still be readable — this is the fastest possible test for colour-alone information and it takes one minute.
 - **Colour audit**: every use of green, amber, red and purple in the console means what I.3 says it means. One decorative green is enough to make the next real green ambiguous.
 - Open Home, Work detail and a page built after this step side by side. They must look like the same product.
+- **Every stat on the project card traces to a query.** Anything that cannot is removed from the card rather than shipped as a permanent `unknown` — a card is not the place to admit an unfinished decision.
+- **A project with a week of failed retries and no completed work does not outrank one with three merged PRs.** Put the two cards side by side; this is the only test that catches the *definition* being wrong rather than the query.
+- Stop touching a project for the dormancy window → it goes dormant by itself, with nothing set by hand.
+- All-time and last-30-days differ for a long-running project, and the card shows the windowed one.
 - **System Health against VII.1, item by item.** Every service group present, every provider showing all six fields, the incident timeline carrying recovery actions. A missing signal shows as missing, not as healthy — **absence of data must never render as absence of problems.**
 - Turn on reduced-motion and confirm nothing pulses, hatches or animates.
 - Install it as a PWA on the phone and complete one full journey from the home-screen icon.
