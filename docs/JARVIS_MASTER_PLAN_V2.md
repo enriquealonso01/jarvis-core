@@ -1553,9 +1553,7 @@ So authority is graded by what the channel can actually establish:
 - **Attestation A → normal Level 1 and Level 2 authority**, as any other channel.
 - **Level 3 is never satisfiable by voice.** Not attested, not with a spoken confirmation, not ever. Production deploys, deletions, purchases and credential rotation do not happen because a voice said so — the channel is too weak to authenticate and too lossy to be sure of the words.
 
-The general shape, and it is the same one the browser and MCP steps reached:
-**capability follows the strength of what the channel proves, not the convenience
-of where the request arrived.**
+This is IV.6b rule 2, applied to the channel that proves least.
 
 **Build**
 - A real per-call state machine — `ringing → greeting → listening → thinking → speaking → closing` — persisted, not held in a module-level map that a restart erases mid-call.
@@ -2213,10 +2211,7 @@ So Mode 1 is built with the gate inside it:
 - **Every action leaves evidence**: the URL, the element, a screenshot before and after. A browser agent that changed something and cannot show what it clicked is indistinguishable from one that changed something else.
 - **Never on a production system** without the same live approval a deploy would need. The surface being a web page changes nothing about what is behind it.
 
-The general rule, because this will not be the last route that sidesteps the
-broker: **an authorization model that only covers typed calls covers only the
-paths we thought of.** Any capability that can reach the outside world gets the
-gate built into it, not bolted beside it.
+The general shape this belongs to is IV.6b; this section is its browser instance.
 
 **Mode 2 — Scraping engine.** For *"collect every listing across 14,000 pages"*.
 Here the model does **not** drive the browser.
@@ -2659,6 +2654,40 @@ a live approval is refused and audited, whatever the task believed it had been
 told.
 
 ---
+
+## IV.6b The gate travels with the capability
+
+Stated once here because it was reached seven times independently — by the
+browser, MCP, Composio, the harness, the phone, WhatsApp and the console — and
+was being restated in a different vocabulary each time, which is how a long
+document starts disagreeing with itself.
+
+**An authorization model that only covers typed calls covers only the paths we
+thought of.**
+
+IV.6's three levels are enforced in the broker, on typed calls. Every capability
+that reaches the outside world can get around that simply by not being a typed
+call:
+
+| Surface | How it sidesteps the broker | Where its gate lives |
+|---|---|---|
+| Browser (Mode 1) | clicks a button instead of calling an API | S32 |
+| MCP server | holds its own credentials | S31 |
+| Composio | one connection, hundreds of services | S31 |
+| Coding harness | has a shell and a network | S12b, II.5 |
+| Phone | caller ID is not authentication, and speech is lossy | S19 |
+| WhatsApp | forwarded content is somebody else's words | S37 |
+| Console | grants the approvals every other gate resolves to | S12b |
+
+Three rules follow, and they are the same three every time:
+
+1. **The gate is built into the capability, not bolted beside it.** A check that only exists in the broker protects only what goes through the broker.
+2. **Capability follows what the channel proves, not where the request arrived.** A weakly-authenticated channel captures and proposes; it does not act unilaterally.
+3. **Whose words are these?** Content Jarvis was shown can describe a task. Only Enrique's own words can request one.
+
+Each surface's section carries its concrete rules. This is the shape they share,
+and a new surface — the eighth, whatever it turns out to be — is expected to
+answer these three before it ships rather than after someone notices.
 
 ## IV.7 Idempotency
 
