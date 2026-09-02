@@ -23,6 +23,10 @@ x-app: &app
     LOGIN_ONCE_PATH: /var/lib/jarvis/keys/login-once.txt
     JARVIS_OPERATOR_EMAIL: dev@jarvis.local
     JARVIS_ORIGIN: http://localhost:8080
+    # S16: the connection test decides from the key itself, so "the wrong key
+    # is rejected" can be tested without a real invalid credential at a real
+    # provider on every run — which is the version that never gets tested.
+    JARVIS_CONNTEST: ${JARVIS_CONNTEST:-fake}
   volumes:
     - jarvis_root:/var/lib/jarvis
   depends_on:

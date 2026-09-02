@@ -1099,7 +1099,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
         summary.slice(0, 500),
       ]).catch(() => undefined);
       await transitionTask(pool, taskId, finalState, summary.slice(0, 300), "runner", "lease_until = NULL");
-      await raiseIssue(pool, {
+      const raised = await raiseIssue(pool, {
         category: verdict.errorClass,
         service: "harness",
         owner: verdict.park ? "user" : undefined,
@@ -1119,6 +1119,37 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
           ? "This will not fix itself by retrying. Read the transcript and clear the cause."
           : "Read the run transcript artifact before retrying.",
       });
+
+      /*
+       * S16: a dead credential becomes something Enrique can FIX from a phone.
+       *
+       * The task is linked to the issue so that repairing the credential resumes
+       * this run and every other one parked on the same blocker — gate 4 asks
+       * for "all of them, not just the one that hit it first", and without the
+       * link the only way to release anything was to release everything.
+       *
+       * The action request is idempotent per issue, so five tasks hitting the
+       * same expired key produce one ticket and one link, not five.
+       */
+      if (raised.issueId) {
+        await pool
+          .query("UPDATE tasks SET blocked_by_issue_id = $2 WHERE id = $1", [taskId, raised.issueId])
+          .catch(() => undefined);
+
+        if (verdict.errorClass === "provider.cred_expired") {
+          const { ensureActionRequest } = await import("./actions.js");
+          await ensureActionRequest(pool, {
+            issueId: raised.issueId,
+            kind: "provide_api_key",
+            title: `Reconnect ${profile.id}`,
+            message:
+              `A run stopped because ${profile.id} would not authenticate: ${summary}. `
+              + "Paste a working key and the parked work starts again by itself. "
+              + "The key is stored encrypted and used only by Jarvis, for this profile.",
+            profileId: profile.id,
+          }).catch(() => undefined);
+        }
+      }
       return;
     }
 

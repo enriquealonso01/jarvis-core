@@ -182,6 +182,12 @@ async function journeyApprove(page, ids) {
 
 async function journeyReprioritise(page, ids) {
   await page.goto(`${BASE}/work/?task=${ids.queued}`, { waitUntil: "networkidle" });
+  // Wait for the DETAIL to arrive, not just for a <select> to exist. The work
+  // page fetches a hundred tasks and then the one task, and on a database with
+  // seven hundred of them the second fetch can land well after the first — so a
+  // bare 15s wait for the control failed on a page that was working and merely
+  // slow.
+  await page.waitForSelector('[data-testid="detail-state"]', { timeout: 45000 });
   await page.waitForSelector("select", { timeout: 15000 });
   await page.selectOption("select", "high");
   await sleep(1500);
@@ -290,14 +296,23 @@ async function main() {
     // 1. health, by keyboard
     await kb.goto(`${BASE}/`, { waitUntil: "networkidle" });
     await sleep(1200);
-    const summary = await tabTo(kb, "health-summary");
-    if (!summary) {
-      // The <summary> element itself is the tab stop; match on its text.
-      truthy("the health strip is reachable by Tab", await tabTo(kb, "Details"));
-    } else {
-      ok("the health strip is reachable by Tab");
-    }
-    await kb.keyboard.press("Enter");
+    /*
+     * Enter is only ever pressed on a control the walk actually FOUND.
+     *
+     * The first version pressed it regardless: when tabTo returned null the key
+     * went to whatever happened to be focused, and on the work page that was the
+     * Cancel button — so the test cancelled the task it was about to use, and
+     * every assertion after it failed for a reason that had nothing to do with
+     * the product. A test that performs destructive actions when it cannot find
+     * its target is worse than one that simply fails.
+     */
+    // The <summary> IS the tab stop, so the walk targets it directly. Matching on
+    // the span inside it never hit — a span is not focusable — and the fallback
+    // then matched the first element whose text merely contained "Details",
+    // which Enter did nothing useful to.
+    const summary = await tabTo(kb, "health-toggle", 60);
+    truthy("the health strip is reachable by Tab", summary);
+    if (summary) await kb.keyboard.press("Enter");
     await sleep(300);
     check(
       "and opens with Enter",
@@ -324,7 +339,7 @@ async function main() {
     await kb.keyboard.type("L17 keyboard: and the invoice PDF");
     const send = await tabTo(kb, "Send to the run", 20);
     truthy("so is its submit button", send);
-    await kb.keyboard.press("Enter");
+    if (send) await kb.keyboard.press("Enter");
     await sleep(1500);
     check(
       "and the run received it",

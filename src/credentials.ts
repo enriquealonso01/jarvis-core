@@ -8,17 +8,22 @@ export async function storeJsonCredential(
     payload: Record<string, string>;
     fingerprint: string;
     brokerOnly: boolean;
-    authProfileId: string;
+    /** Null for a credential that belongs to a project rather than to Jarvis. */
+    authProfileId: string | null;
     connectionSlug?: string;
+    /** Set to create/point a PROJECT-scoped connection instead of a system one. */
+    projectId?: string | null;
     replace?: boolean;
   },
 ): Promise<{ credentialId: string; fingerprint: string }> {
-  const existing = await pool.query<{ credential_id: string | null }>(
-    "SELECT credential_id FROM auth_profiles WHERE id = $1",
-    [args.authProfileId],
-  );
-  if (existing.rows[0]?.credential_id && !args.replace) {
-    return { credentialId: existing.rows[0].credential_id, fingerprint: args.fingerprint };
+  if (args.authProfileId) {
+    const existing = await pool.query<{ credential_id: string | null }>(
+      "SELECT credential_id FROM auth_profiles WHERE id = $1",
+      [args.authProfileId],
+    );
+    if (existing.rows[0]?.credential_id && !args.replace) {
+      return { credentialId: existing.rows[0].credential_id, fingerprint: args.fingerprint };
+    }
   }
 
   const master = loadMasterKey();
@@ -39,24 +44,36 @@ export async function storeJsonCredential(
       [dekRow.rows[0].id, ciphertext, nonce, args.fingerprint, args.kind, args.brokerOnly],
     );
     const credentialId = cred.rows[0].id;
-    await client.query(
-      `UPDATE auth_profiles
-       SET credential_id = $2, health = 'healthy'
-       WHERE id = $1`,
-      [args.authProfileId, credentialId],
-    );
-    if (args.connectionSlug) {
+    if (args.authProfileId) {
       await client.query(
-        `UPDATE connections
-         SET credential_id = $2, health = 'healthy', last_tested_at = now()
-         WHERE slug = $1`,
-        [args.connectionSlug, credentialId],
+        `UPDATE auth_profiles
+         SET credential_id = $2, health = 'healthy'
+         WHERE id = $1`,
+        [args.authProfileId, credentialId],
+      );
+    }
+    if (args.connectionSlug) {
+      // A project credential may be the first of its kind, so the connection is
+      // created if it is not there. Scoped to the project either way — a token
+      // for one repository must never end up on a shared connection, which is
+      // the whole reason it exists rather than reusing the admin token.
+      await client.query(
+        `INSERT INTO connections (slug, kind, scope, project_id, credential_id, health, last_tested_at)
+         VALUES ($1, 'api', $3, $4, $2, 'healthy', now())
+         ON CONFLICT (slug) DO UPDATE
+           SET credential_id = EXCLUDED.credential_id, health = 'healthy',
+               last_tested_at = now(),
+               project_id = COALESCE(EXCLUDED.project_id, connections.project_id)`,
+        [args.connectionSlug, credentialId, args.projectId ? "project" : "system", args.projectId ?? null],
       );
     }
     await client.query(
       `INSERT INTO audit_events (actor, action, target, metadata)
        VALUES ('bootstrap', 'credential.store', $1, $2)`,
-      [args.authProfileId, JSON.stringify({ fingerprint: args.fingerprint, kind: args.kind })],
+      [
+        args.authProfileId ?? args.connectionSlug ?? "unknown",
+        JSON.stringify({ fingerprint: args.fingerprint, kind: args.kind, project_id: args.projectId ?? null }),
+      ],
     );
     await client.query("COMMIT");
     return { credentialId, fingerprint: args.fingerprint };
