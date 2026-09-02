@@ -131,7 +131,8 @@
       "title": "The credential loop",
       "stage": 3,
       "state": "done",
-      "evidence": "N4 end to end from a phone with no session: 26 assertions, every effect checked in the database. A dead credential parks three tasks, produces ONE ticket and ONE link; the wrong key is refused with the provider's own words while the ticket stays open; the right key stores project-scoped, tests healthy, closes the ticket and requeues all three by itself. Replayed link 409, expired link 409 and stores nothing."
+      "evidence": "N4 end to end from a phone with no session: 26 assertions, every effect checked in the database. A dead credential parks three tasks, produces ONE ticket and ONE link; the wrong key is refused with the provider's own words while the ticket stays open; the right key stores project-scoped, tests healthy, closes the ticket and requeues all three by itself. Replayed link 409, expired link 409 and stores nothing.",
+      "pr": 65
     },
     {
       "id": "S17",
