@@ -883,6 +883,28 @@ autonomous loop is ever pointed at the suite again.
 **Done when:** all eight conditions verified one by one, and N6 refuses.
 
 ## S11 — Recovery under failure
+*Includes a retrofit: the runner shipped before the checkpoint spec existed.*
+
+**Retrofit first, before anything else in this step.** The runner was built at S4
+and writes twelve checkpoint fields — worktree, branch, base and head SHA,
+transcript, event count, exit code, subtype, stop reason and so on. Every one of
+them records **where** a run got to.
+
+The checkpoint contents in II.3 landed after that code was written, and none of
+its six resumability fields are present: `current_plan`, `files_modified`,
+`commands_executed`, `test_results`, `current_hypothesis`, `next_intended_action`.
+
+This is not a defect in S4 — it was built correctly against the spec that existed
+then. It is a defect **now**, and it is load-bearing for this step: recovery that
+resumes from a checkpoint recording only position will restart the investigation
+from the beginning, which looks like recovery and costs like a rerun. Building
+the rest of S11 on the current checkpoint would produce a recovery ladder whose
+top rungs cannot actually resume anything.
+
+Add the six fields, backfill nothing (old checkpoints stay as they are), and
+**test resumption by killing a run mid-investigation and checking the replacement
+worker continues the same hypothesis rather than forming a new one.**
+
 *Size: 2 days.*
 
 **Build** Map every harness failure onto the taxonomy: subscription limit → `provider.cred_expired`, park and notify; silence → `process.stuck`; run limit → `agent.loop`; dirty exit → `harness.crash`. Retry within taxonomy limits, resume from checkpoint, never from the start.
