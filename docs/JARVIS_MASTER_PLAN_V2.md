@@ -361,6 +361,39 @@ These are the product. Part VIII turns each into a test.
 - **N7 — The self-repair.** Disk hits 85% at 03:00. Maintenance prunes images and old artifacts, records what it did, and does not wake him.
 - **N8 — The weekly.** Sunday: one message listing what changed in the AI world that is worth adopting, each with a recommendation and a one-tap approve.
 
+### Each narrative exists for its seam
+
+A narrative is not a bigger step test. Its value is the **crossing** — the point
+where one step hands to another — because every step can pass on its own while
+the join between them is broken. That is how a system reaches 33/33 and does
+nothing.
+
+So each narrative names the seam it exists to break, and the assertion that would
+still fail if every individual step were green:
+
+| | Seam under test | Fails if only the steps work |
+|---|---|---|
+| **N1** | transcript → routing → queue → runner → review → PR → notify | The PR exists and no message arrives; or the message arrives and links to the wrong task |
+| **N2** | ingest → chunk → index → retrieve, **across a restart and a restore** | Retrieval works today and returns nothing after a restore, because the index was never in the backup |
+| **N3** | one inbox event → several destinations, concurrently | Two tasks exist and both name the same project; or the second overwrites the first's conversation |
+| **N4** | failure → issue → notification → action page → broker → **resume from checkpoint** | The credential is repaired and the parked task never wakes — the commonest way this seam breaks |
+| **N5** | call → Tier 1 → Tier 2 → onboarding → a thread he reads later | The project is created and the onboarding questions are asked into a conversation nobody can find |
+| **N6** | instruction → grant → broker → refusal → approval | It refuses correctly and creates no approval, so the work is blocked with no way to unblock it |
+| **N7** | detection → repair → audit → *silence* | The repair happens and also wakes him; or it happens and leaves no audit row |
+| **N8** | discovery → sandbox → benchmark → recommendation → one-tap approve | The report arrives with recommendations that cannot actually be approved from the message |
+
+**Running them.** Each needs a seeded world, not a mocked one: a real project,
+real credentials in the dev broker, the fake harness where a real one would cost
+money. N2 and N7 need the clock moved rather than waiting. N5 and N8 have a human
+in them and are checklisted rather than automated — **and that is a reason to
+write the checklist down, not a reason to skip them.**
+
+**The rule that makes them worth the effort:** a narrative that passes because
+each of its steps passed has not been run. Break one join deliberately — drop the
+notification, skip the resume, lose the conversation id — and confirm the
+narrative goes red while every step stays green. If it does not, it is a step
+test with a story attached.
+
 ---
 
 # PART II — THE MACHINE
