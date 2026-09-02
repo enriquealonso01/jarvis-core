@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
   "total_steps": 40,
-  "updated_at": "2026-09-02T17:30:59.339662Z",
-  "current_step": "S26",
+  "updated_at": "2026-09-02T17:54:25.484811Z",
+  "current_step": "S28",
   "steps": [
     {
       "id": "S1",
@@ -238,7 +238,8 @@
       "id": "S27",
       "title": "Configuration by conversation",
       "stage": 5,
-      "state": "not_started"
+      "state": "blocked",
+      "evidence": "Built and tested. applyConfigChange is the only way configuration changes - versioning, provenance and audit are the same statement as the write - and the suite proves that architecturally by reading src/ and asserting exactly one file INSERTs into either version table. It found two bypasses when written (the schedule route and S26 onboarding), both now routed through it. Migration 029 adds the conversation and his own words to both version tables and scopes the version sequence to (project, key), which was previously global per key. The section 59 immutable list is data, refuses, and raises an approval rather than discarding the ask; ambiguity returns one question and writes nothing; rollback restores a value exactly as a NEW version. Tools resolve the project from what he NAMED, not the conversation. 85 assertions, seen red three times (30, 7, 1). BLOCKED on the Done-when: it needs a spoken sentence, and 'auditable a week later' is so far proved by backdating a row, which tests the query and not the passage of time. See BLOCKED.md."
     },
     {
       "id": "S28",

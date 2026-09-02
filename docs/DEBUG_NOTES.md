@@ -50,6 +50,8 @@ is two or three entries, and it is where the time is actually saved.
 - [The em-dashes were never mis-encoded; the header was missing](#the-em-dashes-were-never-mis-encoded-the-header-was-missing)
 - [GitHub acknowledged the commit and then served the old file](#github-acknowledged-the-commit-and-then-served-the-old-file)
 - [The Supervisor read project instructions from a key nothing writes](#the-supervisor-read-project-instructions-from-a-key-nothing-writes)
+- [The canonical row and the committed file differed by one newline](#the-canonical-row-and-the-committed-file-differed-by-one-newline)
+- [Two writers bypassed the versioning path, and every test stayed green](#two-writers-bypassed-the-versioning-path-and-every-test-stayed-green)
 - [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
 - [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
@@ -1243,6 +1245,49 @@ errors, nothing logs, and the feature simply never happens. When a table is
 added, grep for its readers; when a read is added, grep for its writers. A
 `SELECT` whose `WHERE` clause no `INSERT` can satisfy is a silent feature-off
 switch, and the only way it shows up is somebody asking who consumes this.
+
+---
+
+### The canonical row and the committed file differed by one newline
+**Symptom:** after routing S26 onboarding through S27's single write function,
+the offline suite stayed 59/59 green and the LIVE test failed one assertion:
+"the committed bytes are the canonical row, exactly". It had also stopped
+converging — nine read-backs, all mismatching.
+**Cause:** `applyInstructionsChange` does `args.body.trim()` before storing, and
+the renderer ends the file with a newline. The commit was sending
+`rendered.body`. So the row lost the trailing newline, the file kept it, and the
+two differed by one character.
+**Fix:** the commit reads the stored row back and sends that. ADR 018 says the
+file is a rendering of the row; committing what was stored makes that true by
+construction instead of by two code paths happening to agree. It converges on
+the first read now, which is itself the tell — the polling loop existed for
+GitHub's eventual consistency, and a mismatch that survives nine reads was never
+eventual consistency.
+**Lesson:** two places that "produce the same bytes" produce the same bytes
+until one of them normalises. If a value must be byte-identical in two systems,
+one of them has to be the source and the other has to read it — not re-derive
+it. And note which suite caught this: the offline one could not, because both
+its halves came from the same variable.
+
+---
+
+### Two writers bypassed the versioning path, and every test stayed green
+**Symptom:** none, again. S27's suite asserted the versioning function
+thoroughly and could not see that two other places wrote the same tables
+directly.
+**Cause:** `product.ts` (the schedule-edit route) and `supervisor.ts` (S26
+onboarding) each had their own `INSERT`. The schedule one also computed
+`version` with `max(version)` over the key across EVERY project, so two projects
+with a same-named schedule shared one sequence. The onboarding one had no
+provenance and skipped the placeholder guard.
+**Fix:** both call `applyConfigChange` / `applyInstructionsChange`. The suite now
+reads `src/` and asserts that exactly one file contains an `INSERT INTO` either
+version table.
+**Lesson:** "everything goes through one function" is an architectural claim, and
+an architectural claim needs an architectural test. No amount of behavioural
+testing of the right path can see the wrong path — the tests and the bypass do
+not touch. Grepping your own source in a test feels crude and is the only thing
+that actually holds the invariant.
 
 ---
 
