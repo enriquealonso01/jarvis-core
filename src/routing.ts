@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { quickCompletion } from "./supervisor.js";
-import { createTask, resolveProject } from "./work.js";
+import { createTask, projectSlug, resolveProject } from "./work.js";
 
 /**
  * Deciding what Enrique meant (plan S3a, S3b).
@@ -351,7 +351,13 @@ async function threadForProject(
  */
 export async function applyRoute(
   pool: pg.Pool,
-  args: { inboxId: string; sourceConversationId: string; decision: RouteDecision },
+  args: {
+    inboxId: string;
+    sourceConversationId: string;
+    /** The project this thread belongs to, if any. Beats anything the model names. */
+    sourceProjectId?: string | null;
+    decision: RouteDecision;
+  },
 ): Promise<RouteOutcome> {
   const { decision } = args;
 
@@ -450,9 +456,21 @@ export async function applyRoute(
 
     // Everything below wants a project when the segment named one. An
     // unresolvable name is a question, never a best guess.
+    // The conversation's OWN project wins over anything the model names.
+    //
+    // It is a fact about where this thread lives; the model's answer is an
+    // inference from wording. `task_create` has always worked this way, but
+    // applyRoute did not, and the consequence was observed live: a message in a
+    // thread scoped to one project was filed as work in a DIFFERENT project the
+    // router happened to name. Work filed against the wrong project runs with
+    // the wrong repository and the wrong credentials, which makes this an
+    // isolation problem, not a tidiness one.
     let projectId: string | null = null;
     let slug: string | null = null;
-    if (segment.project) {
+    if (args.sourceProjectId) {
+      projectId = args.sourceProjectId;
+      slug = await projectSlug(pool, projectId);
+    } else if (segment.project) {
       const resolved = await resolveProject(pool, segment.project);
       if ("error" in resolved) {
         destinations.push(unclear(resolved.error, `could not place: ${segment.text.slice(0, 60)}`));

@@ -157,6 +157,7 @@ export async function ingestUserMessage(
     outcome = await applyRoute(pool, {
       inboxId,
       sourceConversationId: args.conversationId,
+      sourceProjectId: conv.rows[0].project_id,
       decision,
     });
   } catch (err) {

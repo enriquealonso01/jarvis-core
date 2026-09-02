@@ -45,7 +45,8 @@ check "all eleven phases were recorded" \
 check "each phase is one row, not many" "11" \
   "$(q "SELECT count(*) FROM task_events WHERE task_id='$T' AND type='phase';")"
 check "the task's phase column holds the last one" "push" "$(q "SELECT COALESCE(phase,'-') FROM tasks WHERE id='$T';")"
-check "Jarvis's own scratch is NOT committed into the project" "0"   "$($COMPOSE run --rm --no-deps -T runner sh -c       "git -C /var/lib/jarvis/projects/dev-sandbox/repo ls-tree -r --name-only        \$(git -C /var/lib/jarvis/projects/dev-sandbox/repo rev-parse $(q "SELECT COALESCE(branch,'main') FROM tasks WHERE id='$T';")) 2>/dev/null | grep -c '^\.jarvis/' || true" 2>/dev/null | tr -d '' | tail -1)"
+check "Jarvis's own scratch is NOT committed into the project" "0"   "$($COMPOSE run --rm --no-deps -T runner sh -c       "git -C /var/lib/jarvis/projects/dev-sandbox/repo ls-tree -r --name-only        \$(git -C /var/lib/jarvis/projects/dev-sandbox/repo rev-parse $(q "SELECT COALESCE(branch,'main') FROM tasks WHERE id='$T';")) 2>/dev/null | grep -c '^\.jarvis/' || true" 2>/dev/null | tr -d '
+' | tail -1)"
 check "the verdict was recorded" "completed|true|high" \
   "$(q "SELECT verdict||'|'||reproduced||'|'||confidence FROM task_attempts WHERE task_id='$T' AND n=1;")"
 
@@ -113,6 +114,16 @@ runit silent
 check "it does not claim success" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T6';")"
 contains "and says what is unknown" "without writing .jarvis/outcome.json" \
   "$(q "SELECT COALESCE(waiting_reason,'') FROM tasks WHERE id='$T6';")"
+
+# --------------------------------- an honest report that also exits non-zero
+echo
+echo "=== a run that stops early AND exits non-zero is still a report ==="
+T8=$(newtask "S6 norepro crash" "Sometimes it breaks. Fix it.")
+runit noreprocrash
+echo "  state=$(q "SELECT state FROM tasks WHERE id='$T8';") reason=$(q "SELECT COALESCE(waiting_reason,'-') FROM tasks WHERE id='$T8';" | head -c 60)"
+check "it is NOT recorded as a harness crash" "false"   "$([ "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T8' ORDER BY n DESC LIMIT 1;")" = "harness.crash" ] && echo true || echo false)"
+check "it asks rather than failing" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T8';")"
+check "and the verdict survives the non-zero exit" "not_reproducible"   "$(q "SELECT COALESCE(verdict,'-') FROM task_attempts WHERE task_id='$T8' ORDER BY n DESC LIMIT 1;")"
 
 # ------------------------------------------------------------- phase resume
 echo
