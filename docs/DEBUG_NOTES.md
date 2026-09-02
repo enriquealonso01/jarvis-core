@@ -135,6 +135,39 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### A containment tripwire that destroyed two correct runs
+**Symptom:** two live engineering runs were killed and recorded as
+`security.isolation` breaches. Neither was one. The first "reached outside its
+worktree" by touching `/var/lib/jarvis/projects/<slug>/repo` — its own
+repository, which a git worktree necessarily references. The second was flagged
+for the literal string `/var/lib/jarvis` appearing in a shell command.
+**Cause:** when the harness gained the ability to execute commands (S6), the
+escape guard was widened to scan Bash command text for absolute paths under
+JARVIS_ROOT. Scanning free text for paths is far too blunt: two false positives,
+zero true positives, and each one threw away a completed piece of work.
+**Fix:** the worktree's own project directory is allowed, and the command scan
+now flags only what would actually be a breach — another project's directory, or
+the keys and harness-auth directories. Real containment is the per-project unix
+user (ADR 006 step 5, proved in S12); this is a tripwire, not a wall.
+**Lesson:** a containment check with a high false-positive rate does not protect
+anything. It destroys correct work and teaches whoever maintains it to switch it
+off, which leaves you with neither the check nor the belief that you needed one.
+
+### A vague report is not the same as an unreproducible one
+**Symptom:** S6's live "unreproducible" case failed: the harness reproduced
+something, fixed it, and opened a second pull request.
+**Cause:** the test asked about "odd output" in a repository that still contained
+the real trailing-dash bug on main, because the first run's fix was in an
+unmerged PR. The report was vague, but the repository genuinely was broken — so
+the harness was right to find something. A correct run against a badly chosen
+premise.
+**Fix:** the report now describes something that cannot happen — "slugify()
+occasionally returns undefined" when the function always returns a string. The
+run then stopped at the reproduce phase and opened nothing.
+**Lesson:** to test "it says it cannot reproduce", the thing must actually be
+impossible to reproduce. Vagueness is not enough, and a test that punishes a
+model for correctly finding a real bug is testing the wrong property.
+
 ### The Supervisor answered the wrong message when two arrived at once
 **Symptom:** three messages sent together produced tasks for "burst one",
 "burst three" and "burst three" — one message answered twice, another lost

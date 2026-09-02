@@ -284,7 +284,27 @@ async function cleanupWorkspace(project: Project | null, dir: string, isRepo: bo
  */
 const PATH_INPUT_KEYS = ["file_path", "path", "notebook_path", "target_file", "edit_file_path"];
 
-export function escapedPath(cwd: string, event: Record<string, unknown>): string | null {
+export function escapedPath(
+  cwd: string,
+  event: Record<string, unknown>,
+  /**
+   * Paths the run may legitimately touch besides its own worktree.
+   *
+   * A git worktree's operations reference the repository it was cut from — the
+   * common gitdir lives there — so the project's own checkout is not "outside".
+   * Without this the guard killed a perfectly correct run: the harness touched
+   * /var/lib/jarvis/projects/<slug>/repo and was recorded as an isolation
+   * breach. Reaching into ANOTHER project's directory is still a breach; that is
+   * the distinction the list draws.
+   */
+  alsoAllowed: string[] = [],
+): string | null {
+  const permitted = [cwd, ...alsoAllowed].filter(Boolean);
+  const inside = (abs: string) =>
+    permitted.some((root) => {
+      const rel = path.relative(root, abs);
+      return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    });
   const message = event.message as { content?: unknown } | undefined;
   const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
   for (const block of content) {
@@ -294,23 +314,31 @@ export function escapedPath(cwd: string, event: Record<string, unknown>): string
       const value = b.input[key];
       if (typeof value !== "string" || value === "") continue;
       const abs = path.resolve(cwd, value);
-      const rel = path.relative(cwd, abs);
-      if (rel.startsWith("..") || path.isAbsolute(rel)) return abs;
+      if (!inside(abs)) return abs;
     }
 
-    // A shell command carries its paths in a string, not in a named argument,
-    // so the loop above never saw them. That did not matter while the harness
-    // ran with `acceptEdits` and could not execute anything; it matters a great
-    // deal now that it can. Only absolute paths inside JARVIS_ROOT are checked:
-    // the harness legitimately reads /usr, /etc and node's own installation, and
-    // flagging those would make every run an incident.
+    // Shell commands carry their paths in a string, so the loop above never sees
+    // them. Scanning that string for anything outside the worktree turned out to
+    // be far too blunt: it destroyed two entirely correct runs — one for touching
+    // the project's own checkout, one for the literal string "/var/lib/jarvis" —
+    // and caught nothing real in either. A containment check with that
+    // false-positive rate does not protect anything; it teaches you to switch it
+    // off.
+    //
+    // So it now flags only what would actually be a breach: another project's
+    // directory, or the secrets. Real containment is the per-project unix user
+    // (ADR 006 step 5, proved in S12); this is a tripwire, not a wall, and a
+    // tripwire that fires on ordinary work is worse than none.
     const command = b.input.command;
     if (typeof command === "string" && command) {
       for (const m of command.matchAll(/(?<![\w/-])(\/[\w./@+-]+)/g)) {
         const abs = path.resolve(m[1]);
-        if (!abs.startsWith(`${ROOT}${path.sep}`) && abs !== ROOT) continue;
-        const rel = path.relative(cwd, abs);
-        if (rel.startsWith("..") || path.isAbsolute(rel)) return abs;
+        if (inside(abs)) continue;
+        const underProjects = abs.startsWith(`${PROJECTS}${path.sep}`);
+        const underSecrets =
+          abs.startsWith(`${path.join(ROOT, "keys")}${path.sep}`)
+          || abs.startsWith(`${path.join(ROOT, "harness-auth")}${path.sep}`);
+        if (underProjects || underSecrets) return abs;
       }
     }
   }
@@ -333,6 +361,8 @@ async function runHarness(args: {
   transcriptPath: string;
   onEvent: (event: Record<string, unknown>) => void;
   signal: AbortSignal;
+  /** Besides the worktree — the project's own checkout. */
+  allowedPaths?: string[];
 }): Promise<{
   code: number | null;
   sessionId: string | null;
@@ -425,7 +455,7 @@ async function runHarness(args: {
         if (typeof event.is_error === "boolean") seen.isError = event.is_error;
       }
       if (!escape) {
-        const out = escapedPath(args.cwd, event);
+        const out = escapedPath(args.cwd, event, args.allowedPaths ?? []);
         if (out) {
           escape = out;
           child.kill("SIGKILL");
@@ -735,6 +765,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       prompt: objective,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
+      allowedPaths: project ? [path.join(PROJECTS, project.slug)] : [],
       onEvent: (event) => {
         lastEventAt = Date.now();
         // Reuse `task.updated` rather than adding an event type: the Work view
@@ -865,6 +896,44 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     // `is_error` is checked alongside the exit code, not instead of it. The
     // capture showed them agreeing, but a harness that ever reports an error and
     // still exits 0 would otherwise be recorded as a success.
+    // A harness that stopped early and SAID WHY is not a crash. Read the outcome
+    // file before deciding, because the failure branch below never did: a run
+    // that honestly reported "not_reproducible" and exited non-zero was recorded
+    // as harness.crash, losing the one thing it had to say. Observed live — the
+    // real harness stopped at the reproduce phase on an unreproducible report.
+    const earlyOutcome = await readOutcome(workspace.dir);
+    if (earlyOutcome && VERDICTS_THAT_ASK.has(earlyOutcome.verdict) && !stopReason) {
+      const reason = `${earlyOutcome.verdict}: ${earlyOutcome.notes.slice(0, 240)}`;
+      await pool.query(
+        `UPDATE task_attempts SET ended_at = now(), summary = $3, verdict = $4,
+           reproduced = $5, confidence = $6 WHERE task_id = $1 AND n = $2`,
+        [taskId, n, reason.slice(0, 300), earlyOutcome.verdict.slice(0, 60),
+         earlyOutcome.reproduced, earlyOutcome.confidence.slice(0, 20)],
+      ).catch(() => undefined);
+      await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`,
+        [taskId, reason.slice(0, 500)]).catch(() => undefined);
+      await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner", "lease_until = NULL");
+      await raiseIssue(pool, {
+        category: "supervisor",
+        service: "harness",
+        owner: "user",
+        status: "waiting_for_user",
+        title: `[review] ${task.title.slice(0, 70)}`,
+        dedupeKey: `workflow.report:${taskId}`,
+        taskId,
+        projectId: task.project_id,
+        evidence: {
+          verdict: earlyOutcome.verdict,
+          reproduced: earlyOutcome.reproduced,
+          attempted: earlyOutcome.attempted ?? [],
+          missing: earlyOutcome.missing ?? [],
+          transcript: relTranscript,
+        },
+        requiredAction: "Read what it reported. It did not claim to have fixed this.",
+      }).catch(() => undefined);
+      return;
+    }
+
     if (stopReason || outcome.code !== 0 || outcome.isError) {
       const errorClass = stopReason === "silent" ? "process.stuck" : stopReason === "timeout" ? "agent.loop" : "harness.crash";
       const summary =

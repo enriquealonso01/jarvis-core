@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "aba7d7cb46528b4d825b219d0bc5abd763be6c22",
   "total_steps": 37,
-  "updated_at": "2026-09-02T00:15:49.401Z",
+  "updated_at": "2026-09-02T00:52:41.719Z",
   "current_step": "S10",
   "steps": [
     {
@@ -42,31 +42,32 @@
       "title": "Project checkouts and deploy keys",
       "stage": 1,
       "state": "done",
-      "evidence": "L6 21/21 against real GitHub: two private repos, two deploy keys, alpha refused beta by GitHub itself",
-      "pr": 23
+      "pr": 23,
+      "evidence": "L6 21/21 against real GitHub: two private repos, two deploy keys, alpha refused beta by GitHub itself"
     },
     {
       "id": "S6",
       "title": "The engineering workflow",
       "stage": 1,
-      "state": "partial",
-      "evidence": "real bug fixed end-to-end from a console-created task: 11 phases, pushed branch, 4/4 tests from a clean checkout; N1's PR half is S7 and blocked"
+      "state": "done",
+      "evidence": "N1 end to end from a console-created task: sentence -> task -> 11 phases -> review -> PR on GitHub, 20/20 live; unreproducible report opens nothing",
+      "pr": 36
     },
     {
       "id": "S7",
       "title": "The pull request",
       "stage": 1,
       "state": "done",
-      "evidence": "a real PR on a real private repo, confirmed by the GitHub API; 13/13 live plus 21/21 refusal paths",
-      "pr": 29
+      "pr": 29,
+      "evidence": "a real PR on a real private repo, confirmed by the GitHub API; 13/13 live plus 21/21 refusal paths"
     },
     {
       "id": "S8",
       "title": "The acceptance test that matters",
       "stage": 1,
       "state": "done",
-      "evidence": "N1 green end to end: seeded test red, PR opened, test green on the PR's branch",
-      "pr": 30
+      "pr": 30,
+      "evidence": "N1 green end to end: seeded test red, PR opened, test green on the PR's branch"
     },
     {
       "id": "S9",

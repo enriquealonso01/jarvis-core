@@ -218,7 +218,7 @@ async function main() {
       assistantText(`entering ${phase}: ${note}`);
     };
     const ALL = ["preserve","context","reproduce","inspect","root_cause","plan","change","tests","checks","commit","push"];
-    const stopAfter = { norepro: "reproduce", scope: "context", prefail: "checks", halt: "inspect" }[mode];
+    const stopAfter = { norepro: "reproduce", scope: "context", prefail: "checks", halt: "inspect", noreprocrash: "reproduce" }[mode];
     const resumeAt = process.env.JARVIS_FAKE_RESUME_AT || null;
     const start = resumeAt ? Math.max(0, ALL.indexOf(resumeAt)) : 0;
     for (let i = start; i < ALL.length; i += 1) {
@@ -234,12 +234,19 @@ async function main() {
       full:    { reproduced: true,  verdict: "completed",            guess: false, confidence: "high",   notes: "found the cause and fixed it" },
       guess:   { reproduced: false, verdict: "completed",            guess: true,  confidence: "low",    notes: "changed something plausible but I am not sure" },
       norepro: { reproduced: false, verdict: "not_reproducible",     guess: false, confidence: "medium", notes: "could not make it happen", attempted: ["ran the suite","tried the described steps"], missing: ["the exact input"] },
+      noreprocrash: { reproduced: false, verdict: "not_reproducible", guess: false, confidence: "medium", notes: "could not make it happen and stopped", attempted: ["tried the described steps"], missing: ["the exact input"] },
       scope:   { reproduced: false, verdict: "out_of_scope",         guess: false, confidence: "high",   notes: "this asks for a change in a different system" },
       prefail: { reproduced: true,  verdict: "pre_existing_failure",  guess: false, confidence: "high",   notes: "the suite was already red before I touched it" },
       halt:    null,
       silent:  null,
     }[mode];
     if (outcome) fs.writeFileSync(path.join(jdir, "outcome.json"), JSON.stringify(outcome, null, 2));
+    // Stops early AND exits non-zero, but says why first. The runner must honour
+    // the report rather than recording harness.crash.
+    if (mode === "noreprocrash") {
+      process.stderr.write("fake-harness: stopped at reproduce\n");
+      process.exit(1);
+    }
     if (mode === "halt") {
       process.stderr.write("fake-harness: halted partway on purpose\n");
       process.exit(1);
