@@ -547,6 +547,31 @@ A project is a security boundary. Concretely:
 - Professional and confidential projects get a dedicated unix user, created at project-create time. Until that exists, the heavy lane refuses them.
 - The Supervisor, Improvement, and Maintenance never use a project-owned auth profile.
 
+### What the path guard must cover, enumerated
+
+The plan described isolation in prose and left the guard to infer its own list.
+It inferred three of five, and a harness in one project could read another
+project's browser profile — cookies and logged-in sessions — with no kill, no
+audit and no Issue. The gap was invisible precisely because prose reads as
+complete.
+
+So it is a list. A task may touch **its own worktree and nothing else** under
+`/var/lib/jarvis`:
+
+| Path | Why |
+|---|---|
+| `projects/` | another project's checkout |
+| `worktrees/` **other than its own** | another *task's* work, including its own project's |
+| `browsers/` | cookies and logged-in sessions — the highest-value target on the box |
+| `harness-auth/` | subscription logins |
+| `keys/` | the master key |
+| `openclaw/` | the paired WhatsApp session |
+| `artifacts/` of another project | outputs, transcripts, dumped documents |
+
+Adding a directory under `/var/lib/jarvis` means adding it here in the same
+commit. **A new directory is protected by default or the list is worthless** —
+the failure above was an unlisted directory, not a broken rule.
+
 ### The Jarvis System layer
 
 Isolation as stated above would make Improvement and Maintenance impossible: both
@@ -2666,6 +2691,23 @@ backups · restore test · monitoring · artifact tracking · project isolation 
 error management.
 
 **V1 is not complete because Jarvis can answer messages.**
+
+### Two techniques worth reusing
+
+Both came out of probing isolation for real, and both generalise well beyond it.
+
+**Assert the absence, not the return value.** A test that checks a call was
+refused cannot tell a refusal from a refusal issued *after* the request already
+left the box. Replace the transport with a spy and assert the call count is
+**zero**. "Denied before any HTTP leaves the box" is otherwise an unfalsifiable
+claim, and unfalsifiable claims are where security regressions live.
+
+**Always assert the legitimate case too.** A guard that blocks everything passes
+every negative test. So alongside "Alpha cannot read Beta", assert "Alpha *can*
+read its own workspace", and alongside a denial, assert the same request
+**succeeds for the project that owns it** — otherwise the denial only proves the
+endpoint refuses everyone. A guard with a high false-positive rate is a guard
+that gets switched off, and then nothing is protected at all.
 
 ## The standing rules
 
