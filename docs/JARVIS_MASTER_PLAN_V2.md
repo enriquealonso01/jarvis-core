@@ -3276,6 +3276,35 @@ Each gate is a set of tests with **numbers in them**. A gate written as a feelin
 ("capture works under load") passes whenever someone wants it to. The quantities
 below come from the planning conversation and are the point of the exercise.
 
+### A gate has to be answerable as a gate
+
+Part VIII defines six gates in terms of L-loops and N-narratives. There are now
+sixty-odd test scripts and an acceptance runner, and between them they cover
+almost all of it — but **nothing can answer "are we at Gate 3?"** without someone
+reading the script names and doing the mapping in their head.
+
+That is the wrong place for the mapping to live. A gate is the unit of *can this
+stage ship*, and a unit nobody can evaluate is not a gate, it is a heading.
+
+So the runner reports **gate status**, not only test results:
+
+```
+Gate 1  It acts              GREEN   N1, S8, L0b, S1×5
+Gate 2  It loses nothing     AMBER   L1 L2 L3 pass · N3 not run
+Gate 3  Inside its lines     GREEN   L6 L8 L9 L11, S10×8, S18 scope
+```
+
+Three rules that keep that honest:
+
+- **A gate is green only when every test under it has run** — in this execution, not historically. A test that passed last week and is not in this run leaves the gate amber, because a gate is a statement about now.
+- **Amber and red are different.** Amber is *not proven*; red is *proven broken*. Collapsing them makes an unrun test look like a passing one, which is the failure this whole document keeps circling.
+- **Every gate names its evidence** — which tests, which run. "Gate 3 green" with nothing behind it is the 33/33 problem wearing a new hat.
+
+The narratives are the weak half today: **N1 is covered and N2–N8 are not**, though
+several are tested at step level (`s16-credential` is most of N4, `s3b-split` is
+most of N3). Step tests are not narrative tests — a narrative crosses steps on
+purpose, and that crossing is what it exists to check.
+
 ## Gate 1 — It acts *(blocks everything else)*
 - **N1** the fix, end to end — console first, then voice note at S37
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
