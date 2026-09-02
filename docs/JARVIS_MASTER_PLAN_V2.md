@@ -736,8 +736,9 @@ integration mistakes than three agents coordinating through a document.
 5. **Commit per step,** with the test evidence in the commit body. One PR per step or per tight pair. A branch spanning five steps cannot be reviewed or reverted.
 6. **When something breaks twice for the same reason, write it down** in `docs/DEBUG_NOTES.md`. The call agent's self-transcription bug and its runaway-recording loop were each found the expensive way; both are now one-line comments in `callcontrol.ts`. Repeat that pattern.
 7. **Do not start the next step until the current one is observed working.** Half-finished steps compound.
-8. **Every requirement gets an owner in the same change that writes it.** A rule stated in Parts I–VII with no step implementing it does not get implemented — it gets quoted approvingly and ignored. Before finishing any plan edit, ask which step builds this, and if the honest answer is "none", either put it in a step or put it in S18b. **This has already produced the visual direction, System Health, the status bar, the composer, the path guard, harness egress, the audit keys and the console hardening as orphans — six of them found only by going back and looking.** The check takes ten seconds; finding one later takes a tick.
-9. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
+8. **Do not write the clock into the plan.** "X does not exist yet", "currently absent", "shipped at 21:18" — every one of those is true when written and false soon after, and it rots *inside* the section that exists to fix it. Say what the step does, not what the world lacks. The exception is a live defect, which should say so loudly and be deleted when it is closed.
+9. **Every requirement gets an owner in the same change that writes it.** A rule stated in Parts I–VII with no step implementing it does not get implemented — it gets quoted approvingly and ignored. Before finishing any plan edit, ask which step builds this, and if the honest answer is "none", either put it in a step or put it in S18b. **This has already produced the visual direction, System Health, the status bar, the composer, the path guard, harness egress, the audit keys and the console hardening as orphans, most found only by going back and looking.** The check takes ten seconds; finding one later takes a tick.
+10. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
 
 ---
 
@@ -813,8 +814,8 @@ and provenance (`conversation_id`, `origin_inbox_id`). Heavy work goes to
 *Size: 3–4 days. This is the step that makes S2 usable rather than a tool nobody calls correctly.*
 
 `task_create` gives Jarvis the ability to make work. This step is the judgement
-about **when**, **where**, and **into what**. Three behaviours, all from the
-planning conversation, all currently absent.
+about **when**, **where**, and **into what**. Three behaviours, all from the planning conversation, and all of them
+something the router must do rather than something it happens to do.
 
 ### 3z — The order, and it is a safety property (ADR 005)
 
@@ -1202,7 +1203,7 @@ the three service groups, six fields per model provider including *which roles
 depend on it*, the disk-growth forecast, throughput, data-protection and security
 signals, and the incident timeline shape. That inventory was written after S13
 shipped Home's health strip, and no step was ever asked to build the full page
-against it. S13's strip is a summary of something that does not exist yet.
+against it, so S13's health strip summarises a page this step is what builds.
 
 Build it here: the page exists in the console already, so this is completing an
 inventory rather than adding a surface. Anything in VII.1 with no real source
@@ -1477,21 +1478,24 @@ Order: checkpoint contents first, because the recovery ladder cannot resume
 without it, then the ladder, then the error classes it raises, then the two small
 ones.
 
-### The debt, as of 2026-09-02
+### The debt
 
-**Checkpoint contents** *(S11 shipped 21:18; the spec landed 21:47).* The runner
+Dated by what caused each item rather than by a clock: every one landed in the
+plan after the step that would naturally have carried it.
+
+**Checkpoint contents** *(S11 shipped before the spec was written).* The runner
 writes twelve fields, all recording *where* a run got to. Add the six that record
 *why*: `current_plan`, `files_modified`, `commands_executed`, `test_results`,
 `current_hypothesis`, `next_intended_action`. Without them the recovery ladder's
 top rungs cannot resume anything — they restart the investigation, which looks
 like recovery and costs like a rerun.
 
-**The recovery ladder** *(S11 shipped 21:18; the ladder landed 22:47).* S11 maps
+**The recovery ladder** *(S11 shipped before the ladder was written).* S11 maps
 failures to classes and retry budgets, but recovery is still one action. Implement
 the ten rungs in II.3, cheapest first, stopping at the first that works, each one
 recorded on the task.
 
-**Three error classes** *(S11 shipped 21:18; classes landed 22:27).*
+**Three error classes** *(S11 shipped before the classes were added).*
 `resource.cpu`, `dependency.unavailable`, `agent.repeat` are in the taxonomy and
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
@@ -1746,7 +1750,7 @@ It must **act**.
 **Done when:** a phone call produces a merged-ready PR without touching a keyboard.
 
 ## S23 — Jarvis calls Enrique
-*Size: 2–3 days. Does not exist at all today — only the quiet-hours check does.*
+*Size: 2–3 days. The quiet-hours check pre-dates this step; the dialling does not.*
 
 **Build**
 - Outbound dial through Telnyx, reusing the same call state machine and voice as inbound.
@@ -1879,7 +1883,7 @@ coding task whose primary subscription is exhausted completes on the next engine
 without Enrique being told anything.
 
 ## S26 — Project onboarding and `AGENTS.md`
-*Size: 2–3 days. S6 reads this file; nothing currently writes it.*
+*Size: 2–3 days. S6 reads `AGENTS.md`; this step is what writes it.*
 
 **Build** Creating a project is a conversation. Jarvis asks and does not guess: personal or professional; production and customer-facing status; confidentiality; exact GitHub owner/repo or permission to create a private one; which auth profiles may see this data; metered paid APIs and the ceiling; deploy environments and approval rules; required tests, review, backups, monitoring.
 
