@@ -2515,6 +2515,442 @@ result comes back to that phone.** That is the finish line for this plan.
 
 ---
 
+# STAGE 8 — HOW IT TALKS
+
+From `Jarvis — Thoughts & Requirements Inbox`, Notes 001–004. Everything before
+this stage makes Jarvis *work*. This stage is what makes it bearable to use
+daily, and the requirement underneath all of it is one sentence: **Enrique is
+very busy.**
+
+## S38 — Brevity everywhere, and the document channel
+*Size: 3–4 days.*
+
+**Concise, direct, plain language. No jargon, no throat-clearing, no walls of
+text.** This is the default on **every** surface — WhatsApp, phone, and the
+in-app chat — not a WhatsApp-only rule as the plan previously had it.
+
+### When content is genuinely long
+
+Long answers do not become long messages. They become **a polished document**,
+and the message becomes a short covering note saying what is attached and what
+decision is needed.
+
+- Generate PDF (or a rendered doc) from structured content: analysis, comparisons, option sets, reports, approval packets, weekly findings.
+- Format for **rapid scanning and decision-making** — headings, the recommendation first, tradeoffs in a table. Not an essay with a conclusion at the end.
+- The covering message is two lines: what it is, and what Enrique needs to decide.
+- The document is an artifact (S17), so it has provenance, a version history, and can be found again later.
+
+### Build
+- A document renderer producing PDF from the same structured content the console shows, styled to I.3's visual direction.
+- A length policy in the notification path: over a threshold, or whenever the content is a decision packet, the message becomes covering-note-plus-attachment automatically. **The model does not decide this by taste.**
+- Threshold and format are configurable by conversation (S43).
+
+### Test
+- Ask for something with a genuinely long answer on each of the three surfaces → all three produce a document plus a short note, not a wall of text.
+- The weekly Improvement report (S34) arrives as a document with a two-line message. **This is the worked example from the requirements and it is the acceptance case.**
+- A short answer stays a short answer — the rule must not turn "yes" into a PDF.
+- The document opens on a phone and is readable without zooming.
+
+### Debug
+If messages are still long, the length check is probably running after the model
+rather than shaping it: the model must be told to produce structured content for
+rendering, not prose to be truncated. **Truncating a long answer produces a bad
+short answer, which is worse than either.**
+
+**Done when:** a week of normal use produces no message Enrique has to scroll,
+and every long thing arrived as something he could skim and decide from.
+
+## S39 — Channel-aware execution
+*Size: 3 days.*
+
+Each channel has different strengths, and **Jarvis picks the right one per
+artifact without being asked.**
+
+- **Voice is the tightest.** Acknowledgement, the direct answer, a brief high-level plan, any decision needed, and what happens next. **No lists of names, no URLs, no dense technical detail** unless he asks. S21's latency work made the phone responsive; this makes it *listenable*.
+- **A URL never goes down the phone.** When a voice workflow needs one — an auth link, a PR, a document — Jarvis says it is sending it to WhatsApp, and sends it. That sentence is part of the spoken flow, not an apology afterwards.
+- **WhatsApp carries links, attachments, confirmations, short status.** In-app chat carries the same plus anything better seen than heard.
+
+### Cross-channel workflow continuity
+
+**A task started on one channel continues on another with its state intact.** He
+should never restate what he was doing because he switched surfaces. The task,
+its conversation and its context are the same objects regardless of which channel
+touched them — which is exactly what IV.0's provenance chain already makes
+possible.
+
+### Test
+- A phone call that needs an auth URL → the URL arrives on WhatsApp, the call continues, and the spoken line said it was coming.
+- Start a request by voice, add to it by WhatsApp, finish it in the console. One task, one conversation, nothing restated.
+- Read a voice transcript aloud: no URL, no more than a couple of proper nouns, no paragraph that would be hard to follow at walking pace.
+
+### Debug
+If context is lost across channels, look for a per-channel conversation being
+created rather than the existing one being joined — that is the same 1:1
+modelling mistake IV.0 warns about, arriving by a different route.
+
+**Done when:** a workflow spans all three channels without Enrique repeating
+himself, and nothing unspeakable is ever spoken.
+
+## S40 — The execution brief
+*Size: 2 days.*
+
+Before substantial or multi-step work, Jarvis says what it is about to do — **in
+the register of a capable colleague, not a status page.**
+
+The brief covers only: what it will do, whether Enrique needs to act, on which
+channel it will reach him, and how it will report completion. **No implementation
+detail, no internal steps** unless asked.
+
+> *"I'll set up the integration, send you the auth link on WhatsApp when it's
+> ready, carry on once you've connected it, and message you when it's done."*
+
+He can approve it, change it, or ignore it. The brief is a chance to redirect
+before the work happens, not a permission gate — **the approval rules are S42's
+job, and this is not a second one.**
+
+### Test
+- A multi-step request produces a brief of four lines or fewer, naming the channel for each handoff.
+- A trivial request produces **no** brief. Briefing a one-step task is the failure mode here.
+- Changing the plan in reply ("send it to the console instead") changes the execution.
+
+**Debug** If briefs read like task lists, the prompt is exposing the step
+decomposition. The brief describes the *user-facing* flow; the decomposition is
+internal and stays that way.
+
+**Done when:** a multi-step request feels like handing work to someone competent
+who told you the plan first.
+
+## S41 — Recall across channels and time
+*Size: 3 days. Depends on S30 and S38.*
+
+Everything Jarvis produces stays retrievable **by date and by context, from any
+channel** — including by voice.
+
+The worked example from the requirements: *"call the voice agent and ask it to
+explain the improvement opportunities from two days ago."* Jarvis finds that
+document, and **explains it conversationally rather than reading it out.**
+
+### Build
+- Documents and findings are indexed by date, kind and project alongside their content (S30's four tiers).
+- Relative time resolves: yesterday, two days ago, last week, "the one about scraping".
+- **Voice explanation is a different rendering, not a recitation.** A document written to be skimmed is unbearable read aloud; the voice path summarises it, offers the shape, and answers questions about it.
+
+### Test
+- Produce a report, then ask for it by relative date on the phone three days later → the right document, explained in a way that survives being heard rather than seen.
+- Ask for something that does not exist → says so, does not improvise a plausible summary.
+- Ask for "the one about X" with no date → finds it by content.
+
+**Debug** If the voice agent reads headings aloud, it is reciting rather than
+explaining. The test is whether someone driving could follow it.
+
+**Done when:** any document Jarvis has produced can be recalled and understood on
+a phone call, days later, without knowing its title.
+---
+
+# STAGE 9 — WHAT IT CAN CHANGE
+
+From Notes 002–005. Stage 8 is how Jarvis speaks; this is how much of itself it
+can reach. **Two of these steps revise decisions made earlier in this plan** —
+they say so, and they say why.
+
+## S42 — Approval by external impact
+*Size: 3–4 days. **Revises IV.6.** Read that section first.*
+
+IV.6 grades authority by *what the action is*: Level 1 safe, Level 2 per policy,
+Level 3 always-confirm. The requirements replace the governing question with a
+better one:
+
+> **Can anyone other than Enrique see, receive, rely on, or be affected by this?**
+
+**If no — do it.** Private Control Center changes, desktop preparation, backend
+and configuration work, internal maintenance, anything only he will ever
+experience. **No prompt.** Excessive approval requests are the friction this
+whole system exists to remove, and a prompt for a private action is pure cost.
+
+**If yes — ask**, unless his current instruction already explicitly authorised
+that exact externally visible action.
+
+### Explicit instruction is approval
+
+**Jarvis does not ask twice.** If he says to do something and the external
+consequence is an obvious part of it, that instruction *is* the approval. Asking
+"are you sure?" because someone else will see the result is exactly the redundant
+friction the requirements name.
+
+The approval gate is for externally visible actions Jarvis **proposes, infers,
+expands beyond the request, or initiates on its own.** Those are the ones he did
+not ask for.
+
+### Visibility is the test, not the tool
+
+The same service holds both. A private repository is internal; a change
+collaborators or customers depend on is not. **Reason about who is affected by
+this specific action**, never about which product it belongs to. A blanket rule
+per tool is how you get both false prompts and false confidence.
+
+### How this sits with IV.6
+
+The three levels survive as a **floor, not the decision**. Level 3 actions —
+production deploys, deletions, purchases, credential rotation — are externally
+impactful by definition and still always-confirm. What changes is everything
+below: an action that IV.6 would have gated on its *type* now proceeds if nobody
+but Enrique can see it.
+
+**The immutable list (§59) is untouched.** Isolation, authentication, audit,
+backups, spend ceilings and the always-confirm list are not subject to this or
+any other convenience rule.
+
+### Learning his preferences
+
+Approvals, corrections and overrides are recorded and used to get more accurate
+about what can proceed — **narrowing the prompts, never widening the boundary.**
+Learning may make Jarvis ask less about private actions. It may never teach
+itself that an external action has become internal.
+
+### Test
+- A private console change, a desktop preparation and an internal config edit all proceed with **no prompt**.
+- "Send that email to the client" → sent, **no second confirmation** — the external consequence was the instruction.
+- Jarvis *proposing* to email someone → asks first.
+- The same GitHub operation on a private solo repo (proceeds) and on a repo with collaborators (asks).
+- A month of recorded decisions narrows private-action prompts and leaves the external boundary exactly where it was. **Assert that second half** — it is the one that can go wrong quietly.
+
+### Debug
+If prompts feel frequent, look at what is being classified external. The usual
+error is treating *the tool* as external rather than *the action*. If prompts feel
+rare, check the opposite before being pleased.
+
+**Done when:** a normal working day produces no approval prompt Enrique
+considers unnecessary, and every externally visible action he did not ask for
+stopped first.
+
+## S43 — Change anything, from anywhere
+*Size: 4–5 days.*
+
+**Any user-configurable part of Jarvis can be changed by asking, on any channel.**
+Phone, WhatsApp audio, WhatsApp text, in-app chat — all equivalent.
+
+That includes things the plan has treated as fixed:
+
+- **The Control Center itself** — layout, components, what a page shows, how something is presented. *"Put the queue above the health strip"* is a request, not a code change he has to make.
+- **How Jarvis communicates** — tone, what it calls him, how much detail by default, when it calls, which channel it prefers for what.
+- **Connections and integrations**, subject to the broker.
+- Project instructions, schedules, routing, queue policy, tool permissions — S27 already does these; this generalises the entrance.
+
+**He should never have to know which subsystem owns a change.** He describes the
+outcome; Jarvis routes it. A request that turns out to need frontend work becomes
+frontend work — through the normal engineering loop, with review and a PR, not by
+someone hand-editing the console.
+
+### Build
+- Route configuration requests to the owning surface: console repo, config version, connection, schedule, prompt.
+- UI changes become tasks in the Control Center project, running the S6 workflow.
+- Communication preferences are stored, versioned, and **actually consulted** — a preference nothing reads is a preference that does not exist.
+- Everything versioned and reversible (S27).
+
+### Test
+- *"Stop calling me Enrique in voice calls, use my first name only"* by phone → applied, audible on the next call.
+- *"Move the queue above the health strip"* by WhatsApp → a task, a PR, the change.
+- *"Be more detailed in chat but keep WhatsApp short"* → per-channel preference, both honoured.
+- A request needing frontend work, made by voice, ends as a merged PR without him opening an editor.
+- Roll one back → previous behaviour returns exactly.
+
+**Debug** If preferences apply on one channel and not another, they are being read
+at the wrong layer. Preferences belong to the conversation and the user, not to
+the transport.
+
+**Done when:** he can change how Jarvis looks and behaves by describing what he
+wants, from whichever channel he happens to be on.
+
+## S44 — Build the missing capability
+*Size: 5–6 days. The most open-ended step in the plan.*
+
+**"I don't have that tool" is not an acceptable answer.**
+
+When a request needs a capability Jarvis lacks, it should work out whether the
+capability can reasonably be added — research the approach, build or configure
+the tool, adapter, function or integration, **test it**, and then use it. Within
+the existing security, approval and permission boundaries, which do not relax
+because the work is self-directed.
+
+This is the general ability, not a list. Adding a messaging channel, generating
+images, reaching a new service — those are illustrations. The requirement is that
+a missing capability becomes a piece of work rather than a refusal.
+
+### The boundaries it does not cross
+
+Everything in VI.1 and IV.6b applies unchanged. A new tool goes through the same
+classification as any other (S31): **blast radius decided at build time, by a
+person, before it is callable.** A capability Jarvis wrote for itself is not more
+trusted for being homegrown — **if anything it is less, because nobody else has
+ever run it.**
+
+New provider, new billing, new trust relationship → recommendation and approval,
+never self-service.
+
+### Test
+- Ask for something plainly out of reach → it proposes an approach and an estimate rather than refusing or pretending.
+- Approve one → it builds, tests, classifies and uses it, and the PR is reviewable by a human.
+- The new tool respects isolation: usable in the project it was built for, denied elsewhere.
+- Ask for something needing a new paid provider → **recommendation, not a signup.**
+- Ask for something genuinely unreasonable → says so plainly. **"I could build that but it would take a week and here is the cheaper alternative" is the right answer far more often than either extreme.**
+
+**Debug** If it starts building for every gap, the cost estimate is missing.
+Building a tool is sometimes the wrong answer and the estimate is what makes that
+visible.
+
+**Done when:** a request Jarvis cannot serve produces a proposal, and an approved
+proposal produces a working, classified, isolated tool.
+
+## S45 — System work is not a project
+*Size: 2 days. **Revises ADR 012.***
+
+ADR 012 seeds `jarvis-improvement` and `jarvis-maintenance` as **projects**. The
+requirements are explicit that this is wrong:
+
+> *The term Project should be reserved for actual personal or professional
+> projects the user is working on.*
+
+Maintenance, health, security sweeps, self-improvement and internal repair are
+**the system operating itself**. They are not a body of work in Enrique's
+portfolio, and putting them there means his Projects view and his project counts
+are permanently contaminated by Jarvis's housekeeping.
+
+### Build
+- A distinct `system` scope for internal work, separate from `projects`. The isolation and system-layer rules of II.5 carry over unchanged — **this is a taxonomy change, not a permissions change.**
+- Projects views, counts, and pickers exclude system work by default.
+- The console gains its own system/maintenance/improvement area.
+- **He can still ask.** *"What maintenance ran?"*, *"what changed?"*, *"what got fixed?"*, *"how is the system doing?"* are answerable in conversation, which is how he will actually ask — not by finding a page.
+- Requests that are about Jarvis itself, with no project named, route to system scope rather than being forced into a project (Note 004).
+
+### Test
+- Projects list shows only real projects. The count matches what he would count.
+- A week of maintenance runs adds nothing to that view.
+- *"What has maintenance been doing?"* answers with specifics.
+- A system-scoped task still cannot read a project's secrets — the boundary survives the re-labelling.
+
+**Debug** If system work reappears in project views, something is filtering by
+name rather than by scope. Name-based filters break the first time something is
+renamed.
+
+**Done when:** the Projects view contains only Enrique's projects, and he can
+still ask what the system has been doing and get a real answer.
+
+## S46 — Handoffs that do not block
+*Size: 2–3 days.*
+
+When an integration needs Enrique to authenticate externally, Jarvis makes the
+handoff frictionless **and then gets out of the way.**
+
+- Generate the auth URL — Composio and anything similar — and send it on WhatsApp so he can open it on the phone he is already holding.
+- **Then pause cleanly.** Not a blocking wait, not polling forever, not a task that looks alive while nothing happens. The task parks in a known state with a truthful reason.
+- Resume on either signal: *"I connected it"*, or the connection reporting healthy on its own.
+- Resume **from where it stopped**, not from the beginning.
+
+### Test
+- Trigger a connection needing external auth → link on WhatsApp within seconds, task parked, nothing spinning.
+- Say *"I connected it"* → resumes from the checkpoint, does not restart.
+- Authenticate without saying anything → the status signal resumes it anyway.
+- Never authenticate → it stays parked with a truthful reason and does not nag.
+- Kill and restart Jarvis while parked → still parked, still resumable.
+
+**Debug** A parked task that will not resume is usually waiting on a signal that
+fires once and was missed while it was down. **Poll on resume as well as
+listening**, or a restart at the wrong moment strands the task forever.
+
+**Done when:** connecting a new integration is: read one WhatsApp, tap, sign in,
+say "done" — and Jarvis carries on from exactly where it stopped.
+---
+
+# STAGE 10 — REACH AND LEARNING
+
+From Notes 003–005. The last stage, and the one that makes Jarvis feel like it is
+paying attention rather than waiting for instructions.
+
+## S47 — The desktop connector
+*Size: 5–6 days.*
+
+A secure connector to Enrique's primary workstation, so Jarvis can act on the
+machine he actually works at.
+
+**The goal is broader than running SSH commands.** The workstation is another
+controllable environment: run commands, reach authorised files and dev
+environments, start or prepare applications and workspaces, kick off cloud or
+build tasks from that machine, and **have things ready before he sits down.**
+
+He should be able to say *"go into my work desktop"*, *"prepare this workspace"*,
+or *"have this open for me when I get there"*, and have it happen.
+
+### Unavailability is normal, not an error
+
+The machine is generally on during weekdays and off when he travels. **Off is an
+expected state, not a failure.** A request for an unreachable workstation queues
+with a truthful reason and runs when it comes back — it does not fail, and it
+does not raise an incident.
+
+### Build
+- SSH for commands and files; a local agent for anything GUI-level, since opening an editor at a project is not a shell operation.
+- Reachability as a first-class state, with the queue-and-resume behaviour above.
+- **Its own connection, scoped like any other** (S31): classified actions, broker-held credentials, audited. The workstation is a connected system, not an extension of the server.
+- Everything it does is audited by machine and by action, because this is the one surface where Jarvis touches something Enrique also touches.
+
+### Test
+- *"Have the Alpha repo open in my editor with the failing test running"* while the machine is on → it is, when he sits down.
+- The same request with the machine off → queued, truthful reason, **no incident raised**, and it happens when the machine returns.
+- The machine goes offline mid-task → parks and resumes, does not fail.
+- A desktop action is audited with the machine named.
+- **Isolation holds**: a task in one project cannot use the desktop connector to read another project's files. The workstation has everything on it, which is exactly why this test matters more here than anywhere else.
+
+### Debug
+If actions fire against a machine that has gone away, reachability is being
+checked once at dispatch rather than at execution. On a laptop that closes when
+he stands up, those are different moments.
+
+**Done when:** he can ask for his desk to be ready and find it ready, and asking
+while the machine is off is uneventful.
+
+## S48 — Learning from the conversations themselves
+*Size: 4–5 days. Extends S34.*
+
+The weekly Improvement cycle currently looks **outward** — new models, new
+tools, what the industry did. It should also look **inward, at how Jarvis has
+actually been doing.**
+
+Analyse the week's interactions across **every** surface — phone, WhatsApp,
+in-app chat — for:
+
+- mistakes and misunderstandings
+- friction: things that took three exchanges and should have taken one
+- **repeated corrections** — the strongest signal available, because it is Enrique telling Jarvis the same thing twice
+- weak or unhelpful responses
+- capabilities that were needed and absent (feeds S44)
+
+**For each issue, first determine whether it has already been fixed.** Then feed
+what remains into the improvement or fix workflow. The goal is not a report about
+quality — **it is that the same mistake stops happening.**
+
+### What makes this work rather than generate noise
+
+- **Repeated corrections rank above everything else.** One awkward exchange is noise; the same correction three times is a defect with a location.
+- **Already-fixed issues are dropped silently.** A weekly report re-raising last week's fixed problems is a report that gets skipped, and then the real items go unread with it.
+- **It produces work, not observations.** An issue that cannot be turned into a task or a preference change is not carried; it is either actionable or it is dropped.
+- Output follows S38: a document with the findings, a two-line message asking which to build.
+
+### Test
+- Seed a week with a repeated correction → it appears in the findings, ranked, with the exchanges cited.
+- Fix something mid-week → it does **not** appear.
+- A week with genuinely nothing wrong produces a short report saying so. **A cycle that always finds problems is a cycle that invents them**, and this test is what keeps it honest.
+- An approved finding becomes a task and the behaviour actually changes.
+
+### Debug
+If findings are vague, the analysis is reading summaries instead of transcripts.
+The signal lives in the exact words of the correction, not in a paraphrase of the
+conversation.
+
+**Done when:** a mistake Enrique corrects twice becomes a fix he did not have to
+ask for.
+
+---
+
 # PART IV — SHARED CONTRACTS
 
 Frozen. These are the invariants every step is built against. Changing one is
@@ -3606,9 +4042,12 @@ shared working tree.
 | **4 — The phone is reliable** | S19–S24 | A call you can depend on and hold a real conversation with, and Jarvis calling you | 14–17 days |
 | **5 — It reaches** | S25–S32 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
 | **6 — It survives** | S33–S36 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
-| **7 — WhatsApp** | S37 | The last thing. Voice note in, PR back. | 2–3 days |
+| **7 — WhatsApp** | S37 | Voice note in, PR back | 2–3 days |
+| **8 — How it talks** | S38–S41 | Brevity everywhere, documents instead of walls, the right channel per artifact, recall by date | 11–14 days |
+| **9 — What it can change** | S42–S46 | Approval by external impact, change anything from anywhere, build the missing tool, system work out of Projects | 16–20 days |
+| **10 — Reach and learning** | S47–S48 | The desktop connector, and learning from its own conversations | 9–11 days |
 
-**Total: roughly 84–102 working days** for one agent working sequentially, with
+**Total: roughly 120–147 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
