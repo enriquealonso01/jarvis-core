@@ -448,9 +448,27 @@ unblocked, finish it before starting anything new.
   proven means Enrique's DMs get answered by OpenClaw's own agent, with its own
   model and memory. That is the deadlock, stated plainly rather than resolved by
   optimism.
-- **The way out, for the next tick:** OpenClaw's `--channel` list includes
-  `qa-channel`. If that can carry a synthetic inbound message, the takeover can
-  be proved without WhatsApp and without pairing. That is the first thing to try.
+- **Settled 20:50Z, by instrumenting the hook rather than reasoning about it.**
+  The bridge logs on registration and on every fire. On restart the gateway logs
+  `[jarvis-bridge] registering message_received and before_agent_run` — so the
+  plugin IS registered and `api.on` is the right API. An `openclaw agent -m` turn
+  then reached OpenAI without a single "fired" line: **registered, but not
+  dispatched on that path.** That matches the documented caveat that
+  `before_agent_run` is implemented by "the embedded and CLI runners". Whether it
+  is dispatched on the WhatsApp INBOUND path is still unknown and still needs a
+  real message.
+- **What makes pairing safe anyway — checked, not assumed.** `openclaw models
+  list` reports exactly one model, `openai/gpt-5.6-sol`, `Auth: no`, `Local: no`.
+  OpenClaw has no usable model credential and cannot generate a reply at all;
+  that is why the agent turn 401'd rather than answering. So the risk that
+  pairing lets OpenClaw answer Enrique's DMs with its own agent is not merely
+  mitigated by the hook — it is currently impossible for a second, independent
+  reason. **That property must be re-checked before relying on it again**, since
+  adding any provider credential to OpenClaw would silently remove it.
+- **Therefore the order stands, but for a better reason:** pair only after the
+  outbox is wired (item 4), so the 19 queued notifications deliver exactly once
+  — not because pairing is dangerous, but because pairing is the moment they go
+  out.
 - **Raised:** 2026-09-02 20:40Z
 
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
