@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
+  "plan_sha": "4e60236ee026e4d74fa89d7037c8af2585a7dac2",
   "total_steps": 51,
-  "updated_at": "2026-09-02T20:29:46.285989Z",
-  "current_step": "S23",
+  "updated_at": "2026-09-02T21:05:00Z",
+  "current_step": "S37",
   "steps": [
     {
       "id": "S1",
@@ -299,8 +299,8 @@
       "id": "S37",
       "title": "WhatsApp",
       "stage": 7,
-      "state": "not_started",
-      "evidence": "Enrique registered the WhatsApp number (consumer multi-device, so Baileys QR pairing works). openclaw was never configured: jarvis-openclaw-1 crash-loops exit 78, '[gateway] Missing config', /var/lib/jarvis/openclaw holds only an empty state/. Container stopped, not looping. First task is gateway mode + channel config + the jarvis-bridge plugin loading from /plugins/jarvis-bridge. BEFORE PAIRING: the untrusted-content rule has zero implementation — no untrusted flag, no is_forward, nothing in src/ or migrations — and this step calls that the injection vector for the whole system. Build it before the session is live. Verify by pairing and asserting a sent message lands as an inbox_event on the right conversation; the phone saying 'connected' proves nothing."
+      "state": "in_progress",
+      "evidence": "channel config + QR handover, untrusted-content handling, unpaired-channel state; blocked only on Enrique scanning the QR"
     },
     {
       "id": "S38",
@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S37 item 5 — voice notes: audio kept as raw_audio, transcribed by Groq, routed exactly like typed text."
+  "working_on": "S37 WhatsApp — channel configured, QR handed over and awaiting scan; untrusted-content handling and unpaired-channel state landed; voice notes next (audio kept as raw_audio, transcribed, then routed exactly like typed text)."
 }
