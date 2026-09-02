@@ -16,6 +16,7 @@ import {
   validEnum,
   validSlug,
 } from "./policy.js";
+import { renderAgentsMd } from "./agentsfile.js";
 
 const TOOLS = [
   {
@@ -109,7 +110,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "project_onboarding_set",
-      description: "Set one onboarding field (name, slug, project_type, confidentiality, customer_facing, github optional).",
+      description:
+        "Record ONE answer Enrique has actually given. Never call this with a value he did not say - "
+        + "an invented answer becomes a line in the project's AGENTS.md and is obeyed by every future "
+        + "engineering task. Fields: " + ONBOARDING_FIELDS.join(", ") + ". "
+        + "For a command or policy that genuinely does not exist, the answer is the word none, which "
+        + "is different from not having asked.",
       parameters: {
         type: "object",
         properties: {
@@ -124,7 +130,10 @@ const TOOLS = [
     type: "function",
     function: {
       name: "project_onboarding_finalize",
-      description: "Create the project when name, slug, and project_type are set. GitHub may be omitted.",
+      description:
+        "Create the project and write its AGENTS.md. Call this only when every question has an answer: "
+        + "if any are still missing it refuses and names them, and the right response is to ask him, "
+        + "not to supply them yourself.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -308,7 +317,12 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   models_list: "models.list",
 };
 
-async function runTool(
+/**
+ * Exported for the S26 suite, which drives onboarding through the same
+ * dispatcher a model turn uses. A test that called the SQL directly would prove
+ * the SQL and not the refusal.
+ */
+export async function runTool(
   pool: pg.Pool,
   conversationId: string,
   inboxId: string,
@@ -496,6 +510,40 @@ async function runTool(
       }
     }
 
+    /*
+     * S26. The instructions are rendered BEFORE the project row exists, because
+     * a half-created project is worse than none: if an answer is missing, this
+     * returns the question rather than a project whose AGENTS.md has a hole in
+     * it. The plan is explicit that a surviving placeholder means finalize ran
+     * too early, and that the cure is refusing rather than defaulting.
+     */
+    const rendered = renderAgentsMd({
+      project_name: a.name,
+      project_type: a.project_type,
+      production_status: a.production_status || "non_production",
+      customer_facing: toBoolean(a.customer_facing) ? "yes" : "no",
+      confidentiality: a.confidentiality || "normal",
+      github_owner: a.github_owner,
+      github_repo: a.github_repo,
+      default_branch: a.default_branch,
+      allowed_auth_profiles: a.allowed_auth_profiles,
+      approved_data_processors: a.approved_data_processors,
+      setup_command: a.setup_command,
+      test_command: a.test_command,
+      lint_command: a.lint_command,
+      safe_environments: a.safe_environments,
+      deploy_policy: a.deploy_policy,
+      project_forbidden: a.project_forbidden,
+      before_pr: a.before_pr,
+      before_deploy: a.before_deploy,
+      migration_policy: a.migration_policy,
+      default_queue_priority: a.default_queue_priority || "normal",
+    });
+    if (!rendered.ok) {
+      return `cannot write AGENTS.md yet — still unanswered: ${rendered.missing.join(", ")}. `
+        + "Ask him for these; do not fill them in.";
+    }
+
     const inserted = await pool.query<{ id: string }>(
       `INSERT INTO projects (slug, name, is_system, project_type, confidentiality,
                              production_status, customer_facing, metered_spend_allowed)
@@ -528,6 +576,17 @@ async function runTool(
     } catch {
       /* ignore if permission or dir exists */
     }
+    /*
+     * Version 1 of the instructions, written by Jarvis. This row is canonical
+     * (ADR 018): the file committed into the repository is a rendering of it,
+     * not a second source of project policy.
+     */
+    await pool.query(
+      `INSERT INTO project_instructions_versions (project_id, version, body, parsed_policy, created_by)
+       VALUES ($1, 1, $2, $3, 'jarvis')`,
+      [inserted.rows[0].id, rendered.body, JSON.stringify(a)],
+    );
+
     await pool.query(
       `UPDATE onboarding_sessions SET status = 'finalized', project_id = $2, updated_at = now() WHERE id = $1`,
       [sess.rows[0].id, inserted.rows[0].id],
