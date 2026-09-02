@@ -80,6 +80,18 @@ export const ONBOARDING_FIELDS = [
   "default_queue_priority",
   "deploy_policy",
   "required_tests",
+  // S26: the rest of what AGENTS.md needs. Every one of these fills a named
+  // placeholder in the template, so a project cannot be finalized with a hole
+  // in the instructions its own engineering tasks will read.
+  "approved_data_processors",
+  "setup_command",
+  "test_command",
+  "lint_command",
+  "safe_environments",
+  "project_forbidden",
+  "before_pr",
+  "before_deploy",
+  "migration_policy",
 ] as const;
 
 export function isBooleanish(value: string): boolean {

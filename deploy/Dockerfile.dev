@@ -20,6 +20,11 @@ COPY migrations ./migrations
 # In production the API reads this from the deployed source tree at
 # /opt/jarvis/core, bind-mounted read-only. Dev has no such tree, so /app is it.
 COPY PROGRESS.json ./
+# Dev only, and only for tests. Nothing at runtime reads docs/ — the production
+# image deliberately does not ship it — but the S26 suite compares the AGENTS.md
+# template in docs/TEMPLATES.md against the constant in src/agentsfile.ts, which
+# is the only thing keeping the document people read honest about what ships.
+COPY docs ./docs
 RUN pnpm build
 # A worktree created by the runner must not look "dubiously owned" to git when
 # the seed script and the runner disagree about uid. This is a throwaway box.
