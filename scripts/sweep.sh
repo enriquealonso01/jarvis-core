@@ -27,7 +27,27 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s17-artifacts-test s18-search-test s18b-retrofit-test s19-call-test
         s20-turntaking-test s21-runtime-test s21b-call-defects-test
         s22-desk-test s23-outbound-test s24-callreview-test
-        s25-routing-test"
+        s25-routing-test s28-runtime-test s28-park-test
+        outbound-leg-test unscoped-heavy-test handover-scope-test
+        harness-issue-test fixture-teardown-test confidential-eligibility-test
+        s37-outbox-send"
+
+# Suites deliberately NOT in the sweep, and why. Each needs something the sweep
+# cannot give it, and a suite that cannot pass here would train everyone to
+# ignore a red sweep:
+#
+#   s13b-progress-live      asserts against the live site over HTTPS
+#   s37-voicenote-live      posts to the live API and spends Groq minutes
+#   s37-ingest-live         same
+#   s28-parity-live         creates a real GitHub repo and runs two harnesses
+#   s22-live-call-to-pr     places a real call
+#   s7-live-pr, s6-console-to-pr, s12c-live-faults  real credentials, real repos
+#   tier1-latency-test      needs a real model route; it refuses to run without
+#                           one rather than passing in 8ms on a missing provider
+#   project-api-credential-test  needs github_personal_admin to copy from
+#
+# The line those all cross is the same one: they need production, money, or a
+# credential the dev database does not have.
 
 clearqueue() {
   $COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX -c \
