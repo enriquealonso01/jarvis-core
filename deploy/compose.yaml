@@ -38,6 +38,15 @@ services:
       MASTER_KEY_PATH: /var/lib/jarvis/keys/master.key
       LOGIN_ONCE_PATH: /var/lib/jarvis/keys/login-once.txt
       MIGRATIONS_DIR: /app/migrations
+      # The build bar state, served out of the STATE volume rather than the
+      # deploy tree. It used to default to /opt/jarvis/core/PROGRESS.json, and
+      # every code deploy extracts a tarball over that tree carrying whichever
+      # PROGRESS.json sat on the branch being deployed. So deploying a feature
+      # branch reverted the bar: main said 51 steps while the box served a 40
+      # step copy, and Enrique read S28 of 40 for a day. Publishing state and
+      # deploying code are now two different acts on two different paths.
+      # See scripts/publish-progress.sh.
+      JARVIS_PROGRESS_PATH: /var/lib/jarvis/state/PROGRESS.json
     depends_on:
       postgres:
         condition: service_healthy

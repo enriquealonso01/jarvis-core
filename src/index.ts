@@ -32,6 +32,16 @@ const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
  */
 const PROGRESS_PATH = process.env.JARVIS_PROGRESS_PATH ?? "/opt/jarvis/core/PROGRESS.json";
 
+/**
+ * The reasons behind the counts, published beside the state it explains.
+ *
+ * Derived from `PROGRESS_PATH` rather than configured separately, because the
+ * count and its explanation have to come from one publish. They were once
+ * served from two places and disagreed: the bar counted three blockers from the
+ * deployed tree while the link pointed at a file two steps older.
+ */
+const BLOCKED_PATH = PROGRESS_PATH.replace(/PROGRESS\.json$/, "BLOCKED.md");
+
 function originOk(req: { headers: { origin?: string } }): boolean {
   const origin = req.headers.origin;
   if (origin) return origin === ORIGIN;
@@ -186,6 +196,35 @@ async function main() {
         error: {
           code: "progress_unavailable",
           message: `no PROGRESS.json at ${PROGRESS_PATH}`,
+        },
+      });
+    }
+  });
+
+  /**
+   * The same file the console links to from its blocked and awaiting counts.
+   *
+   * Served as `text/plain` on purpose: it is Markdown, browsers do not render
+   * Markdown, and `text/markdown` makes Chrome download it instead of showing
+   * it. Enrique clicks this from his phone to find out what is waiting on him,
+   * so it has to be readable where it is clicked.
+   */
+  app.get("/BLOCKED.md", async (_req, reply) => {
+    try {
+      const [raw, stat] = await Promise.all([
+        fs.readFile(BLOCKED_PATH, "utf8"),
+        fs.stat(BLOCKED_PATH),
+      ]);
+      return reply
+        .type("text/plain; charset=utf-8")
+        .header("Cache-Control", "no-cache")
+        .header("Last-Modified", stat.mtime.toUTCString())
+        .send(raw);
+    } catch {
+      return reply.code(503).type("application/json; charset=utf-8").send({
+        error: {
+          code: "blocked_unavailable",
+          message: `no BLOCKED.md at ${BLOCKED_PATH}`,
         },
       });
     }
