@@ -159,8 +159,8 @@ async function verify(): Promise<void> {
      * raised correctly, on time, and was sitting in the table. A test that looks
      * in the wrong place does not report a gap in the system; it invents one.
      */
-    const issue = await pool.query<{ title: string; status: string; retry: string | null }>(
-      `SELECT i.title, i.status, c.retry_after AS retry
+    const issue = await pool.query<{ title: string; required_action: string; status: string; retry: string | null }>(
+      `SELECT i.title, i.required_action, i.status, c.retry_after AS retry
          FROM issues i
          JOIN outbound_calls c ON c.id = (i.evidence->>'call_id')::uuid
         WHERE i.dedupe_key = $1`,
