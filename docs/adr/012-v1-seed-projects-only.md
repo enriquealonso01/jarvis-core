@@ -6,6 +6,14 @@
 - Affects isolation / billing / always-confirm: no (removes a named tenant; keeps generic isolation)
 - User approval: yes (this conversation)
 
+> **Partly revised by S45 of `JARVIS_MASTER_PLAN_V2.md`.** This ADR seeds
+> `jarvis-improvement` and `jarvis-maintenance` as *projects*. The requirements
+> inbox is explicit that system work is not a Project — a Project is a body of
+> Enrique's own work, and internal housekeeping in the Projects view contaminates
+> it permanently. **The seeding still happens; the scope is `system`, not
+> `project`.** Everything else in this ADR — no named tenant, professional vs
+> personal collected at creation, the first-operator loop — stands unchanged.
+
 ## Decision
 
 Jarvis V1 is a **general personal operating system**. It must not be fingerprinted for any specific customer or employer project (including TicketFlipping).

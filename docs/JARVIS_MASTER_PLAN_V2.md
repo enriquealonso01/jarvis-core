@@ -3078,6 +3078,13 @@ that works on your machine and nowhere else.
 
 ## IV.6 Authorization levels
 
+> **S42 revises the governing question of this section.** What follows grades
+> authority by *what the action is*. S42 replaces that with *who can see it*:
+> private work proceeds without a prompt, and the gate applies to externally
+> visible actions Jarvis proposes rather than ones Enrique asked for. **The three
+> levels below survive as a floor, not as the decision** — Level 3 remains
+> always-confirm, and the immutable list is untouched. Read both.
+
 Three levels, fixed at planning time. **The model does not decide whether
 approval is required — the policy engine does.** That sentence is the whole
 control: a model asked to judge its own authority will, sooner or later, judge
@@ -4168,3 +4175,28 @@ because it reads as a completeness claim.
 | The harness is disposable (01, turn 01) | II.2b, S28 |
 | Jarvis Improvement and Maintenance as system projects (17) | II.5, S34 |
 | Nothing developed on the laptop (ADR 014) | S1 |
+
+**From `Jarvis — Thoughts & Requirements Inbox`:**
+
+| Requirement (note) | Where |
+|---|---|
+| Concise, direct, plain language on every surface (001, 002, 004) | S38 |
+| Long content becomes a document, not a wall of chat (001, 002) | S38 |
+| Weekly findings as a PDF with a two-line ask (001) | S38, S34 |
+| Explain a past document by voice, by relative date (001) | S41 |
+| Forwarded content is context, and ask when intent is unclear (001) | S37 |
+| Change any user-configurable part, from any channel (002, 003) | S43 |
+| Change how Jarvis talks, what it calls him, when it calls (003) | S43 |
+| Auth handoff by link, then park cleanly and resume (003) | S46 |
+| Weekly cycle learns from real interactions on all surfaces (003) | S48 |
+| System work is not a Project (003) | S45 |
+| Jarvis controls its whole authorized environment (004) | S43, S44, S47 |
+| Build the missing capability rather than refusing (004) | S44 |
+| General capability requests are not forced into a Project (004) | S45 |
+| Voice especially concise; move artifacts to the right channel (004) | S39 |
+| A brief plan before long or multi-step work (004) | S40 |
+| Cross-channel workflow continuity (004) | S39 |
+| Desktop/workstation control, offline handled gracefully (005) | S47 |
+| Approval by external impact, not by action type (005) | S42 |
+| Explicit instruction counts as approval (005) | S42 |
+| Learn approval preferences without widening the boundary (005) | S42 |
