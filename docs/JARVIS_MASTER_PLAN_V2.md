@@ -16,15 +16,35 @@ When the last step is finished, Jarvis is done.
 
 ## 0.0 Start here
 
-If you are the agent building this, read in this order and then begin at S1.
+If you are the agent building this, read in this order — then find where the
+build actually is, rather than assuming.
 
 1. **This document, Parts 0 through III.** Part 0 is what Jarvis is and what already exists; Part III is your backlog.
 2. **`docs/GAP_ANALYSIS.md`** — why v1 ended up with a chassis and no engine. Twenty minutes that will stop you repeating it.
-3. **`docs/DEBUG_NOTES.md`** — eleven bugs already paid for. Read before you write, not after you break something.
+3. **`docs/DEBUG_NOTES.md`** — bugs already paid for, in full. Read before you write, not after you break something.
 4. **`AGENTS.md`** — the non-negotiables. Persist before any model call; projects are security boundaries; never substitute an auth profile.
 5. **`docs/DATA_MODEL.md`, `docs/STATE_MACHINES.md`, `docs/ERROR_TAXONOMY.md`** — read-only law. The schema is already right; work with it rather than around it.
 
-Then S1. Not S2, and not "S1 but quickly so I can get to the interesting part" — S1 is what makes every step after it verifiable instead of hopeful.
+### Then find your place
+
+**Do not assume S1.** This plan is being executed while it is being written, and
+by the time you read this a good deal of it is built. Orient before you act:
+
+1. **`PROGRESS.json`** at the repo root — what is done, what is partial, what is blocked, and which step is current. It is the agent's own record and it is honest; a step marked `done` there has a merged PR behind it.
+2. **`git log --oneline -20`** — what actually landed, which is the check on the file above.
+3. **`BLOCKED.md`** — anything waiting on Enrique. If something there is now unblocked, finish it before starting anything new.
+
+Then work the **lowest-numbered step that is not done**, with two exceptions.
+
+**The exceptions, and they matter more than the ordering.** S12b carries items
+that are **live on the box right now** — the deterministic router, which means a
+model is currently the first reader of every inbound body, and the SSH hardening,
+which is about ten minutes and is not code. Those are not "when you get there"
+items. Do them next, out of order, and say so in the commit.
+
+If you are genuinely at the beginning: S1, and not "S1 but quickly so I can get
+to the interesting part" — S1 is what makes every step after it verifiable
+instead of hopeful.
 
 **The one thing to hold on to.** There is exactly one way this plan fails the way
 the last one did: you spend your time on the parts that are pleasant to build —
