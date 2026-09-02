@@ -2015,9 +2015,39 @@ cross-project leakage, and an honest "I don't know" when the answer is not there
 ## S31 — Composio and MCP
 *Size: 4–5 days. After S6, so there is something to use them.*
 
-**Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker. Then a generic MCP client: attach any MCP server, scoped to a project, tools surfaced to the harness. Untrusted servers run in Docker, never on the host.
+### A connection is a set of actions, not a switch
 
-**Test** A project-scoped Composio connection used by a heavy task; the same connection denied to a second project. An MCP server attached to one project and invisible to another. A deliberately hostile MCP server cannot escape its container or read another project.
+S32 found that a browser bypasses the broker by clicking. This is the same hole
+in a sharper form: **an MCP server holds its own credentials and makes its own
+outbound calls.** Once attached, its tools do whatever they do — send mail, post
+publicly, delete a record — and the broker, which gates *Jarvis's* typed calls,
+never sees any of it.
+
+Composio concentrates the problem: one connection is a gateway to hundreds of
+services. *"Project A may use Composio"* is not the same statement as *"project A
+may send email as Enrique"*, and treating a connection as a boolean collapses the
+two.
+
+So a connection carries a **permitted-action set**, and the manifest that
+declares kind and scopes declares that too.
+
+### Blast radius is classified at attach time, by a person, once
+
+Every tool a server exposes is classified against IV.6 when the server is
+attached — Level 1 safe, Level 2 per project policy, Level 3 always-confirm — and
+that classification is stored. Not at call time: at call time all you have is a
+name, and `update_record` tells you nothing about whether the record is in a
+staging database or a customer's billing account.
+
+Consequences:
+
+- **An unclassified tool is not callable.** Attaching a server surfaces its tools for classification, and until that is done the server is attached and inert.
+- **A tool's classification is pinned to the server version.** MCP servers are updated by their authors; a tool that was read-only last week can be destructive today, with the same name and the same signature. A version change re-opens classification rather than inheriting it.
+- **Level 3 tools go through the same approval as everything else.** The gate is not "is this server trusted", it is "what is this specific call about to do".
+
+**Build** The Composio adapter, so any Composio-supported service is reachable under project scope through the broker, with per-action scoping rather than per-connection. Then a generic MCP client: attach any MCP server, scoped to a project, tools classified then surfaced to the harness. Untrusted servers run in Docker, never on the host.
+
+**Test** Attach a server and invoke a tool before classifying it → refused, and the refusal says why. Classify a tool as Level 3, invoke it → stops for approval. Bump the server's version → its tools need re-classification and are inert until then. **A Composio connection permitting one action does not permit a second action on the same service** — this is the assertion that separates a permitted-action set from a switch. A project-scoped Composio connection used by a heavy task; the same connection denied to a second project. An MCP server attached to one project and invisible to another. A deliberately hostile MCP server cannot escape its container or read another project.
 
 **Debug** A Composio call that works for one project and fails for another is the broker doing its job — confirm the denial is deliberate before treating it as a bug. An MCP server that hangs takes the heavy lane with it: every MCP invocation needs a timeout, and a server that times out twice gets disabled with an Issue rather than retried forever.
 
