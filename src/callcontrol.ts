@@ -8,8 +8,9 @@ import { raiseIssue } from "./notify.js";
 import { runSupervisorTurn } from "./supervisor.js";
 import { ARTIFACTS_DIR } from "./paths.js";
 import {
-  BUDGET_MS, bumpSilence, endCall, ensureCall, holdingLine, move, openCall, overdueCalls,
-  stalledCalls, type CallState,
+  appendUtterance, BUDGET_MS, bumpSilence, countBargeIn, endCall, ensureCall,
+  holdingLine, move, openCall, overdueCalls, setSpeakingMarker, stalledCalls, takeUtterance,
+  type CallState,
 } from "./callstate.js";
 import { recordArtifact } from "./artifacts.js";
 
@@ -656,6 +657,113 @@ async function say(
   });
 }
 
+/**
+ * Words that are not a turn.
+ *
+ * Telnyx transcribes what it hears, and what it hears on an open line includes
+ * coughs, a television, and the engine's own guesses at silence — "you" and
+ * "thank you" are the classic ones. Answering those is worse than missing them:
+ * it talks over a caller who has not finished thinking.
+ */
+const NOISE = new Set([
+  "uh", "um", "umm", "hmm", "mm", "mhm", "ah", "oh", "eh", "er",
+  "you", "thank you", "thanks", "bye", "okay", "ok", "yeah", "hm",
+  "[noise]", "[silence]", "[inaudible]", "(silence)",
+]);
+
+/**
+ * Is this a caller taking a turn, or is it the room?
+ *
+ * Confidence first when the engine reports it — it is the only signal that is
+ * actually about the audio rather than about the words. Then the noise
+ * vocabulary, which only fires on a WHOLE utterance: "okay" alone is the room,
+ * "okay, book it" is an instruction.
+ */
+export function looksLikeSpeech(text: string, payload: Record<string, unknown> = {}): boolean {
+  const clean = text.trim().toLowerCase().replace(/[.,!?]+$/g, "");
+  if (!clean) return false;
+
+  const d = (payload.transcription_data ?? payload) as Record<string, unknown>;
+  const confidence = typeof d.confidence === "number" ? d.confidence : null;
+  if (confidence !== null && confidence < 0.4) return false;
+
+  if (NOISE.has(clean)) return false;
+  // A single syllable that is not a word we know is a cough, not a sentence.
+  if (clean.length < 3 && !/^(no|hi|go)$/.test(clean)) return false;
+  return true;
+}
+
+/**
+ * When the caller stops talking, the turn passes — but not before.
+ *
+ * The timer lives in memory because it is a LATENCY device: five seconds after
+ * the last syllable, not five seconds after whenever the next sweep happens to
+ * run. What makes it safe is that it decides nothing. The turn is claimed by an
+ * atomic UPDATE, and the same claim is attempted by the worker sweep from the
+ * `endpoint` deadline in the row — so if this process dies holding a timer, the
+ * caller is answered a few seconds later instead of never.
+ */
+const endpointTimers = new Map<string, NodeJS.Timeout>();
+
+function armEndpoint(pool: pg.Pool, ccid: string): void {
+  const existing = endpointTimers.get(ccid);
+  if (existing) clearTimeout(existing);
+  const t = setTimeout(() => {
+    endpointTimers.delete(ccid);
+    void takeTurn(pool, ccid).catch((err) =>
+      console.error("taking the turn failed:", err instanceof Error ? err.message : err));
+  }, BUDGET_MS.endpoint);
+  // Never hold the process open for a call that has gone quiet.
+  t.unref?.();
+  endpointTimers.set(ccid, t);
+}
+
+function disarmEndpoint(ccid: string): void {
+  const t = endpointTimers.get(ccid);
+  if (t) clearTimeout(t);
+  endpointTimers.delete(ccid);
+}
+
+/**
+ * The caller has finished. Answer what they actually said, all of it.
+ */
+export async function takeTurn(pool: pg.Pool, ccid: string): Promise<string> {
+  if (!(await beginAnswer(pool, ccid))) return "not our turn";
+  const text = await takeUtterance(pool, ccid);
+  if (!text) {
+    await endAnswer(pool, ccid);
+    return "nothing was said";
+  }
+  disarmEndpoint(ccid);
+  try {
+    return await answerAloud(pool, ccid, text);
+  } catch (err) {
+    await endAnswer(pool, ccid);
+    throw err;
+  }
+}
+
+/**
+ * Enrique started talking while Jarvis was talking. Jarvis stops. Immediately.
+ *
+ * "Being talked over by your own assistant is the single most irritating failure
+ * in voice UX." Nothing is awaited before the stop goes out except the stop
+ * itself: the state move, the counter, and the accumulation all happen after the
+ * command is on its way.
+ */
+async function bargeIn(pool: pg.Pool, ccid: string, marker: string | null): Promise<void> {
+  await command(pool, ccid, "playback_stop", marker ? { client_state: marker } : {});
+  await command(pool, ccid, "speak_stop").catch(() => false);
+  await move(pool, ccid, "listening", {
+    from: ["speaking", "greeting"],
+    cause: "the caller spoke over the reply",
+    eventType: "call.transcription",
+    leg: "listening",
+  });
+  await countBargeIn(pool, ccid);
+  await setSpeakingMarker(pool, ccid, null);
+}
+
 /** Run a Supervisor turn on what was said and play the answer back. */
 async function answerAloud(pool: pg.Pool, ccid: string, said: string): Promise<string> {
   const startedAt = Date.now();
@@ -741,6 +849,7 @@ ${said}`,
     from: "thinking", cause: "playing the answer", leg: "tts",
   });
   if (FAKE_TELNYX) spokenLines.push({ ccid, text: spoken, clientState: STATE_REPLY });
+  await setSpeakingMarker(pool, ccid, STATE_REPLY);
   const played = url
     ? await command(pool, ccid, "playback_start", { audio_url: url, client_state: STATE_REPLY })
     : await say(pool, ccid, spoken, STATE_REPLY);
@@ -776,9 +885,23 @@ export async function sweepCallDeadlines(pool: pg.Pool): Promise<string[]> {
   for (const call of await overdueCalls(pool)) {
     const { call_control_id: ccid, state, deadline_leg: leg } = call;
 
+    /*
+     * The endpoint deadline is not a failure. It is the caller having stopped
+     * talking, and it is here as well as on the in-process timer so that an API
+     * restart mid-sentence costs a few seconds rather than the whole turn.
+     */
+    if (leg === "endpoint") {
+      const took = await takeTurn(pool, ccid);
+      done.push(`${ccid}: ${took}`);
+      continue;
+    }
+
     if (state === "listening") {
-      // Nobody has said anything. Ask once; the second time, hang up rather
-      // than holding an open line at a per-minute rate.
+      // Nobody has said anything — and nothing is half-said either, or the
+      // endpoint branch above would have taken it. This test has to come
+      // SECOND: a caller pausing mid-sentence is also in `listening`, and
+      // asking them whether they are still there is precisely the interruption
+      // this step exists to remove.
       const asked = await bumpSilence(pool, ccid);
       if (asked >= 2) {
         await say(pool, ccid, "I will let you go, sir. Call back any time.", STATE_ACK);
@@ -933,6 +1056,19 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
     if (state !== STATE_GREETING) {
       // The answer has finished playing: the caller may speak again.
       await endAnswer(pool, ccid);
+      await setSpeakingMarker(pool, ccid, null);
+      /*
+       * Anything said WHILE Jarvis was talking is a turn that has been waiting.
+       * Without this it sat in `pending_text` until the caller said something
+       * else — so interrupting worked, and being answered after interrupting
+       * did not.
+       */
+      const waiting = await pool.query<{ pending_text: string | null }>(
+        "SELECT pending_text FROM calls WHERE call_control_id = $1", [ccid]);
+      if (waiting.rows[0]?.pending_text) {
+        armEndpoint(pool, ccid);
+        return "reply finished, a turn is waiting";
+      }
       return "reply finished, listening again";
     }
     // Two things, for two different jobs.
@@ -966,15 +1102,38 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
       await say(pool, ccid, holdingLine("stt"), STATE_REPLY);
       return "heard nothing usable, said so";
     }
-    if (!(await beginAnswer(pool, ccid))) {
-      return `ignored while answering: ${said.slice(0, 40)}`;
+
+    // The room is not a turn. A television, a cough, and the engine's own guess
+    // at silence all arrive here looking exactly like speech.
+    if (!looksLikeSpeech(said, payload)) return `ignored as noise: ${said.slice(0, 40)}`;
+
+    const call = await pool.query<{ state: CallState; speaking_marker: string | null }>(
+      "SELECT state, speaking_marker FROM calls WHERE call_control_id = $1",
+      [ccid],
+    );
+    const state = call.rows[0]?.state ?? null;
+
+    /*
+     * Barge-in. S19 refused a transcription that arrived while Jarvis was
+     * speaking, which was right for "one utterance, one reply" and wrong for a
+     * human being: it meant the only way to interrupt was to wait. Now the
+     * playback stops and the caller has the floor. The turn gate still holds —
+     * it is `listening` again a moment later, and what they said accumulates
+     * like any other utterance.
+     */
+    if (state === "speaking" || state === "greeting") {
+      await bargeIn(pool, ccid, call.rows[0]?.speaking_marker ?? null);
     }
-    try {
-      return await answerAloud(pool, ccid, said);
-    } catch (err) {
-      await endAnswer(pool, ccid);
-      throw err;
+
+    // Thinking: the reply is already being composed, so this belongs to the
+    // NEXT turn. It accumulates and is taken when the current answer finishes.
+    const whole = await appendUtterance(pool, ccid, said);
+    // Only a call that is listening is waiting for the caller to finish. Said
+    // over a reply being composed, it waits for that reply to land first.
+    if (state === "listening" || state === "speaking" || state === "greeting") {
+      armEndpoint(pool, ccid);
     }
+    return `heard "${said.slice(0, 40)}", turn so far ${whole.length} chars`;
   }
 
   if (type === "call.recording.saved") {
