@@ -408,6 +408,36 @@ The line: **if it is transport, OpenClaw owns it. If it is a decision, Jarvis
 owns it.** Where that line is unclear, write it down in an ADR rather than
 building both sides.
 
+## II.2d The stack, and what it must not become
+
+Stated because the plan described behaviour for forty steps without ever saying
+what it is written in, and because two of these rules exist to prevent expensive
+mistakes rather than to express a preference.
+
+- **TypeScript on Node 22** for the API, workers, runner, broker and the OpenClaw bridge. One language across the control plane and the plugin, so the bridge is not a second ecosystem.
+- **Next.js/React** for the Control Center, in its own repository.
+- **`pnpm`, versions pinned.** Base images, Node, Postgres, Caddy and the harness CLIs too (VII.5).
+- **Two repositories, and only two**: `jarvis-core` and `jarvis-control-center`. A third needs an ADR — every additional repo is another thing to version, deploy, back up and keep in step.
+
+### Migrations are numbered raw SQL, and the schema has one source of truth
+
+No ORM owns the schema. Migrations are numbered `.sql` files applied in order and
+recorded in `schema_migrations`. A thin query layer is fine; Drizzle or Prisma may
+be added later **only as a consumer of that SQL, never as a second definition of
+it.**
+
+This is the rule most likely to be broken by someone being helpful. Two schema
+definitions do not stay in sync — they diverge silently, and the divergence
+surfaces as a production bug months later in whichever one the code was not
+reading. The SQL files are the schema.
+
+### Python
+
+Allowed for one-off Maintenance scripts and test harnesses — the acceptance
+runner already is one. **The control plane is TypeScript.** The line is: if it
+runs continuously, or holds state, or touches credentials, it is TypeScript. If
+it is a script someone runs to check something, the language does not matter.
+
 ## II.3 The task lifecycle — the spine
 
 ```
