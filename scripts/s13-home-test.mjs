@@ -89,7 +89,12 @@ async function aboveTheFold(page, foldHeight) {
       // counted as the first thing on the page and this suite reported a
       // reordering that had not happened.
       const offscreen = r.right <= 0 || r.left >= window.innerWidth;
-      if (top < fold && r.height > 0 && !offscreen) {
+      // The status bar and the header are on every page and are not Home's
+      // content — S13 is about the order of the PAGE. Giving the status bar a
+      // testid in S18b made it read as the first section on Home, which is a
+      // reordering that did not happen.
+      const chrome = el.closest(".statusbar") || el.closest(".header");
+      if (top < fold && r.height > 0 && !offscreen && !chrome) {
         out.push({ id: el.getAttribute("data-testid"), top: Math.round(top), height: Math.round(r.height) });
       }
     }

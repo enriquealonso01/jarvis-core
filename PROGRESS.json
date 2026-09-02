@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "9c61d7264576b87e75a0e88cba683e71acd9e6df",
   "total_steps": 39,
-  "updated_at": "2026-09-02T08:29:40.800Z",
-  "current_step": "S18b",
+  "updated_at": "2026-09-02T09:05:15.739Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -162,9 +162,9 @@
       "id": "S18b",
       "title": "The retrofit sweep",
       "stage": 3,
-      "state": "in_progress",
-      "evidence": "Three of five retrofit items done, 20/20. Checkpoints carry the six fields that record WHY and the RESUME PATH READS THEM, proved by capturing the prompt a resumed run is actually given. The three taxonomy-only error classes exist and are provoked from real harness output; agent.repeat quotes the repeated action. Internal posts dedupe on request id atomically. PARTIAL: the ten-rung recovery ladder and the status-bar/composer items are not built.",
-      "pr": 74
+      "state": "done",
+      "pr": 77,
+      "evidence": "All five retrofit items, 66 assertions. Checkpoints record WHY and the resume path reads them. The three taxonomy-only error classes exist, with a real liveness-vs-progress detector for agent.repeat. Internal posts dedupe atomically. The recovery ladder climbs ten rungs cheapest-first, records each including the two that are not available yet, respects every limit and ends at Enrique. The status bar has all six states, forced individually. The composer's inbox row is byte-shape-identical to WhatsApp's."
     },
     {
       "id": "S19",

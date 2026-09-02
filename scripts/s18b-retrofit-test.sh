@@ -24,6 +24,10 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
+bash scripts/console-rebuild.sh >/dev/null || {
+  echo "  FAIL  the console did not build — see /tmp/console-build.log"
+  echo "==== 0 passed, 1 failed ===="; exit 1; }
+
 clearqueue() {
   q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
      WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
@@ -131,6 +135,16 @@ after=$(q "SELECT count(*) FROM inbox_events WHERE raw_text = 'S18b idempotency 
 check "three identical posts, one row" "$((before + 1))" "$after"
 check "and the claim is recorded once" "1" \
   "$(q "SELECT count(*) FROM internal_requests WHERE request_id = '$RID';")"
+
+# ========================================== 4 and 5: the ladder, the status bar
+echo
+a=$($COMPOSE run --rm --no-deps -T runner node --import tsx scripts/s18b-ladder-test.ts 2>&1); echo "$a"
+b=$(node scripts/s18b-statusbar-test.mjs 2>&1); echo "$b"
+sum() { printf '%s' "$1" | grep -oE '==== [0-9]+ passed, [0-9]+ failed ====' | tail -1; }
+ap=$(sum "$a" | grep -oE '^==== [0-9]+' | grep -oE '[0-9]+'); af=$(sum "$a" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+')
+bp=$(sum "$b" | grep -oE '^==== [0-9]+' | grep -oE '[0-9]+'); bf=$(sum "$b" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+')
+pass=$(( pass + ${ap:-0} + ${bp:-0} ))
+fail=$(( fail + ${af:-1} + ${bf:-1} ))
 
 echo
 echo "==== $pass passed, $fail failed ===="

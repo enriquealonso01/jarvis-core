@@ -94,18 +94,19 @@ async function watchdog(pool: ReturnType<typeof createPool>) {
         "The task was requeued from its last checkpoint. No action is needed unless this keeps recurring.",
     });
     await transitionTask(pool, t.id, "recovering", "watchdog recovery", "watchdog");
-    const cp = await pool.query<{ payload: Record<string, unknown> }>(
-      `SELECT payload FROM task_checkpoints WHERE task_id = $1 ORDER BY at DESC LIMIT 1`,
-      [t.id],
-    );
-    await transitionTask(
-      pool,
-      t.id,
-      "queued",
-      cp.rows[0] ? "requeued from latest checkpoint" : "requeued with no checkpoint",
-      "watchdog",
-      "lease_until = NULL, lease_owner = NULL",
-    );
+
+    /*
+     * S18b: climb the ladder rather than always doing the same thing.
+     *
+     * This used to be one action — requeue from the latest checkpoint — applied
+     * to a two-second network blip and to a model that cannot do the job alike.
+     * That is rung 7 of ten, so recovery could neither be cheaper than itself
+     * nor escalate past itself. `climb` picks the cheapest rung not yet
+     * exhausted for THIS task, applies it, and records it on the timeline.
+     */
+    const { climb } = await import("./ladder.js");
+    const step = await climb(pool, t.id, `heartbeat missed for ${STALL_SECONDS}s`);
+    console.log(`watchdog: task ${t.id} recovery rung ${step.rung} (${step.name}) — ${step.detail}`);
 
     // The recovery worked, so the ticket has served its purpose. It stays in the
     // trail as resolved rather than sitting open forever.
