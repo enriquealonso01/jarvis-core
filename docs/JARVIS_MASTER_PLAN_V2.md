@@ -104,54 +104,49 @@ and an ADR records it:
 - Any workflow that requires Enrique to SSH into the box to add a normal credential or connection. If a routine action needs a terminal, that action is not finished.
 - Web push notifications. WhatsApp is the pager.
 
-## 0.5 Where things stand today
+## 0.5 What you inherit, and how to see the rest
 
-Read this before writing a line. A large amount already exists and is good; the
-fastest way to waste a week is to rebuild it. Equally, some of it exists only as
-a row in a table, and treating that as working is how v1 got here.
+This section used to be an inventory of what existed. It went stale within a
+day — it was still telling readers that `task_create` did not exist some hours
+after S2 shipped — so it is now the two things that do not age: **what was here
+before the plan started**, and **how to find out what is here now.**
 
-**Built, working, do not touch**
-- Postgres schema — 37 tables across 9 migrations. It already carries `worktree_path`, `branch`, `head_sha`, `harness`, `external_session_id`. The data model anticipated the executor; only the code was missing.
-- Secret storage: envelope encryption, per-credential DEKs, master key at 0400.
-- The credential broker and its fail-closed isolation checks.
-- Durable inbox with persist-before-model, and the OpenClaw bridge that refuses to let a model answer until Jarvis has stored the event.
-- Task state machine, transitions, checkpoints, leases, the watchdog, cancel.
-- Notification outbox with taxonomy-shaped backoff.
-- Audit trail, health incidents, host metrics.
-- Backups to B2 with restic, and a restore drill that reports where the console can see it.
-- Session auth, origin checks, upload scanning, path-traversal rejection.
+### How to see what is here now
 
-**Built and genuinely working — the phone**
-Telnyx webhooks verified, calls answered, caller allowlist enforced, audio
-recorded, Whisper transcription, ElevenLabs rendering, a greeting, and a
-two-tier agent keeping the line responsive. Two hard bugs are already fixed and
-documented in `docs/DEBUG_NOTES.md`. Stage 4 makes this *dependable* and gives it
-the ability to act and to dial out — it does not rebuild it.
+`PROGRESS.json` for step state, `git log` as the check on it, `BLOCKED.md` for
+what is waiting on Enrique (§0.0). **Never trust a prose description of current
+state in a document that is edited while the thing is being built** — including
+this one.
 
-**Built and executed against a fake harness (S1 done, 2026-09-01)**
-- `src/runner.ts` — claims heavy tasks, cuts a worktree, spawns the harness, streams a transcript, heartbeats, honours cancel/silence/timeout. Now runs end to end in `deploy/compose.dev.yaml` against `scripts/fake-harness.mjs`: all six variants observed (`ok`, `crash`, `slow`, `runaway`, `noop`, `escape`). It has still never met the real `claude` binary — that is S3, and the `stream-json` shapes should be captured raw before the parser is trusted.
+### What v1 left behind, and it is a lot
 
-**Exists as an endpoint, unreachable by Jarvis**
-- `src/github.ts` — create repo, provision deploy key, open PR, merge PR. All four work, all four are behind `requireUser`, so only a human clicking a button can call them. They are not Supervisor tools and nothing pushes a branch for them to open a PR against. S5 and S7 wire them up.
+None of this was built by the plan; all of it predates S1 and is worth
+understanding before touching anything:
 
-**Exists as a page, degraded**
-- The Control Center has every route it needs. It leads with health because health was all there was, and several pages bind to fields that no longer exist. S13–S15 repair it rather than restart it.
+- **The Postgres schema** — 37 tables. It already carried `worktree_path`, `branch`, `head_sha`, `harness`, `external_session_id` before any runner existed. The data model anticipated the executor; only the code was missing.
+- **Secret storage**: envelope encryption, per-credential DEKs, master key at 0400.
+- **The credential broker** and its fail-closed isolation checks.
+- **The durable inbox**, persist-before-model, and the OpenClaw bridge that refuses to let a model answer before Jarvis has stored the event.
+- **The task state machine** — transitions, checkpoints, leases, watchdog, cancel.
+- **The notification outbox** with taxonomy-shaped backoff.
+- **Audit trail, health incidents, host metrics.**
+- **Backups** to B2 with restic, and a restore drill that reports where the console can see it.
+- **Session auth**, origin checks, upload scanning, path-traversal rejection.
+- **The phone** — Telnyx webhooks verified, calls answered, caller allowlist, recording, Whisper, ElevenLabs, a two-tier agent. Two hard bugs already found and fixed; both are in `docs/DEBUG_NOTES.md`. Stage 4 makes this dependable and lets it act — **it does not rebuild it.**
 
-**Does not exist at all**
-- Any way for a message to become work (`task_create`) — S2.
-- Outbound calling. Only the quiet-hours *check* exists; nothing dials — S23.
-- `packages/integrations` — an empty README where Composio, MCP adapters, and HTTP adapters should be — S31.
-- Browser control and scraping — S32.
-- Project onboarding and `AGENTS.md` authoring — S26.
-- Memory retrieval over dumped documents — S30.
-- Any test that asserts Jarvis did a piece of work — S8.
-- Any way to run the engineering loop without a paid subscription and a Linux box — S1.
+**The lesson that section was written to teach still holds**: a large amount of
+good, expensive, boring infrastructure already exists, and the fastest way to
+waste a week is to rebuild it. What v1 lacked was never the chassis.
 
-**Carrying weight for a dead constraint**
-The free-tier model chain. Migration 008 measured it: the nominal primary served
-9 turns of 153 and Gemini served 0. Fireworks is a paid route now. A large part
-of `catalog.ts` exists to survive a constraint that no longer applies — S25
-removes it.
+### The distinction still worth making
+
+When you meet a capability, ask which of these it is — the categories outlive any
+particular inventory:
+
+- **Built and working.** Leave it alone; extend it if the step says so.
+- **Exists but is unreachable by Jarvis.** The classic case was `src/github.ts`: four working functions, all behind `requireUser`, so only a human clicking a button could call them. Working code that nothing can invoke is indistinguishable from missing code, and much harder to notice.
+- **Exists as a row in a table.** A registered model that has never served a call; a schema column nothing writes. **Treating that as working is how v1 got here.**
+- **Does not exist.** Check `PROGRESS.json` and the code before believing this of anything.
 
 ---
 
