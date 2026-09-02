@@ -22,6 +22,7 @@
  *   noop     — talk, change nothing, exit 0               -> succeeded, empty diff
  *   escape   — try to write outside the worktree          -> blocked and audited
  *   probe    — read JARVIS_PROBE_PATH, another project's file -> S12/L9
+ *   repeat   — emits the SAME tool call over and over        -> S18b agent.repeat
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
  *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
  *   workflow  — the S6 engineering loop, phase by phase   -> JARVIS_FAKE_WORKFLOW picks the outcome
@@ -198,6 +199,36 @@ async function main() {
     process.exit(0);
   }
 
+  if (variant === "echoprompt") {
+    // S18b: put the prompt the runner handed over into the transcript, so a test
+    // can assert what the harness was actually TOLD rather than inferring it
+    // from behaviour. The prompt is argv[2] — the runner spawns this script with
+    // it exactly where `claude -p` would take it.
+    init();
+    assistantText(`PROMPT RECEIVED >>> ${process.argv[2] ?? "(nothing)"}`);
+    writeOutcome("completed", { notes: "echoed the prompt" });
+    result("success", "echoed");
+    process.exit(0);
+  }
+
+  if (variant === "repeat") {
+    // S18b / agent.repeat: alive, talking, and saying the same thing.
+    //
+    // This is NOT the runaway variant. That one never stops; this one emits
+    // perfectly well-formed progress at a healthy rate — it is simply the same
+    // progress, over and over, which is what re-running one failing test looks
+    // like from outside. Every liveness check the runner had says this run is
+    // fine.
+    init();
+    for (let i = 0; i < 12; i += 1) {
+      assistantToolUse("Bash", { command: "npm test -- cart" });
+      assistantText("still red, trying again");
+      await sleep(150);
+    }
+    result("success", "gave up");
+    process.exit(0);
+  }
+
   if (variant === "fixtest") {
     // S8: make a real failing test pass, by editing real source.
     //
@@ -282,7 +313,11 @@ async function main() {
       assistantText(`entering ${phase}: ${note}`);
     };
     const ALL = ["preserve","context","reproduce","inspect","root_cause","plan","change","tests","checks","commit","push"];
-    const stopAfter = { norepro: "reproduce", scope: "context", prefail: "checks", halt: "inspect", noreprocrash: "reproduce" }[mode];
+    // `halt_late` stops just after root_cause, which is what S18b's checkpoint
+    // test needs: a run that HAS formed a hypothesis and been interrupted
+    // before acting on it. `halt` stops earlier and is left alone because S6's
+    // resume test depends on exactly where it stops.
+    const stopAfter = { norepro: "reproduce", scope: "context", prefail: "checks", halt: "inspect", halt_late: "root_cause", noreprocrash: "reproduce" }[mode];
     const resumeAt = process.env.JARVIS_FAKE_RESUME_AT || null;
     const start = resumeAt ? Math.max(0, ALL.indexOf(resumeAt)) : 0;
     for (let i = start; i < ALL.length; i += 1) {
@@ -302,6 +337,7 @@ async function main() {
       scope:   { reproduced: false, verdict: "out_of_scope",         guess: false, confidence: "high",   notes: "this asks for a change in a different system" },
       prefail: { reproduced: true,  verdict: "pre_existing_failure",  guess: false, confidence: "high",   notes: "the suite was already red before I touched it" },
       halt:    null,
+      halt_late: null,
       silent:  null,
     }[mode];
     if (outcome) fs.writeFileSync(path.join(jdir, "outcome.json"), JSON.stringify(outcome, null, 2));
@@ -311,7 +347,7 @@ async function main() {
       process.stderr.write("fake-harness: stopped at reproduce\n");
       process.exit(1);
     }
-    if (mode === "halt") {
+    if (mode === "halt" || mode === "halt_late") {
       process.stderr.write("fake-harness: halted partway on purpose\n");
       process.exit(1);
     }
@@ -339,6 +375,10 @@ async function main() {
       network: "TypeError: fetch failed ... getaddrinfo ENOTFOUND api.anthropic.com",
       ratelimit: "API Error: 429 Too Many Requests (retry-after: 30)",
       crash:   "Segmentation fault in the harness",
+      // S18b's three additions. Real text again, not a class name: the runner
+      // has to classify these from what a failing run actually prints.
+      cpu:     "build timed out: load average 24.31 20.02 18.55, cpu is saturated",
+      dependency: "npm ERR! code E404 / 404 Not Found - GET https://registry.npmjs.org/left-pad-9",
     };
     init();
     assistantText("starting work");

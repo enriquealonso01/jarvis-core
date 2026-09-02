@@ -24,7 +24,11 @@ export type FailureClass =
   | "resource.disk"
   | "process.stuck"
   | "agent.loop"
-  | "harness.crash";
+  | "harness.crash"
+  // S18b: three classes that were in ERROR_TAXONOMY.md and in no code.
+  | "resource.cpu"
+  | "dependency.unavailable"
+  | "agent.repeat";
 
 export type FailureVerdict = {
   errorClass: FailureClass;
@@ -71,6 +75,31 @@ const PATTERNS: { cls: FailureClass; re: RegExp; summary: string }[] = [
     summary: "the disk is full",
   },
   {
+    /*
+     * An unreachable registry is NOT `network.timeout` and NOT `harness.crash`.
+     * The network is fine and so is the harness — a package is gone, a lockfile
+     * points at something yanked, a registry is down. Retrying helps for a
+     * while and then stops helping, so it retries and then parks NAMING the
+     * registry rather than reporting a build failure nobody can act on.
+     *
+     * Ordered before network.timeout on purpose: a failed install prints
+     * ECONNREFUSED too, and the generic class would swallow the specific one.
+     */
+    cls: "dependency.unavailable",
+    re: /ERR_PNPM_[A-Z_]*|npm ERR!|E404.*registry|could not resolve dependency|no matching version found|registry\.npmjs\.org|pypi\.org.*(404|not found)|Unable to locate package|failed to fetch.*(deb|apt)/i,
+    summary: "a dependency could not be fetched",
+  },
+  {
+    /*
+     * Sustained CPU saturation. On a one-heavy-slot box it makes everything slow
+     * without anything failing, which is the hardest state to diagnose from
+     * tickets — the run does not error, it just never finishes.
+     */
+    cls: "resource.cpu",
+    re: /cpu (is )?(saturated|pegged|at 100)|load average.{0,20}(1[0-9]|[2-9][0-9])\.|out of cpu|cpu quota exceeded/i,
+    summary: "the box is CPU-bound",
+  },
+  {
     cls: "network.timeout",
     re: /ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|ETIMEDOUT|network (is )?unreachable|getaddrinfo|socket hang up|fetch failed/i,
     summary: "the network was unreachable",
@@ -86,13 +115,22 @@ const POLICY: Record<FailureClass, { park: boolean; maxRetries: number; parkStat
   // "no retry; prune temps; Issue before destructive"
   "resource.disk": { park: true, maxRetries: 0, parkState: "waiting_for_user" },
   "process.stuck": { park: false, maxRetries: 3, parkState: "stalled" },
+  // "shed embeddings/browser; defer heavy start" — worth retrying, because the
+  // load that caused it is usually somebody else's and passes.
+  "resource.cpu": { park: false, maxRetries: 3, parkState: "stalled" },
+  // "retry with backoff; then park with the registry and package named."
+  "dependency.unavailable": { park: false, maxRetries: 4, parkState: "waiting_for_user" },
+  // "stall; Issue with the repeated action quoted." Never retried: a run that is
+  // repeating itself will repeat itself again, and each repetition costs a
+  // subscription call to produce the same non-progress.
+  "agent.repeat": { park: true, maxRetries: 0, parkState: "stalled" },
   // "no retry; stall; Issue" — a looping agent loops again.
   "agent.loop": { park: true, maxRetries: 0, parkState: "stalled" },
   "harness.crash": { park: false, maxRetries: 3, parkState: "waiting_for_user" },
 };
 
 export function classifyHarnessFailure(args: {
-  stopReason: "cancelled" | "silent" | "timeout" | null;
+  stopReason: "cancelled" | "silent" | "timeout" | "repeat" | null;
   exitCode: number | null;
   subtype?: string | null;
   result?: string | null;
@@ -105,6 +143,19 @@ export function classifyHarnessFailure(args: {
   }
   if (args.stopReason === "timeout") {
     return { errorClass: "agent.loop", ...POLICY["agent.loop"], summary: "the run exceeded its limit" };
+  }
+  /*
+   * Distinct from agent.loop, and the distinction is the point. A loop never
+   * terminates; a repeat IS emitting progress events — they are simply all the
+   * same one. Identical progress is not progress, and without this class the
+   * liveness-versus-progress check has nothing to raise.
+   */
+  if (args.stopReason === "repeat") {
+    return {
+      errorClass: "agent.repeat",
+      ...POLICY["agent.repeat"],
+      summary: "the run kept doing the same thing",
+    };
   }
 
   const haystack = [args.subtype ?? "", args.result ?? "", args.stderr ?? ""].join("\n");
