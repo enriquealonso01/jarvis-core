@@ -115,7 +115,8 @@
       "title": "Live work detail",
       "stage": 3,
       "state": "done",
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY.",
+      "pr": 53
     },
     {
       "id": "S15",
