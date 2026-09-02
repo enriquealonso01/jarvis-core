@@ -14,6 +14,7 @@ import { ARTIFACTS_DIR, BROWSERS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR }
 import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
 import { asProjectUser, needsOwnUser, projectUnixUser, provisionCommand, unixUserExists } from "./unixuser.js";
 import { egressArgv, planEgress } from "./egress.js";
+import { engineerLadder, noteRateLimited, noteServed, retryAfterFrom } from "./quota.js";
 import {
   completedPhases,
   drainPhases,
@@ -128,22 +129,35 @@ async function resolveProfile(
   task: Task,
 ): Promise<{ id: string; dir: string } | { error: string }> {
   const wanted = task.auth_profile_id;
-  const r = await pool.query<{ id: string; dir: string | null; owner: string }>(
-    `SELECT id, harness_auth_dir AS dir, owner FROM auth_profiles
-     WHERE auth_type = 'subscription_login'
-       AND ($1::text IS NULL OR id = $1)
-       AND ($1::text IS NOT NULL OR id = 'anthropic_personal')
-     LIMIT 1`,
-    [wanted],
-  );
-  const row = r.rows[0];
-  if (!row) {
-    return { error: wanted ? `auth profile ${wanted} does not exist` : "no anthropic_personal profile" };
+  if (wanted) {
+    const r = await pool.query<{ id: string; dir: string | null }>(
+      `SELECT id, harness_auth_dir AS dir FROM auth_profiles
+       WHERE auth_type = 'subscription_login' AND id = $1`,
+      [wanted],
+    );
+    const row = r.rows[0];
+    if (!row) return { error: `auth profile ${wanted} does not exist` };
+    if (!row.dir) return { error: `auth profile ${row.id} has no completed host login` };
+    return { id: row.id, dir: row.dir };
   }
-  if (!row.dir) {
-    return { error: `auth profile ${row.id} has no completed host login` };
+
+  /*
+   * Nobody chose, so the ladder chooses (S25).
+   *
+   * This used to be `id = 'anthropic_personal'` — one engine, hardcoded, and a
+   * park the moment it was rate-limited. Two other subscriptions and a hosted
+   * open-weights route were registered the whole time and never consulted:
+   * "a task that stops because one of three available engines was busy is a
+   * task that did not need to stop."
+   */
+  const ladder = await engineerLadder(pool, { projectId: task.project_id, taskId: task.id });
+  if (!ladder.ok) return { error: ladder.reason };
+  for (const note of ladder.skipped) console.log(`engineer ladder skipped ${note}`);
+  if (!ladder.rung.authDir) {
+    return { error: `${ladder.rung.profileId} has no completed host login` };
   }
-  return { id: row.id, dir: row.dir };
+  console.log(`engineer ladder chose ${ladder.rung.profileId} (${ladder.rung.kind})`);
+  return { id: ladder.rung.profileId, dir: ladder.rung.authDir };
 }
 
 /**
@@ -1155,6 +1169,18 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       outcome: outcome.escape ? "blocked" : outcome.code === 0 && !stopReason ? "completed" : "failed",
     });
 
+    /*
+     * It ran, so it has quota (S25).
+     *
+     * This is the only reading of any of the three subscriptions that is not an
+     * inference — none of them exposes a usage API. A run that finished is
+     * direct evidence the engine was available, and it clears an `exhausted`
+     * mark left by an earlier estimate that turned out to be pessimistic.
+     */
+    if (outcome.code === 0 && !stopReason && !outcome.escape) {
+      await noteServed(pool, { profileId: profile.id, taskId }).catch(() => undefined);
+    }
+
     if (outcome.escape) {
       // Blocked: the run was killed the moment the path appeared in the stream,
       // and its branch is thrown away so nothing it produced can reach a PR.
@@ -1288,6 +1314,68 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
         [taskId, verdict.errorClass],
       );
       const used = Number(prior.rows[0]?.n ?? 0);
+
+      /*
+       * A spent engine is a routing fact, not a failure (S25).
+       *
+       * Before this, a subscription limit parked the task and paged Enrique,
+       * with two other subscriptions and a hosted route sitting idle. Now the
+       * profile is marked exhausted — with the provider's own reset time when
+       * it gave one, and an honest estimate when it did not — and the task goes
+       * straight back on the queue, where `resolveProfile` will pick the next
+       * rung. Enrique hears nothing, because nothing has gone wrong.
+       *
+       * The retry budget is deliberately NOT consulted here. It counts attempts
+       * against one engine; moving to a different engine is not a retry of the
+       * same thing. What bounds the loop instead is the ladder itself: each
+       * exhausted profile is skipped on the next pass, so there are at most as
+       * many requeues as there are engines, and then it parks.
+       */
+      if (verdict.quota && !task.auth_profile_id) {
+        await noteRateLimited(pool, {
+          profileId: profile.id,
+          resetsAt: retryAfterFrom(outcome.result),
+          detail: summary.slice(0, 300),
+          taskId,
+        });
+        const next = await engineerLadder(pool, { projectId: task.project_id, taskId });
+        if (next.ok) {
+          await pool.query(
+            `UPDATE tasks SET state = 'queued', lease_owner = NULL, lease_until = NULL,
+               auth_profile_id = NULL, waiting_reason = $2, updated_at = now() WHERE id = $1`,
+            [taskId, `${profile.id} is spent; moving to ${next.rung.profileId}`],
+          );
+          await pool.query(
+            `INSERT INTO task_transitions (task_id, from_state, to_state, cause, actor)
+             VALUES ($1, 'running', 'queued', $2, 'runner')`,
+            [taskId, `engine ${profile.id} spent, next is ${next.rung.profileId}`],
+          ).catch(() => undefined);
+          console.log(`task ${taskId}: ${profile.id} spent, moving to ${next.rung.profileId}`);
+          return;
+        }
+        // Nothing left. Park saying which engines are spent and when each returns.
+        await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [
+          taskId,
+          next.reason.slice(0, 500),
+        ]).catch(() => undefined);
+        await transitionTask(
+          pool, taskId, "waiting_for_provider", next.reason.slice(0, 300), "runner", "lease_until = NULL",
+        );
+        await raiseIssue(pool, {
+          category: "provider.cred_expired",
+          service: "harness",
+          owner: "user",
+          status: "waiting_for_user",
+          title: `[harness] every engine is spent`,
+          dedupeKey: `quota.allspent:${taskId}`,
+          taskId,
+          projectId: task.project_id,
+          requiredAction: next.reason,
+          evidence: { skipped: next.skipped },
+        });
+        return;
+      }
+
       const canRetry = !verdict.park && !retriesExhausted(used, verdict);
 
       if (canRetry) {

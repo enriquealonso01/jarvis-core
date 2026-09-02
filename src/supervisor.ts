@@ -7,6 +7,7 @@ import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
 import { metadataOnlyPayload } from "./redaction.js";
 import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
 import { FAKE_MODEL, fakeCompletion, fakeThinkingTime } from "./fakemodel.js";
+import { enforceSoftCeiling } from "./quota.js";
 import {
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
@@ -924,6 +925,17 @@ async function chatCompletionWithFailover(
               .catch((err) =>
                 console.error("model_usage insert failed:", err instanceof Error ? err.message : err),
               );
+
+            /*
+             * The soft ceiling is checked where the spend is written (S25).
+             *
+             * A periodic sweep would announce the halfway mark up to an hour
+             * after it happened, and the whole value of the soft ceiling is
+             * that it arrives while there is still budget to make a decision
+             * with. `enforceSoftCeiling` claims the month atomically, so
+             * checking it on every call still produces exactly one notification.
+             */
+            await enforceSoftCeiling(pool).catch(() => undefined);
 
             return msg;
           }

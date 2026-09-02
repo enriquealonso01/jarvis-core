@@ -35,6 +35,12 @@ q() { $PSQL -c "$1" | tr -d '\r'; }
 clearqueue() {
   q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
      WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
+  # And the engine's quota. S25 made a subscription limit mark the profile spent
+  # for five hours, which is right in production and fatal here: case 2 provokes
+  # exactly that limit, so without this every case after it parks with "every
+  # engineering route is spent" and reports zero attempts — a suite failing on
+  # the consequence of its own second case.
+  q "UPDATE auth_profiles SET quota_json = NULL WHERE auth_type='subscription_login';" >/dev/null
 }
 
 newtask() {
