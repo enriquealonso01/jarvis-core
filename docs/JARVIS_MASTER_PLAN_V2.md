@@ -1612,6 +1612,9 @@ rate-limit responses and say the number is an estimate** — a confident wrong
 quota figure is worse than an honest unknown, because it will route around an
 engine that was actually available.
 
+- **Spend enforcement, both points.** Drive `model_usage` past the soft ceiling → exactly one notification, routing unchanged. Past the hard ceiling → metered routes drop out, **and a coding task still completes on its subscription route.** That second half is the assertion that matters: a test that only proves metered calls stopped would pass on an implementation that stopped everything.
+- Attempt a metered call through the broker directly, bypassing routing, with the profile over its ceiling → refused there too.
+
 **Done when:** every registered route has passed a real tool-enabled call, and a
 coding task whose primary subscription is exhausted completes on the next engine
 without Enrique being told anything.
@@ -2439,6 +2442,32 @@ for two things only: always-on cheap Supervisor operations, and catching coding
 work when every subscription is exhausted. Metered spend stays off unless Enrique
 sets a ceiling on that profile, and no route ever enables billing to rescue
 itself.
+
+### Where the ceiling is actually enforced — S25 owns this
+
+A ceiling nobody enforces is a wish. Two enforcement points, both required,
+because either alone has a hole:
+
+- **The routing layer, before the call.** Spend to date comes from `model_usage`; a metered route whose profile is at its hard ceiling is not routable, exactly as an unhealthy one is not.
+- **The broker, before handing over a metered credential.** IV.4 lists a spend check in its order and the implementation does not have one, so a component reaching a provider without going through routing has nothing stopping it.
+
+**Soft ceiling ($10): report, do not block.** One notification, once, when it is
+crossed. It is information, not an incident — and a soft ceiling that pages is a
+soft ceiling that gets raised to stop the paging.
+
+**Hard ceiling ($20): stop metered calls.** But — and this is the part worth
+getting right — **hitting the hard ceiling must not stop Jarvis.** Subscription
+routes are flat-rate and keep working: the engineer, the reviewer, the phone's
+voice. What stops is metered inference, and the tasks that need it park with a
+truthful reason naming the profile and what it would cost to continue.
+
+A hard ceiling that takes the whole system down converts a $20 overspend into an
+outage, which is a far more expensive failure than the one it was protecting
+against. The ceiling protects the wallet; it must not become the thing that
+breaks the system.
+
+Spend resets on the profile's own billing period, not on a calendar month
+Jarvis invented.
 
 **Jarvis manages its own models.** When a route dies it says so, proposes a
 replacement, and asks for the one key it needs — it does not fail silently and it
