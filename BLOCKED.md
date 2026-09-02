@@ -409,8 +409,24 @@ unblocked, finish it before starting anything new.
 - **Why the plugin is NOT being installed yet:** a plugin that loads and does
   nothing is worse than one that refuses to load. The refusal is currently the
   only thing telling the truth.
-- **Next:** rewrite the bridge against the runtime-takeover contract, prove it
-  by posting through OpenClaw rather than around it, and only then produce a QR.
+- **The real contract, read out of the docs rather than assumed:**
+  - `message_received` — the inbound hook. This is where Jarvis is told, and it
+    must persist BEFORE anything else happens (ADR 001/002).
+  - `before_agent_run` → `{ outcome: "block", reason, message? }` — the
+    documented way to stop OpenClaw's own agent. This is the real
+    `skipDefaultAgent`.
+  - `before_agent_reply` for a synthetic reply; `reply_dispatch` is the advanced
+    takeover seam. Neither is needed if the run is simply blocked.
+  - Caveat from the same page: `before_agent_run` is implemented by the embedded
+    and CLI runners and is NOT a gate on Codex or Copilot runtimes. WhatsApp DMs
+    go through the embedded runner, so it applies here — but that is a fact to
+    re-check, not a general guarantee.
+- **Config cannot do this instead.** `channels.<x>.dm.autoReply` exists for some
+  channels; the WhatsApp block has `dmPolicy`, `allowFrom`, `dmHistoryLimit` and
+  `dms`, and no `autoReply`. So silencing the default agent on WhatsApp needs the
+  hook — checked before writing code rather than after.
+- **Next:** rewrite the bridge against those two hooks, prove it by posting
+  through OpenClaw rather than around it, and only then produce a QR.
 - **Raised:** 2026-09-02 20:40Z
 
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
