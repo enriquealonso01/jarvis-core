@@ -45,7 +45,18 @@ async function main() {
       res.end(JSON.stringify(
         respondWith === 200
           ? { ok: true }
-          : { ok: false, detail: unavailable ? "Channel is unavailable: whatsapp" : "boom" },
+          : unavailable
+            /*
+             * Exactly what the bridge sends when the phone is not paired: the
+             * flag set, and the words "Channel is unavailable" NOWHERE in the
+             * body, because the bridge truncates its detail at 200 characters
+             * and a long notification pushes them off the end. That truncation
+             * is what defeated the first, text-matching version of this - live,
+             * on a real row. If this fixture contained the words, the test
+             * would pass without the flag ever being read.
+             */
+            ? { ok: false, unavailable: true, detail: `Command failed: openclaw message send -m ${"x".repeat(160)}` }
+            : { ok: false, detail: "boom" },
       ));
     });
   });

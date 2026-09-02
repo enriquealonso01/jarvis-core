@@ -189,6 +189,15 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
      WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= now())
      ORDER BY created_at LIMIT 20`,
   );
+  /*
+   * A channel proven absent this pass is not asked again.
+   *
+   * Each send spawns a CLI process and waits about three seconds for it to
+   * refuse, so nineteen queued notifications meant a minute of spawning per
+   * sweep to learn one fact - that the phone is not paired - nineteen times.
+   */
+  const unpaired = new Set<string>();
+
   for (const n of rows.rows) {
     if (n.channel === "ui") {
       await pool.query(`UPDATE notifications_outbox SET state = 'sent', attempts = attempts + 1 WHERE id = $1`, [n.id]);
@@ -197,7 +206,9 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
     // Hand it to the bridge, which owns the channel. Everything about the
     // retry curve below is unchanged: a send that does not succeed lands in
     // exactly the state it landed in when there was no transport at all.
-    const sent = await sendViaBridge(pool, n.id);
+    const sent = unpaired.has(n.channel)
+      ? { ok: false, unavailable: true, detail: `${n.channel} is not paired` }
+      : await sendViaBridge(pool, n.id);
     if (sent.ok) {
       await pool.query(
         `UPDATE notifications_outbox SET state = 'sent', attempts = attempts + 1, last_error = NULL WHERE id = $1`,
@@ -217,7 +228,8 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
      * which is what "on pairing each must arrive exactly once, not zero" needs.
      * Every other failure still walks the taxonomy curve untouched.
      */
-    if (/channel is unavailable|not paired/i.test(sent.detail)) {
+    if (sent.unavailable) {
+      unpaired.add(n.channel);
       await pool.query(
         `UPDATE notifications_outbox
          SET last_error = 'channel not paired yet; deferred without spending an attempt',
@@ -277,9 +289,9 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
 async function sendViaBridge(
   pool: ReturnType<typeof createPool>,
   id: string,
-): Promise<{ ok: boolean; detail: string }> {
+): Promise<{ ok: boolean; unavailable: boolean; detail: string }> {
   const secret = process.env.INTERNAL_HMAC;
-  if (!secret) return { ok: false, detail: "INTERNAL_HMAC missing" };
+  if (!secret) return { ok: false, unavailable: false, detail: "INTERNAL_HMAC missing" };
 
   const row = await pool.query<{ body: string; channel: string; identifier: string | null }>(
     `SELECT o.body, o.channel,
@@ -289,8 +301,8 @@ async function sendViaBridge(
     [id],
   );
   const n = row.rows[0];
-  if (!n) return { ok: false, detail: "row vanished" };
-  if (!n.identifier) return { ok: false, detail: `no commanding identity for channel ${n.channel}` };
+  if (!n) return { ok: false, unavailable: false, detail: "row vanished" };
+  if (!n.identifier) return { ok: false, unavailable: false, detail: `no commanding identity for channel ${n.channel}` };
 
   const body = JSON.stringify({ id, to: n.identifier, text: n.body, channel: n.channel });
   const signature = crypto.createHmac("sha256", secret).update(body).digest("hex");
@@ -302,9 +314,15 @@ async function sendViaBridge(
       signal: AbortSignal.timeout(90_000),
     });
     const text = await res.text();
-    return { ok: res.ok, detail: `${res.status} ${text.slice(0, 300)}` };
+    // The flag if the bridge sent one; the words only as a fallback, since the
+    // text this reads is truncated and the words can fall off the end.
+    let unavailable = /channel is unavailable|not paired/i.test(text);
+    try {
+      unavailable = JSON.parse(text).unavailable === true || unavailable;
+    } catch { /* not JSON: keep the fallback */ }
+    return { ok: res.ok, unavailable, detail: `${res.status} ${text.slice(0, 300)}` };
   } catch (err) {
-    return { ok: false, detail: `bridge unreachable: ${String((err as Error).message ?? err)}` };
+    return { ok: false, unavailable: false, detail: `bridge unreachable: ${String((err as Error).message ?? err)}` };
   }
 }
 

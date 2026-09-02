@@ -181,10 +181,24 @@ export function sendViaCli(args) {
     if (args.dryRun) argv.push("--dry-run");
     execFile("openclaw", argv, { timeout: 60_000 }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ ok: false, detail: `${err.message} ${String(stderr).slice(0, 200)}`.trim() });
+        const text = `${err.message} ${String(stderr)}`;
+        /*
+         * Reported as a FLAG, not left for the caller to find in the text.
+         *
+         * The worker has to tell "the phone is not paired yet" from "the send
+         * failed", because the first must not spend a retry. It first did that
+         * by matching on this string - and missed, live, because the detail is
+         * truncated and a long notification body pushed the words past the cut.
+         * A boolean cannot be truncated.
+         */
+        resolve({
+          ok: false,
+          unavailable: /channel is unavailable|not connected|no such channel/i.test(text),
+          detail: `${err.message} ${String(stderr).slice(0, 200)}`.trim(),
+        });
         return;
       }
-      resolve({ ok: true, detail: String(stdout).trim().slice(0, 200) });
+      resolve({ ok: true, unavailable: false, detail: String(stdout).trim().slice(0, 200) });
     });
   });
 }
@@ -285,7 +299,11 @@ function registerSendRoute(api) {
       });
       if (result.ok && !body.dry_run) sentIds.set(body.id, Date.now());
       log.info?.(`[jarvis-bridge] send ${body.id} ok=${result.ok} ${result.detail}`);
-      return reply(result.ok ? 200 : 502, { ok: result.ok, detail: result.detail });
+      return reply(result.ok ? 200 : 502, {
+        ok: result.ok,
+        unavailable: result.unavailable === true,
+        detail: result.detail,
+      });
     },
   });
 }
