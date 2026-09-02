@@ -46,11 +46,26 @@ const TYPES = {
   ".txt": "text/plain; charset=utf-8",
 };
 
+/**
+ * In production Caddy serves the console and the API from ONE origin, so the
+ * browser's `Origin` header is the origin the API checks against. Here the page
+ * is on a test port, so every endpoint that enforces the origin — approvals,
+ * grants, the broker, adding context to a task — answered 403, and the journeys
+ * that used them looked like product bugs.
+ *
+ * Rewriting it reproduces production rather than disabling a check: the API's
+ * CSRF guard still runs, against exactly the value it would see in production.
+ */
+const ORIGIN = arg("origin", process.env.JARVIS_ORIGIN ?? "http://localhost:8080");
+
 function proxy(req, res) {
   const target = new URL(req.url, API);
+  const headers = { ...req.headers, host: target.host };
+  if (headers.origin) headers.origin = ORIGIN;
+  if (headers.referer) headers.referer = `${ORIGIN}/`;
   const upstream = http.request(
     target,
-    { method: req.method, headers: { ...req.headers, host: target.host } },
+    { method: req.method, headers },
     (up) => {
       res.writeHead(up.statusCode ?? 502, up.headers);
       up.pipe(res);

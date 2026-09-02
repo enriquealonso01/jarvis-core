@@ -84,7 +84,12 @@ async function aboveTheFold(page, foldHeight) {
     for (const el of document.querySelectorAll("[data-testid]")) {
       const r = el.getBoundingClientRect();
       const top = r.top + window.scrollY;
-      if (top < fold && r.height > 0) {
+      // Visually hidden, not above the fold. The S15 skip link is parked at
+      // left:-9999px until it takes focus, and it still has a height — so it
+      // counted as the first thing on the page and this suite reported a
+      // reordering that had not happened.
+      const offscreen = r.right <= 0 || r.left >= window.innerWidth;
+      if (top < fold && r.height > 0 && !offscreen) {
         out.push({ id: el.getAttribute("data-testid"), top: Math.round(top), height: Math.round(r.height) });
       }
     }
@@ -161,7 +166,14 @@ async function main() {
     const titleBox = await box(page, "running-title");
 
     truthy("the running task's own title is above the fold", titleBox && titleBox.bottom <= fold);
-    check("and it is the first thing after the build bar", "now", ids.find((i) => i !== "build-progress"));
+    // Anything from the build-progress component, not just its outer element:
+    // S15 gave the bar itself a testid, and the assertion started reporting the
+    // bar's own inner element as if it were a section that had jumped the queue.
+    check(
+      "and it is the first thing after the build bar",
+      "now",
+      ids.find((i) => !i.startsWith("build-")),
+    );
     truthy("the Now card starts in the top half of the screen", nowBox && nowBox.top < fold / 2);
 
     // The Done when, measured rather than asserted.
