@@ -1,0 +1,21 @@
+# Jarvis heavy-lane runner: drop privilege to a project's own unix user.
+#
+# install -m 0440 deploy/jarvis-runner.sudoers /etc/sudoers.d/jarvis-runner
+#
+# This is the whole of the runner's elevated authority, and it is deliberately
+# one command with a fixed shape:
+#
+#   * the binary is named absolutely, so PATH cannot be used to substitute it;
+#   * --reuid and --regid may only name jarvis-p-* users, never root and never
+#     jarvis itself;
+#   * --clear-groups is mandatory in the pattern, so the harness cannot inherit
+#     the runner's group memberships — which are what let the RUNNER reach every
+#     project directory;
+#   * only the harness binary may be exec'd afterwards.
+#
+# sudoers patterns are fnmatch globs, so [a-z0-9-] below is a character class,
+# not a regex. A trailing * on the arguments is unavoidable — the harness takes a
+# prompt — and is why the binary itself is pinned.
+Defaults:jarvis !requiretty
+jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-[a-z0-9-]* --regid=jarvis-p-[a-z0-9-]* --clear-groups -- /usr/local/bin/claude *
+jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-[a-z0-9-]* --regid=jarvis-p-[a-z0-9-]* --clear-groups -- /usr/bin/node *

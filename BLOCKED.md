@@ -138,4 +138,14 @@ unblocked, finish it before starting anything new.
   own Done-when (L8, L9, L11) passes at 47/47; the step is marked **partial**,
   not done, because ADR 006 step 5 is the wall it was named as the proof point
   for and that wall is not built.
-- **Raised:** 2026-09-02 03:40   **Resolved:**
+- **Raised:** 2026-09-02 03:40
+- **Resolved:** 2026-09-02 — option 2, with sudo + setpriv rather than a setuid
+  binary of my own writing. The runner stays `User=jarvis`; a sudoers rule
+  permits only `setpriv --reuid/--regid --clear-groups -- <harness>` against
+  `jarvis-p-*` users and can never name root; `NoNewPrivileges` comes off
+  `jarvis-runner.service` as the accepted cost. Scope is professional and
+  confidential projects only — personal ones keep sharing `jarvis` per ADR 006
+  step 5. Written up as ADR 016 and verified the way he asked: the cross-project
+  read now fails `Permission denied` in the kernel, not at the tripwire
+  (`scripts/s12-privdrop-test.sh`, 28/28, with the negative control showing the
+  read succeeding again when `--clear-groups` is dropped).

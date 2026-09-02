@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "5904009a087e63d66321d6aaea94b2e390ece06f",
+  "plan_sha": "fb8f43bcc93d1a63144eea3ec8b1826bfed9693a",
   "total_steps": 39,
-  "updated_at": "2026-09-02T12:11:42.467Z",
+  "updated_at": "2026-09-02T12:19:44.030Z",
   "current_step": "S22",
   "steps": [
     {
@@ -97,9 +97,9 @@
       "id": "S12",
       "title": "Isolation, proved",
       "stage": 2,
-      "state": "partial",
+      "state": "done",
       "pr": 45,
-      "evidence": "L8, L9 and L11 all pass: 47/47 (35 broker/HTTP + 12 filesystem probes). Cross-project secret, connection name, model profile, files and browser dir each denied, audited and Issue-raised; L11 proved with a fetch spy at zero calls; L8 refuses pending, mismatched, expired and even approved. PARTIAL: file containment is detection, not a wall - ADR 006 step 5 (per-project uid) is unbuilt, see BLOCKED.md.",
+      "evidence": "47/47 isolation plus 28/28 privilege drop: a cross-project read now fails EACCES in the kernel (ADR 016, sudo+setpriv)",
       "blocker": "per-project unix users (ADR 006 step 5)"
     },
     {

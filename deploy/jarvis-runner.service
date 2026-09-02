@@ -44,7 +44,16 @@ TimeoutStopSec=120
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-NoNewPrivileges=true
+# NoNewPrivileges is OFF, deliberately, and it is the cost of ADR 016.
+#
+# The runner drops privilege per task by exec'ing the harness through
+# `sudo setpriv --reuid=jarvis-p-<slug> ... --clear-groups`, and sudo cannot
+# elevate at all under NoNewPrivileges. The trade accepted in ADR 016: without
+# this line the runner keeps the ability to gain privilege via one sudoers rule
+# that names a single command and can never target root; with it, every project
+# shares the `jarvis` user and cross-project reads succeed at the filesystem
+# layer, which is the hole S12 was named to close.
+NoNewPrivileges=false
 ReadWritePaths=/var/lib/jarvis
 InaccessiblePaths=-/var/run/docker.sock
 
