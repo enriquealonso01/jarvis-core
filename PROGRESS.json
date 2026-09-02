@@ -108,7 +108,7 @@
       "stage": 3,
       "state": "done",
       "evidence": "Home leads with work: 24/24 browser assertions at 375x667. Running task title above the fold at 354px, queue at 546px, disk percentage below it entirely. Health collapsed to a 44px strip; system lane hidden by default.",
-      "pr": 48
+      "pr": 49
     },
     {
       "id": "S14",
