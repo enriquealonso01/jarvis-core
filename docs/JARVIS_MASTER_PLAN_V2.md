@@ -547,6 +547,27 @@ A project is a security boundary. Concretely:
 - Professional and confidential projects get a dedicated unix user, created at project-create time. Until that exists, the heavy lane refuses them.
 - The Supervisor, Improvement, and Maintenance never use a project-owned auth profile.
 
+### The Jarvis System layer
+
+Isolation as stated above would make Improvement and Maintenance impossible: both
+have to look across every project by definition. So there is exactly one
+sanctioned exception, and it is a **layer**, not a series of exemptions.
+
+**Jarvis Improvement and Jarvis Maintenance are privileged system projects.**
+They may inspect and modify configuration across projects. Nothing else may —
+ever, for any reason, including convenience.
+
+The boundaries that still hold inside the system layer:
+
+- It reads and changes **configuration**: instructions, connections, schedules, routing, policy. It does **not** get project *secrets*, and it does not run inside another project's worktree.
+- It never uses a project-owned auth profile, so a professional project's model account cannot be spent by a system job.
+- Everything it does is audited with the project it touched, because a layer that can reach everywhere is exactly the layer that must be reconstructable afterwards.
+- The immutable list (§59) binds it hardest: it may recommend changes to isolation, auth, audit, backups, spend ceilings or the always-confirm list, and may never make them.
+
+Writing this down matters because S27 (configuration by conversation) and
+Maintenance both need to cross project lines, and an implementer without a
+sanctioned path will invent an unsanctioned one.
+
 ## II.6 Resource budget
 
 Target host ~16 GB. **Heavy concurrency is 1.** Browser QA and coding share that
@@ -2405,11 +2426,40 @@ telephony improvements. Records source, licence, maintainer, activity, and
 reputation. Inspects, static-checks, sandboxes, benchmarks, and evaluates
 privacy, cost, and maintenance burden. Produces one recommendation per candidate.
 
+**Discovery and installation are two different privileges.** Jarvis may discover
+anything it likes. Installing is gated, and the gate is the whole point.
+
+The pipeline for a candidate, in order:
+
+1. Discover it; understand what capability it actually adds.
+2. Inspect repository, dependencies, licence, maintenance activity, permissions, network access, and what secrets it expects.
+3. **Clone it into an isolated evaluation environment — never directly into production.**
+4. Run security and static checks; look for behaviour that does not match the description.
+5. Test it against a real Jarvis use case, not a toy one.
+6. Compare it against whatever Jarvis uses today. "New" is not a benefit.
+7. Modify it, or write our own implementation instead, if that is the better answer.
+8. Produce a recommendation with expected benefit, risk, privacy implications, cost, and benchmark results.
+9. **Ask before enabling anything introducing a new trust relationship, provider, billing source, sensitive permission, or meaningful behaviour change.**
+10. After approval: stage, verify, activate, and keep the previous configuration for rollback.
+
 It may build a new MCP server or adapter when none exists. It may **never**
 silently activate a new provider, a paid plan, an untrusted repository, or a
 weakened policy.
 
-Output: one WhatsApp per week, each item one-tap approvable.
+### The weekly report
+
+One WhatsApp, each item one-tap approvable, and each item shaped the same way:
+what it is, what it would add, the evidence, whether it needs new credentials,
+and an explicit **Recommendation:** line. Something like:
+
+> **2. Cloudflare MCP** — would let me manage DNS and Workers directly.
+> Repository maintained, tests passed in isolation. Introduces write access to
+> infrastructure. **Recommendation: install only if you want Cloudflare
+> management.**
+
+A recommendation that does not commit to a verb is not a recommendation. "This
+looks interesting" pushes the decision back onto Enrique, which is the work the
+report exists to do for him.
 
 ## VII.5 Updating Jarvis itself
 
