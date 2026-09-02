@@ -8,8 +8,8 @@
  * through `netcupAccessToken`, which persists the new refresh token before it
  * returns the access token.
  *
- * Then it reads the server list back, which is the first real proof the
- * credential does anything at all.
+ * Then it reads the account back with the token, which is the first real proof
+ * the credential does anything at all.
  *
  *   node --import tsx scripts/s16b-deviceflow-live.ts
  *
@@ -59,7 +59,8 @@ async function main(): Promise<void> {
   if (!profile.rows[0]?.credential_id) throw new Error("nothing stored; run the device flow first");
 
   const before = await readJsonCredential(pool, profile.rows[0].credential_id);
-  const refreshBefore = String(before.refresh_token ?? "");
+  // Either field: what is stored today was pasted through the API-key form.
+  const refreshBefore = String(before.refresh_token ?? before.api_key ?? "");
   truthy("with a refresh token", refreshBefore.length > 0);
   const claims = claimsOf(refreshBefore);
   check("which is an OFFLINE token, not a session one", "Offline", claims.typ);
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
     String(accessClaims.iss ?? "").includes("servercontrolpanel.de"));
 
   const after = await readJsonCredential(pool, profile.rows[0].credential_id!);
-  const refreshAfter = String(after.refresh_token ?? "");
+  const refreshAfter = String(after.refresh_token ?? after.api_key ?? "");
   truthy("a refresh token is still stored", refreshAfter.length > 0);
   if (refreshAfter !== refreshBefore) {
     ok("netcup rotated the refresh token, and the NEW one was persisted");
@@ -93,21 +94,30 @@ async function main(): Promise<void> {
     ok("netcup returned the same refresh token (no rotation this time)");
   }
 
-  console.log("\n########## reading the server list back ##########\n");
-  let worked: { url: string; body: string } | null = null;
-  for (const url of CANDIDATES) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${access}`, Accept: "application/json" },
-    }).catch(() => null);
-    if (!res) { console.log(`  ${url} -> unreachable`); continue; }
-    const body = (await res.text().catch(() => "")).slice(0, 300);
-    console.log(`  ${url} -> ${res.status}`);
-    if (res.ok && !worked) worked = { url, body };
-  }
-  truthy("one of the endpoints answered", worked);
-  if (worked) {
-    console.log(`  ${worked.url}\n  ${worked.body}`);
-    truthy("with something that looks like data", worked.body.length > 0);
+  console.log("\n########## reading something back, with the token ##########\n");
+  /*
+   * Not the server list. The token is scoped `offline_access profile email`
+   * with audience `account`: it authenticates against the SCP realm's ACCOUNT
+   * service. Every server-list path tried — /rest/v1/server, /rest/v1/servers,
+   * /rest/v1/vserver, /api/v1/server, /scp/rest/v1/server, /rest/v2/server —
+   * answered nginx 404, and /SCP/WSEndUser?wsdl serves the SPA rather than a
+   * WSDL. The server list lives behind the SCP UI's own backend, or the older
+   * SOAP API with a webservice password, which is a different credential.
+   *
+   * The account read is the authenticated request this credential CAN make,
+   * and only a live token can make it.
+   */
+  void CANDIDATES;
+  void access;
+  const { netcupAccount } = await import("../src/deviceflow.js");
+  const account = await netcupAccount(pool);
+  check("netcup answered an authenticated read", true, account.ok);
+  if (account.ok) {
+    console.log(`  customer ${account.username} <${account.email}>`);
+    truthy("with the customer number", account.username.length > 0);
+    truthy("and the account email", account.email.includes("@"));
+  } else {
+    console.log(`        ${account.detail}`);
   }
 
   console.log("\n########## and the connection test agrees ##########\n");
