@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "d36f8cbcae8a2b38c64a002dee46901cf541cb84",
+  "plan_sha": "f866a15f612f21dc474d3237b69e9f2ab1006abf",
   "total_steps": 37,
-  "updated_at": "2026-09-02T04:14:05.417Z",
+  "updated_at": "2026-09-02T04:49:28.005Z",
   "current_step": "S15",
   "steps": [
     {
@@ -123,8 +123,8 @@
       "title": "Repair the degraded console",
       "stage": 3,
       "state": "in_progress",
-      "evidence": "Audit harness green: 99 assertions across all 16 pages at 375px (overflow, accessible names, touch targets, colour-alone, reduced motion, visible focus at every keyboard stop) + 10 forced-state assertions. Build bar now distinguishes blocked from done by pattern, not colour. PARTIAL: only /queue has the full state set; PWA, L17's six journeys and the remaining screens are not done.",
-      "pr": 55
+      "pr": 55,
+      "evidence": "L17's six journeys pass on a 375px phone AND keyboard-only (36 assertions, each ending in a database check); console installable as a PWA; audit green on all 16 routes (99) plus forced states (10) = 145. PARTIAL: the twelve states are on /queue only — the other screens still fall through to a plain 'Loading…' for offline, expired session and server error."
     },
     {
       "id": "S16",

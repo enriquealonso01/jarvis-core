@@ -36,6 +36,7 @@
     "dev:test:s13": "bash scripts/s13-home-test.sh",
     "dev:test:s14": "bash scripts/s14-live-detail-test.sh",
     "dev:test:s15": "bash scripts/s15-console-test.sh",
+    "dev:test:l17": "node scripts/s15-journeys-test.mjs",
     "dev:test:all": "bash scripts/sweep.sh"
   },
   "dependencies": {

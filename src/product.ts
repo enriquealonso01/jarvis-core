@@ -357,6 +357,60 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     };
   });
 
+  /**
+   * Add context to a task that is already running (plan S15, L17 journey 2).
+   *
+   * Until now the only way to say something to a run in flight was to talk in a
+   * thread and hope the router attached it to the right task — which is the
+   * right mechanism (S3c) and the wrong ergonomics on a phone, where you are
+   * looking at the task and have to go and find its conversation.
+   *
+   * Deliberately the SAME table the router writes to, not a second channel: the
+   * runner already delivers pending `task_context` into the worktree at its next
+   * checkpoint boundary, so this inherits the delivery, the ordering and the
+   * "context that was never delivered survives a crash" behaviour rather than
+   * reimplementing them.
+   */
+  app.post("/api/tasks/:id/context", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
+    const id = (req.params as { id: string }).id;
+    const body = ((req.body ?? {}) as { body?: string }).body?.trim() ?? "";
+    if (!body) return reply.code(400).send({ error: "body required" });
+
+    const t = await pool.query<{ state: string; conversation_id: string | null }>(
+      "SELECT state, conversation_id FROM tasks WHERE id = $1",
+      [id],
+    );
+    const task = t.rows[0];
+    if (!task) return reply.code(404).send({ error: "not found" });
+
+    // A finished task cannot be told anything. Saying so is more useful than
+    // storing a note nothing will ever read.
+    if (["succeeded", "failed_terminal", "cancelled"].includes(task.state)) {
+      return reply.code(409).send({
+        error: {
+          code: "task_finished",
+          message: `this task is ${task.state}; context can only reach a run that is still going`,
+        },
+      });
+    }
+
+    const r = await pool.query<{ id: string }>(
+      `INSERT INTO task_context (task_id, conversation_id, body, attached_state)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [id, task.conversation_id, body.slice(0, 4000), task.state],
+    );
+    await pool.query(
+      `INSERT INTO audit_events (actor, action, target, metadata)
+       VALUES ('operator', 'task.context_added', $1, $2)`,
+      [id, JSON.stringify({ context_id: r.rows[0].id, attached_state: task.state })],
+    );
+    sseBroadcast("task.updated", { id });
+    return { context: { id: r.rows[0].id, attached_state: task.state } };
+  });
+
   app.post("/api/tasks/:id/pause", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;

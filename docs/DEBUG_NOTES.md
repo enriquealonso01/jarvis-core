@@ -588,6 +588,24 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### The test harness served the console from a different origin, and the CSRF guard did its job
+**Symptom:** three of L17's six journeys failed — adding context to a running
+task, approving something, and anything else that POSTs. The endpoints existed,
+the buttons were there, the clicks happened, and nothing changed in the database.
+It read as three separate broken features.
+**Cause:** `originOk` compares the browser's `Origin` against `JARVIS_ORIGIN`. In
+production Caddy serves the console and the API from one origin so they match.
+The test harness serves the export on its own port, so every guarded endpoint
+answered 403 — correctly.
+**Fix:** `console-serve.mjs` rewrites `Origin` (and `Referer`) to the configured
+API origin when proxying. That reproduces production rather than disabling the
+check: the guard still runs, against exactly the value it would see in
+production.
+**Lesson:** a harness that is *almost* the production shape fails in the places
+where the difference lives, and those failures look like product bugs in whatever
+feature happened to be tested first. When several unrelated features fail the
+same way, suspect the thing they have in common.
+
 ### A failed build left the last good one in place, and the sabotage passed
 **Symptom:** S15's state suite was sabotaged — every state made to fall through
 to a blank panel, which is the exact failure the step exists to prevent — and it
