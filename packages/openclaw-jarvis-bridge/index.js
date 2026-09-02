@@ -3,6 +3,23 @@ import crypto from "node:crypto";
 // OpenClaw loads this file as plain JavaScript. It must stay valid JS — no type
 // annotations — or the plugin fails to load and OpenClaw answers WhatsApp DMs
 // with its own default agent, which is exactly what this bridge exists to stop.
+//
+// ADR 001/002: OpenClaw is a pipe, not a mind. It carries messages; Jarvis
+// decides. Two hooks are all that takes, and they were read out of OpenClaw's
+// own shipped code rather than assumed:
+//
+//   message_received   every inbound message. Jarvis persists it BEFORE
+//                      anything else happens, which is the whole of ADR 001.
+//   before_agent_run   returning { outcome: "block" } is how OpenClaw is told
+//                      not to answer. This is the real mechanism; an earlier
+//                      version of this file invented `onInbound` and
+//                      `skipDefaultAgent`, neither of which exists, and was
+//                      never loaded so nothing ever said so.
+//
+// The failure direction is deliberate and matches OpenClaw's own: if the hook
+// throws, `builtin-openclaw` logs "before_agent_run hook failed; blocking
+// request" and blocks anyway. So a Jarvis that is down means WhatsApp goes
+// quiet — never that OpenClaw starts answering for it.
 
 const HMAC_HEADER = "X-Jarvis-Internal";
 
@@ -22,6 +39,9 @@ export async function ingestToJarvis(payload) {
     headers: {
       "Content-Type": "application/json",
       [HMAC_HEADER]: signBody(secret, body),
+      // A retried delivery must not become a second inbox event. The id is the
+      // channel's own, so a redelivery of the same message reuses it.
+      "X-Request-Id": `openclaw-${payload.external_id ?? crypto.randomUUID()}`,
     },
     body,
   });
@@ -29,47 +49,49 @@ export async function ingestToJarvis(payload) {
   return { ok: res.ok, status: res.status, json };
 }
 
-/** OpenClaw plugin entry. Never run the default agent on user DMs. */
-export default function jarvisBridge() {
-  return {
-    name: "openclaw-jarvis-bridge",
-    async onInbound(msg) {
-      /*
-       * S37: whether Enrique wrote this, or passed it along.
-       *
-       * WhatsApp marks a forward on the message itself, and OpenClaw surfaces
-       * it under one of several names depending on the adapter version — so all
-       * the plausible ones are checked rather than betting on one. Getting this
-       * wrong in the permissive direction is the injection the whole rule
-       * exists to prevent, so an unrecognised shape falls to "forwarded" only
-       * when something actually says so.
-       *
-       * Jarvis decides what the flag MEANS (see `splitAuthorship`); the bridge
-       * only reports what the channel said.
-       */
-      const forwarded = Boolean(
-        msg?.isForwarded ?? msg?.is_forwarded ?? msg?.forwarded
-        ?? msg?.contextInfo?.isForwarded
-        ?? (typeof msg?.contextInfo?.forwardingScore === "number"
-          && msg.contextInfo.forwardingScore > 0),
-      );
+/**
+ * Did the channel say somebody else wrote this?
+ *
+ * WhatsApp marks a forward on the message, and the adapter surfaces it under
+ * one of several names depending on version, so all the plausible ones are
+ * checked. The bridge only REPORTS what the channel said; Jarvis decides what
+ * it means (S37, `splitAuthorship`). Getting this wrong in the permissive
+ * direction is the injection the untrusted-content rule exists to prevent.
+ */
+export function looksForwarded(msg) {
+  return Boolean(
+    msg?.isForwarded ?? msg?.is_forwarded ?? msg?.forwarded
+    ?? msg?.contextInfo?.isForwarded
+    ?? (typeof msg?.contextInfo?.forwardingScore === "number"
+      && msg.contextInfo.forwardingScore > 0),
+  );
+}
 
-      const result = await ingestToJarvis({
-        channel: msg?.channel ?? "whatsapp",
-        external_id: msg?.id,
-        sender: msg?.sender ?? "",
-        text: msg?.text ?? "",
-        is_forward: forwarded,
-        // A quoted/forwarded body when the adapter gives one separately.
-        forwarded_text: msg?.quotedText ?? msg?.forwardedText ?? undefined,
-      });
-      if (!result.ok) {
-        // Persist-first: if Jarvis did not store it, retry rather than answer.
-        const err = new Error(`jarvis persist failed status=${result.status}`);
-        err.retry = true;
-        throw err;
-      }
-      return { skipDefaultAgent: true };
-    },
+export function payloadFor(msg) {
+  return {
+    channel: msg?.channel ?? "whatsapp",
+    external_id: msg?.id ?? msg?.messageId,
+    sender: msg?.sender ?? msg?.senderId ?? "",
+    text: msg?.text ?? msg?.body ?? "",
+    is_forward: looksForwarded(msg),
+    forwarded_text: msg?.quotedText ?? msg?.forwardedText ?? undefined,
   };
+}
+
+/** OpenClaw plugin entry. Receives the plugin api and registers two hooks. */
+export default function jarvisBridge(api) {
+  api.registerHook("message_received", async (event) => {
+    const result = await ingestToJarvis(payloadFor(event?.message ?? event));
+    if (!result.ok) {
+      // Persist-first: if Jarvis did not store it, this must not be treated as
+      // handled. Throwing here also blocks the agent, which is the safe way to
+      // fail — silence rather than an unrecorded answer.
+      throw new Error(`jarvis persist failed status=${result.status}`);
+    }
+  });
+
+  api.registerHook("before_agent_run", async () => ({
+    outcome: "block",
+    reason: "Jarvis owns this conversation",
+  }));
 }
