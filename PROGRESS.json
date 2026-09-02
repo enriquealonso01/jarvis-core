@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
-  "total_steps": 40,
-  "updated_at": "2026-09-02T18:59:58.093487Z",
-  "current_step": "S28",
+  "total_steps": 51,
+  "updated_at": "2026-09-02T20:29:46.285989Z",
+  "current_step": "S23",
   "steps": [
     {
       "id": "S1",
@@ -210,7 +210,7 @@
       "id": "S23",
       "title": "Jarvis calls Enrique",
       "stage": 4,
-      "state": "blocked",
+      "state": "awaiting_verification",
       "evidence": "Two of three halves observed in the world. The dial defect is fixed and deployed (PR #132): placeCall read the WhatsApp pair, so `from` went out blank and Telnyx answered 422 10004; it now reads telnyx.from_e164/to_e164 and refuses an unpinned sender by name. 61 assertions in the fake, 7 seen red. PLACING observed: Telnyx 200 with a real call_control_id. RINGING observed 2026-09-02 18:21Z once Enrique saved the number and enabled Emergency Bypass - call_transitions shows call.answered entering from state 'ringing', greeting played, a transcription ('This is just a test. Thank you.'), an answer at 2793ms total, then call.hangup 24s in. Exactly one call placed, via placeCall rather than the sweep, which walks every reason and dialled twice last time. STILL BLOCKED on the third half: 'stays silent at 21:00' is proved only in the fake. A phone that has never been observed staying quiet has not been observed staying quiet. See BLOCKED.md for the two ways to close it."
     },
     {
@@ -231,14 +231,14 @@
       "id": "S26",
       "title": "Project onboarding and `AGENTS.md`",
       "stage": 5,
-      "state": "blocked",
+      "state": "awaiting_verification",
       "evidence": "Built and tested. Onboarding renders AGENTS.md from the template or refuses and names what is missing - no code path substitutes a default, and 'none' is a real answer while blank is not. The canonical row goes to project_instructions_versions v1 (ADR 018: the row is canonical, the committed file is a rendering of it). githubPutFile commits it into the repository. A professional project is refused a free consumer account, with the tier derived from auth_type/metered_spend_allowed rather than a list of provider names, and the broker refuses it again at use. 52 offline assertions plus 11 LIVE against enriquealonso01/jarvis-s26-fixture, where the committed bytes equal the canonical row exactly. Seen red three times (13, 3, then 6). BLOCKED on the Done-when, which says VOICE: nothing has yet created a project by being spoken to. Also blocked-adjacent: every auth profile is seeded {normal} eligibility, so a confidential project can use no credential at all. Both in BLOCKED.md. VOICE PATH (2026-09-02, after a failed live attempt): five defects found above the tool layer, plus one of mine and one silent constraint. All fixed with tests that start where the voice does - an end-to-end through ingestUserMessage (19 assertions) and the six real utterances through the LIVE classifier on the box (4 assertions): turn 1 now create_project where production said capture, and the fragments stay on subject using the conversation history."
     },
     {
       "id": "S27",
       "title": "Configuration by conversation",
       "stage": 5,
-      "state": "blocked",
+      "state": "awaiting_verification",
       "evidence": "Built and tested. applyConfigChange is the only way configuration changes - versioning, provenance and audit are the same statement as the write - and the suite proves that architecturally by reading src/ and asserting exactly one file INSERTs into either version table. It found two bypasses when written (the schedule route and S26 onboarding), both now routed through it. Migration 029 adds the conversation and his own words to both version tables and scopes the version sequence to (project, key), which was previously global per key. The section 59 immutable list is data, refuses, and raises an approval rather than discarding the ask; ambiguity returns one question and writes nothing; rollback restores a value exactly as a NEW version. Tools resolve the project from what he NAMED, not the conversation. 85 assertions, seen red three times (30, 7, 1). BLOCKED on the Done-when: it needs a spoken sentence, and 'auditable a week later' is so far proved by backdating a row, which tests the query and not the passage of time. See BLOCKED.md."
     },
     {
@@ -301,6 +301,72 @@
       "stage": 7,
       "state": "not_started",
       "evidence": "Enrique registered the WhatsApp number (consumer multi-device, so Baileys QR pairing works). openclaw was never configured: jarvis-openclaw-1 crash-loops exit 78, '[gateway] Missing config', /var/lib/jarvis/openclaw holds only an empty state/. Container stopped, not looping. First task is gateway mode + channel config + the jarvis-bridge plugin loading from /plugins/jarvis-bridge. BEFORE PAIRING: the untrusted-content rule has zero implementation — no untrusted flag, no is_forward, nothing in src/ or migrations — and this step calls that the injection vector for the whole system. Build it before the session is live. Verify by pairing and asserting a sent message lands as an inbox_event on the right conversation; the phone saying 'connected' proves nothing."
+    },
+    {
+      "id": "S38",
+      "title": "Brevity everywhere, and the document channel",
+      "stage": 8,
+      "state": "not_started"
+    },
+    {
+      "id": "S39",
+      "title": "Channel-aware execution",
+      "stage": 8,
+      "state": "not_started"
+    },
+    {
+      "id": "S40",
+      "title": "The execution brief",
+      "stage": 8,
+      "state": "not_started"
+    },
+    {
+      "id": "S41",
+      "title": "Recall across channels and time",
+      "stage": 8,
+      "state": "not_started"
+    },
+    {
+      "id": "S42",
+      "title": "Approval by external impact",
+      "stage": 9,
+      "state": "not_started"
+    },
+    {
+      "id": "S43",
+      "title": "Change anything, from anywhere",
+      "stage": 9,
+      "state": "not_started"
+    },
+    {
+      "id": "S44",
+      "title": "Build the missing capability",
+      "stage": 9,
+      "state": "not_started"
+    },
+    {
+      "id": "S45",
+      "title": "System work is not a project",
+      "stage": 9,
+      "state": "not_started"
+    },
+    {
+      "id": "S46",
+      "title": "Handoffs that do not block",
+      "stage": 9,
+      "state": "not_started"
+    },
+    {
+      "id": "S47",
+      "title": "The desktop connector",
+      "stage": 10,
+      "state": "not_started"
+    },
+    {
+      "id": "S48",
+      "title": "Learning from the conversations themselves",
+      "stage": 10,
+      "state": "not_started"
     }
   ],
   "gates": {
@@ -311,5 +377,6 @@
     "5": "pending",
     "6": "pending",
     "7": "pending"
-  }
+  },
+  "working_on": "S28 — the runtime interface and a second harness."
 }
