@@ -881,6 +881,42 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
    * runtimes that exist. The order of two checks decided the quality of the
    * message.
    */
+  /*
+   * The heavy lane needs a repository. No project, no run.
+   *
+   * A task with no project was given "its own corner of unscoped" - an empty
+   * directory that is not a git checkout - and the harness was started in it
+   * anyway. What happened next, on a real call: the task was the sentence
+   * "Hello, can you finish what you were saying?", conversational filler that
+   * became work. Claude landed in an empty directory, correctly reported there
+   * was nothing to continue from, and while looking around ran
+   * `ls -la /var/lib/jarvis/worktrees/unscoped/`. Listing its own parent is
+   * outside the paths the run is allowed to touch, so the isolation tripwire
+   * killed the run and raised a CRITICAL - for a directory listing, in a
+   * directory that was empty, on a task that should never have existed.
+   *
+   * Parking here rather than tightening the tripwire, because the tripwire was
+   * right: a run whose boundary is an empty scratch directory has no meaningful
+   * boundary at all. Five of the thirty heavy tasks on the box had no project;
+   * none of the 721 system tasks did. Unscoped heavy work is an accident every
+   * time, so it fails closed and says which sentence caused it.
+   */
+  if (!task.project_id) {
+    await park(pool, taskId, "waiting_for_user",
+      "a heavy task has no project, so it has no repository to work in",
+      {
+        category: "config.invalid",
+        title: "[runner] a heavy task arrived with no project",
+        dedupeKey: "runner.heavy.unscoped",
+        requiredAction:
+          `The task "${(task.title ?? "").slice(0, 80)}" was queued to the heavy lane with no `
+          + "project, so there is nothing to check out and nothing for the harness to read. "
+          + "Scope it to a project or cancel it; do not run it unscoped.",
+      },
+      null);
+    return;
+  }
+
   const askedRuntime = task.runtime ?? project?.default_runtime ?? null;
   if (askedRuntime && !runtimeFor(askedRuntime)) {
     await park(pool, taskId, "waiting_for_user",
@@ -1367,7 +1403,18 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       await raiseIssue(pool, {
         category: "security.isolation",
         service: "harness",
-        title: `[isolation] harness wrote outside the worktree on ${task.title.slice(0, 60)}`,
+        /*
+         * "touched", not "wrote".
+         *
+         * The tripwire reads tool events, and a Bash command is a string: it
+         * cannot always tell a read from a write. The one that fired in anger
+         * was `ls -la` on the worktree parent, and the ticket announced that the
+         * harness had WRITTEN outside its worktree - which sent the next reader
+         * looking for a file that was never created. Both still matter, so both
+         * still fire; the title now claims only what is known, and
+         * `attempted_path` in the evidence says where.
+         */
+        title: `[isolation] harness touched a path outside the worktree on ${task.title.slice(0, 60)}`,
         dedupeKey: `security.isolation:${taskId}`,
         taskId,
         projectId: task.project_id,
