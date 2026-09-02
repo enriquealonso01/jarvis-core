@@ -63,6 +63,21 @@ code, since belt and braces is right here.
 against the property, not against one line of code. A sabotage that a redundant
 guard absorbs proves the guard, not the test.
 
+### The scrubber redacted the search term, and the test reported a leak
+**Symptom:** the canary test found the canary in `audit_events`, `messages` and
+`notifications_outbox` — and the rows it printed plainly read
+`[redacted:canary_...]`. It had found what it was looking for and what it was
+looking for was not there.
+**Cause:** the grep ran through the SAME pool the scrubber wraps, so
+`%<canary>%` was scrubbed on its way into the query. It searched for
+`%[redacted:canary_...]%`, which matches every row that was correctly redacted.
+**Fix:** the grep opens its own unwrapped pool. A test of a filter cannot look
+through the filter.
+**Lesson:** when the thing under test sits on the path everything takes, the
+test's own reads are on that path too. Ask what the assertion is going through
+before believing what it says — this one failed in the direction that looks like
+a security hole, which is the most expensive direction to be wrong in.
+
 ### `RETURNING` gave back the value it had just written
 **Symptom:** S20's endpointing worked — the utterance accumulated, the timer
 fired — and then Jarvis said nothing at all. The row showed `pending_text` gone,

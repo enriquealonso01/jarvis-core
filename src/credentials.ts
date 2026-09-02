@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { registerSecret } from "./scrubber.js";
 import { encryptGcm, loadMasterKey, newDek, unwrapDek, wrapDek, decryptGcm } from "./crypto.js";
 
 export async function storeJsonCredential(
@@ -93,9 +94,14 @@ export async function readJsonCredential(
     wrapped_key: Buffer;
     ciphertext: Buffer;
     nonce: Buffer;
+    label: string | null;
   }>(
-    `SELECT d.wrapped_key, c.ciphertext, c.nonce
-     FROM credentials c JOIN dek_keys d ON d.id = c.dek_id
+    `SELECT d.wrapped_key, c.ciphertext, c.nonce,
+            COALESCE(a.id, cn.slug, split_part(c.fingerprint, ':', 1)) AS label
+     FROM credentials c
+     JOIN dek_keys d ON d.id = c.dek_id
+     LEFT JOIN auth_profiles a ON a.credential_id = c.id
+     LEFT JOIN connections cn ON cn.credential_id = c.id
      WHERE c.id = $1`,
     [credentialId],
   );
@@ -103,5 +109,16 @@ export async function readJsonCredential(
   if (!cred) throw new Error("credential not found");
   const dek = unwrapDek(loadMasterKey(), Buffer.from(cred.wrapped_key));
   const plain = decryptGcm(dek, Buffer.from(cred.nonce), Buffer.from(cred.ciphertext));
-  return JSON.parse(plain.toString("utf8")) as Record<string, string>;
+  const payload = JSON.parse(plain.toString("utf8")) as Record<string, string>;
+
+  /*
+   * Registered the moment it is decrypted (Part V, S12b item 3).
+   *
+   * The scrubber matches on real values rather than on patterns, which only
+   * works if every value it should know about has passed through here — so
+   * registration lives at the single point of decryption rather than at each
+   * of the callers, none of whom would remember.
+   */
+  registerSecret(payload, cred.label ?? "credential");
+  return payload;
 }

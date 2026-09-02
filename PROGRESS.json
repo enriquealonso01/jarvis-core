@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "d35cdfcdbbd16c54630649864b53bece39497b54",
+  "plan_sha": "be4893ccf46009523508b153062abdabee43eab1",
   "total_steps": 40,
-  "updated_at": "2026-09-02T13:59:10.192Z",
+  "updated_at": "2026-09-02T14:13:02.904Z",
   "current_step": "S12b",
   "steps": [
     {
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -163,8 +163,8 @@
       "title": "Close the containment gaps",
       "stage": 3,
       "state": "in_progress",
-      "evidence": "item 1 (the deterministic router) done: 31/31, a #slug code body reaches zero model calls; item 2 (SSH) hardened except the Tailscale-only step",
-      "pr": 110
+      "pr": 110,
+      "evidence": "items 1 (router, 31/31), 2 (SSH, all but the Tailscale-only step) and 3 (scrubber + canary, 14/14) done"
     },
     {
       "id": "S18b",
