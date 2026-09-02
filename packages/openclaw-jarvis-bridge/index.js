@@ -82,6 +82,12 @@ export function payloadFor(msg) {
 /**
  * OpenClaw plugin entry.
  *
+ * `api.on(...)`, NOT `api.registerHook(...)`. The loader warns in as many words
+ * that a typed hook event registered through `registerHook` "is dispatched by
+ * the typed hook runner only; api.registerHook registrations for it are not
+ * invoked" — so that version installs cleanly and never fires, which is the
+ * worst of the failure modes available here.
+ *
  * `definePluginEntry({ id, name, description, register })` is the real shape,
  * read out of OpenClaw's own SDK (`openclaw/plugin-sdk/core`) rather than
  * guessed. `register` is a PROPERTY of a descriptor object; it is not the
@@ -93,7 +99,7 @@ export default definePluginEntry({
   name: "Jarvis Bridge",
   description: "Hand every inbound message to Jarvis, and stop OpenClaw answering for it.",
   register(api) {
-    api.registerHook("message_received", async (event) => {
+    api.on("message_received", async (event) => {
       const result = await ingestToJarvis(payloadFor(event?.message ?? event));
       if (!result.ok) {
         // Persist-first: if Jarvis did not store it, this must not be treated
@@ -103,7 +109,7 @@ export default definePluginEntry({
       }
     });
 
-    api.registerHook("before_agent_run", async () => ({
+    api.on("before_agent_run", async () => ({
       outcome: "block",
       reason: "Jarvis owns this conversation",
     }));
