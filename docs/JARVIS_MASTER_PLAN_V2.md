@@ -2847,6 +2847,41 @@ outcome; Jarvis routes it. A request that turns out to need frontend work become
 frontend work — through the normal engineering loop, with review and a PR, not by
 someone hand-editing the console.
 
+### The console is one of Jarvis's own repos, and that is fine — with two caveats
+
+S44 drew a line: a capability Jarvis builds lands as something attachable, never
+as a change to `jarvis-core`, because deploying core is what always needs
+Enrique. **A UI change is a change to `jarvis-control-center`, which is also
+Jarvis's own repo** — so the same question applies and gets a different answer.
+
+**The console is not the control plane.** `jarvis-core` runs the system: the API,
+the runner, the broker, the queue. The console is a static site that displays it.
+A bad console deploy makes the interface wrong; **a bad core deploy takes down the
+thing that would have told you the interface was wrong.** Those are different
+blast radii and they deserve different rules.
+
+So UI changes are ordinary engineering work — the S6 workflow, review, a PR — and
+the deploy is recoverable, because the previous static export is one rsync away
+and `deploy-control-center.sh` already syncs contents in place. The handover's
+never-deploy-to-itself rule is about core, and it stays about core.
+
+**Caveat one: the console is how you would see that something went wrong.** Break
+it and Enrique loses the instrument he would use to diagnose the breakage. A
+console deploy that fails its health check rolls back automatically (VII.5), and
+that rollback path must not itself depend on the console being up.
+
+**Caveat two, and this is the sharp one: not every console change is cosmetic.**
+The console holds the session, renders approvals, and is where every gate in this
+plan resolves to a human decision. A change to **how an approval is presented** —
+what it says, what the buttons do, which detail is shown before the click — is a
+security-relevant change wearing a cosmetic hat.
+
+Changes touching the approval flow, the session, or anything under IV.6 are
+**always-confirm regardless of how they were asked for.** *"Tidy up the approvals
+page"* is a reasonable sentence and a change that needs looking at. Everything
+else — layout, ordering, what a card shows, colours within the visual direction —
+is ordinary work.
+
 ### Build
 - Route configuration requests to the owning surface: console repo, config version, connection, schedule, prompt.
 - UI changes become tasks in the Control Center project, running the S6 workflow.
@@ -2859,6 +2894,8 @@ someone hand-editing the console.
 - *"Be more detailed in chat but keep WhatsApp short"* → per-channel preference, both honoured.
 - A request needing frontend work, made by voice, ends as a merged PR without him opening an editor.
 - Roll one back → previous behaviour returns exactly.
+- **A UI change touching the approval flow stops for confirmation**, even when phrased as tidying. A change to the queue's ordering does not. **That pair is the test** — one without the other proves only that the gate is stuck in one position.
+- Break the console deliberately in a deploy → the health check catches it and the rollback happens **without needing the console**.
 
 **Debug** If preferences apply on one channel and not another, they are being read
 at the wrong layer. Preferences belong to the conversation and the user, not to
