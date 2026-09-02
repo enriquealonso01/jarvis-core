@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "c09eb9c8e24a72b501dc669663d847a2d68495cd",
+  "plan_sha": "3e4100b471a877aec207efab413baea940081514",
   "total_steps": 39,
-  "updated_at": "2026-09-02T11:19:59.459Z",
-  "current_step": "S20",
+  "updated_at": "2026-09-02T11:20:30.331Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -178,8 +178,9 @@
       "id": "S20",
       "title": "Turn-taking and barge-in",
       "stage": 4,
-      "state": "in_progress",
-      "evidence": "52/52 incl. barge-in at start/middle/end and a scripted conversation with no overlap; PR open"
+      "state": "done",
+      "evidence": "52/52; a scripted conversation with an interruption and no overlap in either direction",
+      "pr": 87
     },
     {
       "id": "S21",
