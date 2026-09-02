@@ -38,6 +38,38 @@ Worktrees are disposable; GitHub is canonical. Do not bind-mount other projects.
 
 Postgres healthcheck required before API.
 
+## Host processes — not everything is in Compose
+
+The Compose table above was the whole system once. It is not any more, and a
+reader who stops there concludes Jarvis is five containers and misses the process
+that does all of the work.
+
+| unit | user | notes |
+|---|---|---|
+| `jarvis-runner.service` | `jarvis` | **The heavy lane.** Claims heavy tasks, cuts worktrees, spawns the coding harness, opens PRs (ADR 015) |
+
+It is on the host rather than in Compose because subscription logins are
+host-user filesystem state bound to a config directory (ADR 006). Reproducing
+that inside Docker would need the Docker socket mounted into the worker, which is
+strictly worse than what it protects.
+
+**Its limits are not Docker's.** Every container above has a `mem_limit`; a
+systemd unit has none by default, and ADR 007 gives the heavy worker the largest
+slice on the box — so the unit sets `MemoryHigh=3584M` and `MemoryMax=4096M`.
+Without those, the one process with the biggest appetite is the only unbounded
+one, and an OOM there takes Postgres with it.
+
+Config lives in `/etc/jarvis/runner.env` — 0640 root:jarvis, containing
+`DATABASE_URL` and nothing else. The password must be percent-encoded; `src/db.ts`
+does this when building a URL from `POSTGRES_PASSWORD`, and a hand-written env
+file has to do it too (`docs/DEBUG_NOTES.md`).
+
+**Egress from a run is restricted.** A worktree must not be able to reach the API,
+`/internal/*`, Postgres, the OpenClaw gateway or the Docker socket — deny
+`127.0.0.1`, the host addresses and the Docker network from its namespace. The
+HMAC secret is in the environment of processes on this box, so a harness that can
+POST to `/internal` steps around every control at once.
+
 ## Caddy routes
 
 - `jarvis.<domain>/` → `/opt/jarvis/control-center`
