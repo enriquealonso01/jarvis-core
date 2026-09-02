@@ -62,6 +62,18 @@ const BANK: Record<string, string[]> = {
   ack: ACK, checking: CHECKING, progress: PROGRESS, handover: HANDOVER, closing: CLOSING,
 };
 
+/**
+ * The lines said BEFORE the desk has done anything.
+ *
+ * Kept separate because they are held to a stricter rule than the rest: nothing
+ * here may claim an action, since at the moment they are spoken none has been
+ * taken. The handover line is not among them — by the time it is said a task
+ * really has been created, so "it is queued" is a fact rather than a claim.
+ */
+export function linesBeforeAnythingHappened(): string[] {
+  return [...ACK, ...CHECKING, ...PROGRESS];
+}
+
 /** Every fixed line, for pre-rendering: a known phrase must never pay for synthesis twice. */
 export function everyFixedLine(): string[] {
   return [...ACK, ...CHECKING, ...PROGRESS, ...HANDOVER, ...CLOSING];

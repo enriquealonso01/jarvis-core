@@ -48,6 +48,41 @@ export async function transitionTask(
    * finished run ends up looking abandoned.
    */
   if (["succeeded", "failed_terminal", "waiting_for_user", "waiting_for_provider", "stalled"].includes(toState)) {
+    /*
+     * S22: when the desk finishes, it reports.
+     *
+     * `notifyTaskComplete` was written and never called, so a task that came
+     * from a phone call finished in silence — the caller had been told "I will
+     * have the desk finish this and come back to you", and nothing ever came
+     * back. The pull request URL goes in the body, because that is the thing
+     * worth being told.
+     */
+    if (toState === "succeeded") {
+      try {
+        const done = await pool.query<{ title: string; lane: string; pr_url: string | null; branch: string | null }>(
+          "SELECT title, lane, pr_url, branch FROM tasks WHERE id = $1",
+          [taskId],
+        );
+        const row = done.rows[0];
+        if (row) {
+          const { notifyTaskComplete } = await import("./notify.js");
+          await notifyTaskComplete(pool, {
+            taskId,
+            title: row.title,
+            lane: row.lane,
+            summary: row.pr_url
+              ? `done — ${row.pr_url}`
+              : row.branch
+                ? `done on ${row.branch}`
+                : "done",
+            trivial: false,
+          });
+        }
+      } catch (err) {
+        // A report that cannot be sent must not undo the work it was reporting.
+        console.error("completion report failed:", err instanceof Error ? err.message : err);
+      }
+    }
     try {
       const meta = await pool.query<{ title: string; project_id: string | null }>(
         "SELECT title, project_id FROM tasks WHERE id = $1",

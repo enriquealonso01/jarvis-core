@@ -30,6 +30,14 @@ export type FakeTurn = {
   content?: string;
   /** Router turns answer with JSON; this is serialised into `content`. */
   json?: unknown;
+  /**
+   * `history` answers with the number of messages the model was actually given.
+   *
+   * The only way to prove from outside that a turn carried the conversation
+   * with it. Asserting that two turns share a thread proves the rows exist;
+   * this proves the second turn was ASKED with the first one in front of it.
+   */
+  echo?: "history";
 };
 
 type FakeScript =
@@ -148,6 +156,9 @@ export function fakeCompletion(messages: Msg[]): {
     // Router and reviewer both fail CLOSED: no scripted answer means no answer,
     // and review.ts turns that into an error rather than a clean pass.
     return { role: "assistant", content: isRouter || isReviewer ? "" : "(fake model: no scripted turn matched)" };
+  }
+  if (turn.echo === "history") {
+    return { role: "assistant", content: `messages:${messages.length}` };
   }
   if (turn.json !== undefined) return { role: "assistant", content: JSON.stringify(turn.json) };
   if (!turn.tool_calls?.length) return { role: "assistant", content: turn.content ?? "(fake model)" };

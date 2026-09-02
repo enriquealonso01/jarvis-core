@@ -255,7 +255,13 @@ type ChatMsg = { role: string; content?: string | null; tool_calls?: unknown; to
 const CLAIM_RE =
   /^\s*(?:ok[,.]?\s*)?(?:i(?:'ve| have)?\s+)?(stored|saved|created|opened|scheduled|added|registered|updated|noted)\b/i;
 
-function claimsAnAction(text: string): boolean {
+/**
+ * Does this sentence claim an action was taken?
+ *
+ * Exported because tier 1 needs it too: it has no tools at all, so any claim it
+ * makes that something was stored, created or changed is false by construction.
+ */
+export function claimsAnAction(text: string): boolean {
   return CLAIM_RE.test(text);
 }
 

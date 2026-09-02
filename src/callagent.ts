@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { quickCompletion, runSupervisorTurn } from "./supervisor.js";
+import { tierOneClaims } from "./callclaims.js";
 
 /**
  * The two-tier call agent.
@@ -87,6 +88,25 @@ export async function triage(pool: pg.Pool, text: string): Promise<Triage> {
 
   const [, verb, said] = line.match(/^(ANSWER|DELEGATE)\s*:\s*(.*)$/i) ?? [];
   const say = (said ?? "").trim();
+
+  /*
+   * The prompt forbids claiming an action; this makes it structural.
+   *
+   * Tier 1 has no tools, so "I have filed that" is false by construction — and a
+   * model told not to do something will still occasionally do it. The plan makes
+   * this a test ("Confirm Tier 1 never says a thing was stored, created, or
+   * changed. Grep the transcripts"), and a test of a prompt is a test of luck.
+   * A claim is downgraded to a delegation, which is what was actually about to
+   * happen anyway.
+   */
+  if (say && tierOneClaims(say)) {
+    return {
+      mode: "delegate",
+      say: "Let me pass that to the desk, sir.",
+      request: text,
+    };
+  }
+
   if (/^answer$/i.test(verb ?? "") && say) return { mode: "answer", say };
   return {
     mode: "delegate",
