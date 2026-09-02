@@ -2142,51 +2142,6 @@ means updating the union in `sse.ts`, `docs/API_AND_EVENTS.md`, and the console
 together — a new event name that only one of the three knows about is a feature
 that works on your machine and nowhere else.
 
-## IV.7 Idempotency
-
-Inbound integrations retry. **Deduplicate on the provider's external event id**,
-always, before anything else happens to the event:
-
-| Source | Retries because | Dedupe on | Owned by |
-|---|---|---|---|
-| WhatsApp webhook | delivery retry | message id | S37 |
-| Telnyx callback | callback retry | `call_control_id` + event type + sequence | **S19** |
-| OAuth callback | user refresh, double submit | state token, single-use | **S16** |
-| Scheduled run | restart mid-fire | `(schedule_id, scheduled_for)` | S34 |
-| Internal HMAC post | client retry | request id | **S18b** |
-
-The owner column exists because three of these had no step at all. A contract in
-Part IV is a promise, not an assignment — and an unassigned promise is
-indistinguishable from a decoration. **Telnyx is the urgent one**: the phone is
-live now, its callbacks retry now, and a duplicated `call.answered` is a second
-greeting talking over the first.
-
-A repeated delivery must never create a second task. The dedupe happens at
-ingest, before classification and before any model, because a duplicate that
-reaches routing has already cost money and may already have created work.
-
-Where a source gives no usable id, derive one from a checksum of the payload plus
-a time bucket — and record that it was derived, so a false match can be
-recognised later.
-
-## IV.8 Artifact lifecycle
-
-`draft → generated → under_review → ready → approved → delivered`, with
-`rejected` and `superseded` as exits (S17). A new version supersedes rather than
-overwrites; overwriting destroys the comparison that makes review possible.
-
-## IV.9 Audit
-
-Every consequential action is attributable: who or what initiated it, project,
-task, agent/model/harness, tool, timestamp, the approval if there was one, and
-the result. At minimum — secret updated, production approval granted, model
-changed, schedule changed, task cancelled, PR merged, provider added, connection
-denied.
-
-An audit row written after the fact is an audit row that will sometimes be
-missing. Write it in the same transaction as the action wherever the storage
-allows it.
-
 ## IV.6 Authorization levels
 
 Three levels, fixed at planning time. **The model does not decide whether
@@ -2248,6 +2203,80 @@ a live approval is refused and audited, whatever the task believed it had been
 told.
 
 ---
+
+## IV.7 Idempotency
+
+Inbound integrations retry. **Deduplicate on the provider's external event id**,
+always, before anything else happens to the event:
+
+| Source | Retries because | Dedupe on | Owned by |
+|---|---|---|---|
+| WhatsApp webhook | delivery retry | message id | S37 |
+| Telnyx callback | callback retry | `call_control_id` + event type + sequence | **S19** |
+| OAuth callback | user refresh, double submit | state token, single-use | **S16** |
+| Scheduled run | restart mid-fire | `(schedule_id, scheduled_for)` | S34 |
+| Internal HMAC post | client retry | request id | **S18b** |
+
+The owner column exists because three of these had no step at all. A contract in
+Part IV is a promise, not an assignment — and an unassigned promise is
+indistinguishable from a decoration. **Telnyx is the urgent one**: the phone is
+live now, its callbacks retry now, and a duplicated `call.answered` is a second
+greeting talking over the first.
+
+A repeated delivery must never create a second task. The dedupe happens at
+ingest, before classification and before any model, because a duplicate that
+reaches routing has already cost money and may already have created work.
+
+Where a source gives no usable id, derive one from a checksum of the payload plus
+a time bucket — and record that it was derived, so a false match can be
+recognised later.
+
+## IV.8 Artifact lifecycle
+
+`draft → generated → under_review → ready → approved → delivered`, with
+`rejected` and `superseded` as exits (S17). A new version supersedes rather than
+overwrites; overwriting destroys the comparison that makes review possible.
+
+## IV.9 Audit
+
+Every consequential action is attributable: who or what initiated it, project,
+task, agent/model/harness, tool, timestamp, the approval if there was one, and
+the result. At minimum — secret updated, production approval granted, model
+changed, schedule changed, task cancelled, PR merged, provider added, connection
+denied.
+
+An audit row written after the fact is an audit row that will sometimes be
+missing. Write it in the same transaction as the action wherever the storage
+allows it.
+
+### Canonical metadata keys
+
+`audit_events` has six columns — `at`, `actor`, `action`, `project_id`, `target`,
+`metadata` — so most of what IV.9 requires lives inside the `metadata` JSON. That
+is workable, but only if the keys are fixed: free-form metadata means two writers
+name the same thing differently, and "every action on task X" stops being
+answerable a month after anyone would notice.
+
+So the keys are a contract, not a convention:
+
+| Key | When | Meaning |
+|---|---|---|
+| `task_id` | whenever a task caused it | the task |
+| `conversation_id` | whenever a conversation caused it | provenance |
+| `model` / `harness` / `auth_profile` | any model or harness action | **which one**, by id |
+| `tool` | a tool or broker invocation | the capability used |
+| `approval_id` | any always-confirm action | the live approval that authorised it |
+| `outcome` | always | `allowed` · `denied` · `failed` |
+| `reason` | any denial or failure | short, human, no secret in it |
+
+`outcome` is required on every row. An audit trail that records attempts and not
+results answers "what was tried" and not "what happened", and the second question
+is the one asked during an incident.
+
+**A denial must never carry the secret it protected.** The reason names the
+connection or the profile, never the value — a redaction bug in the audit trail
+is worse than one in a log, because the audit trail is the thing kept forever.
+
 
 # PART V — SECURITY AND ISOLATION
 
