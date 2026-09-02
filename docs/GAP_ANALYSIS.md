@@ -1,5 +1,15 @@
 # Gap analysis — why Jarvis feels shallow (2026-09-01)
 
+> **This is a diagnosis of a past state, not a description of the system now.**
+> Everything below is written in the present tense because it was true on
+> 2026-09-01. Much of it has since been fixed — the heavy lane runs, the
+> Supervisor can create work, PRs get opened. Read it for **why the plan is
+> shaped as it is**, and read `PROGRESS.json` for what is true today.
+>
+> It is kept unedited on purpose. A diagnosis quietly updated to stay flattering
+> is worth nothing; the value of this one is that it was written before anyone
+> knew whether it was right.
+
 Audit of `jarvis-core` as built (8,453 lines TS, 10,080 lines docs, 9 migrations,
 33/33 acceptance PASS) against the planning transcript that produced the master plan.
 
@@ -168,3 +178,28 @@ executor. The executor is the only thing missing. Build the executor.
 
 The one thing worth deleting is complexity that exists solely to make free tiers
 survivable, if the decision is to run on paid open-weights routes from here.
+
+---
+
+## What this got right, and what it missed
+
+Added after the fact as a calibration record — a diagnosis is only worth as much
+as its track record, and this one can now be scored.
+
+**Right, and it was the whole point:**
+
+- The executor was the missing piece. Building it took days, not the weeks a restart would have cost, which is what made "don't start over" the correct call.
+- The data model already anticipated it. `worktree_path`, `branch`, `head_sha` and `harness` were waiting; no schema change was needed to make the runner work.
+- The acceptance suite was measuring plumbing. Adding one test that asserts a real PR changed what the work optimised for immediately.
+- The free-tier premise was dead. It was replaced within hours and never came back.
+
+**Missed, and each cost a later correction:**
+
+- **It did not check the ADRs.** ADR 005's deterministic router was specified and unbuilt, and this audit looked straight past it — so the plan was written specifying model-driven routing, and the code faithfully implemented an LLM as the first reader of every inbound body. The most security-relevant defect of the whole exercise was sitting in a document this audit did not open.
+- **It read the code but not the boundaries.** The credential broker was praised as "fail-closed" without anyone asking how a browser, an MCP server, a shell or a phone call gets around it. All four do, trivially, and all four needed their own gate afterwards.
+- **It counted lines, not reach.** "8,453 lines of good infrastructure" was true and not the useful measurement. `github.ts` was four working functions no part of Jarvis could invoke, and this audit called it "exists" rather than "unreachable".
+
+**The lesson for the next audit:** reading the code tells you what is there.
+Reading the code *against its own specifications and its own boundaries* tells
+you what is wrong. This one did the first and skipped the second, and every
+correction since has come from doing the second.
