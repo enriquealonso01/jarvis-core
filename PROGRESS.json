@@ -139,7 +139,8 @@
       "title": "Artifacts and output control",
       "stage": 3,
       "state": "done",
-      "evidence": "75 assertions: 57 API + 18 browser. All twelve types render; provenance recorded AT registration; the full state path plus both exits; a rejection with a note creates a queued task against the same project; v2 supersedes v1 with both surviving and a line-level compare; superseding at the same path is REFUSED because the old bytes would be gone; quarantined artifacts cannot be downloaded at all; fifty artifacts paginate; a run with no output says so."
+      "evidence": "75 assertions: 57 API + 18 browser. All twelve types render; provenance recorded AT registration; the full state path plus both exits; a rejection with a note creates a queued task against the same project; v2 supersedes v1 with both surviving and a line-level compare; superseding at the same path is REFUSED because the old bytes would be gone; quarantined artifacts cannot be downloaded at all; fifty artifacts paginate; a run with no output says so.",
+      "pr": 68
     },
     {
       "id": "S18",
