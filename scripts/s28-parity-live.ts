@@ -70,6 +70,10 @@ async function waitForTask(id: string, seconds: number): Promise<string> {
   return `timeout after ${seconds}s (last ${last})`;
 }
 
+/** Recorded as they are created, so the teardown in `finally` can find them. */
+let createdProjectId: string | null = null;
+let createdRepo: string | null = null;
+
 async function main(): Promise<void> {
   console.log(`S28 parity: ${SLUG}\n`);
 
@@ -82,6 +86,8 @@ async function main(): Promise<void> {
      VALUES ($1,$1,'personal','normal',$2,$3,$4) RETURNING id`,
     [SLUG, repo.owner, repo.name, repo.default_branch]);
   const pid = project.rows[0].id;
+  createdProjectId = pid;
+  createdRepo = repo.full_name;
   const key = await githubProvisionDeployKey(pool, pid, repo.owner, repo.name);
   if ("error" in key) throw new Error(`key: ${key.error}`);
   /*
@@ -195,6 +201,36 @@ async function main(): Promise<void> {
 main()
   .catch((err) => { console.error(err); fail += 1; })
   .finally(async () => {
+    /*
+     * Clean up after ourselves.
+     *
+     * This suite used to print the repository URL and exit, leaving a project
+     * row, its credentials and - the part that mattered - review Issues sitting
+     * in the queue asking Enrique to read a report about a throwaway repo. Six
+     * fixture repositories and three such tickets had accumulated.
+     *
+     * A FAILED run is left standing on purpose: the rows are the evidence, and
+     * deleting them is how a failure becomes unreproducible. KEEP=1 does the
+     * same for a passing run when someone wants to look.
+     */
+    if (createdProjectId && fail === 0 && process.env.KEEP !== "1") {
+      const { teardownFixtureProject } = await import("./lib/fixture.js");
+      const t = await teardownFixtureProject(pool, createdProjectId).catch((e) => {
+        console.error(`  teardown failed: ${e instanceof Error ? e.message : e}`);
+        return null;
+      });
+      if (t) {
+        const removed = Object.entries(t.removed).map(([k, v]) => `${k}:${v}`).join(" ");
+        console.log(`  cleaned up ${removed || "nothing"}`);
+        if (t.leftBehind.length) {
+          console.error(`  LEFT BEHIND: ${t.leftBehind.map((l) => `${l.table}(${l.rows})`).join(", ")}`);
+        }
+      }
+      // Never deleted here: irreversible, and Enrique's call.
+      console.log(`  the GitHub repository is still there: ${createdRepo ?? "(none)"}`);
+    } else if (createdProjectId) {
+      console.log(`  kept for inspection: project ${createdProjectId}, repo ${createdRepo ?? "(none)"}`);
+    }
     await pool.end().catch(() => undefined);
     console.log(`\n(final: ${pass} passed, ${fail} failed)`);
     process.exit(fail === 0 ? 0 : 1);
