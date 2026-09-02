@@ -123,7 +123,8 @@
       "title": "Repair the degraded console",
       "stage": 3,
       "state": "in_progress",
-      "evidence": "Audit harness green: 99 assertions across all 16 pages at 375px (overflow, accessible names, touch targets, colour-alone, reduced motion, visible focus at every keyboard stop) + 10 forced-state assertions. Build bar now distinguishes blocked from done by pattern, not colour. PARTIAL: only /queue has the full state set; PWA, L17's six journeys and the remaining screens are not done."
+      "evidence": "Audit harness green: 99 assertions across all 16 pages at 375px (overflow, accessible names, touch targets, colour-alone, reduced motion, visible focus at every keyboard stop) + 10 forced-state assertions. Build bar now distinguishes blocked from done by pattern, not colour. PARTIAL: only /queue has the full state set; PWA, L17's six journeys and the remaining screens are not done.",
+      "pr": 55
     },
     {
       "id": "S16",
