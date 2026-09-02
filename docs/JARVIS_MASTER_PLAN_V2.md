@@ -884,27 +884,7 @@ autonomous loop is ever pointed at the suite again.
 **Done when:** all eight conditions verified one by one, and N6 refuses.
 
 ## S11 — Recovery under failure
-*Includes a retrofit: the runner shipped before the checkpoint spec existed.*
-
-**Retrofit first, before anything else in this step.** The runner was built at S4
-and writes twelve checkpoint fields — worktree, branch, base and head SHA,
-transcript, event count, exit code, subtype, stop reason and so on. Every one of
-them records **where** a run got to.
-
-The checkpoint contents in II.3 landed after that code was written, and none of
-its six resumability fields are present: `current_plan`, `files_modified`,
-`commands_executed`, `test_results`, `current_hypothesis`, `next_intended_action`.
-
-This is not a defect in S4 — it was built correctly against the spec that existed
-then. It is a defect **now**, and it is load-bearing for this step: recovery that
-resumes from a checkpoint recording only position will restart the investigation
-from the beginning, which looks like recovery and costs like a rerun. Building
-the rest of S11 on the current checkpoint would produce a recovery ladder whose
-top rungs cannot actually resume anything.
-
-Add the six fields, backfill nothing (old checkpoints stay as they are), and
-**test resumption by killing a run mid-investigation and checking the replacement
-worker continues the same hypothesis rather than forming a new one.**
+*Shipped. Its outstanding retrofits are carried by S18b, not by edits here.*
 
 *Size: 2 days.*
 
@@ -1246,6 +1226,65 @@ implementation rather than fixing it.
 **Done when:** a phrase inside a document dumped three months ago is findable in
 one search, every palette command works on desktop and mobile, and search cannot
 cross a project boundary.
+
+## S18b — The retrofit sweep
+*Size: 3–4 days. Everything specified after the step it governs had already shipped.*
+
+This plan is being written alongside its own implementation, which produces a
+failure mode with no natural owner: **a requirement written after its step
+finished has no moment at which anyone would apply it.** Editing the finished
+step does not help — nobody reads a step marked done.
+
+So the debt is collected here, where it is visible in `PROGRESS.json` and
+countable, rather than scattered as amendments to completed work.
+
+### The standing rule
+
+From now on: a requirement that lands after its governing step has shipped goes
+into **this step**, not into the finished one. The finished step gets a one-line
+pointer and nothing else.
+
+### The debt, as of 2026-09-02
+
+**Checkpoint contents** *(S11 shipped 21:18; the spec landed 21:47).* The runner
+writes twelve fields, all recording *where* a run got to. Add the six that record
+*why*: `current_plan`, `files_modified`, `commands_executed`, `test_results`,
+`current_hypothesis`, `next_intended_action`. Without them the recovery ladder's
+top rungs cannot resume anything — they restart the investigation, which looks
+like recovery and costs like a rerun.
+
+**The recovery ladder** *(S11 shipped 21:18; the ladder landed 22:47).* S11 maps
+failures to classes and retry budgets, but recovery is still one action. Implement
+the ten rungs in II.3, cheapest first, stopping at the first that works, each one
+recorded on the task.
+
+**Three error classes** *(S11 shipped 21:18; classes landed 22:27).*
+`resource.cpu`, `dependency.unavailable`, `agent.repeat` are in the taxonomy and
+not in the code. `agent.repeat` is the one that matters — it is what gives the
+liveness-versus-progress check something to raise.
+
+**The status bar and the global composer** *(never had an owner).* Both are
+specified in I.3 and belong to no step. The status bar carries the six
+deterministic states on every authenticated page; the composer reaches Jarvis
+from anywhere and **goes through the same inbox path as WhatsApp**, which is the
+half that matters.
+
+### Test
+
+- Kill a run mid-investigation; the replacement worker continues the **same hypothesis** rather than forming a new one. This is the test that proves the checkpoint retrofit worked, and nothing else does.
+- Force a failure at each of the ten rungs and confirm recovery stops at the first that resolves it — not that it reaches rung 10 eventually.
+- Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
+- The status bar shows all six states, forced individually.
+- Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+
+### Debug
+
+If a resumed run "continues" but redoes work, the fields are being written and
+not read. Check the resume path before the write path — it is the same mistake
+the original checkpoint bug made.
+
+**Done when:** the four items above are implemented and tested, and no completed
+step carries an unimplemented requirement added after it shipped.
 
 ---
 
@@ -2736,13 +2775,13 @@ shared working tree.
 |---|---|---|---|
 | **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
 | **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
-| **3 — It is visible** | S13–S18 | A console that shows work, repairs credentials, controls output quality, and can be searched | 15–17 days |
+| **3 — It is visible** | S13–S18b | A console that shows work, repairs credentials, controls output quality, and can be searched — plus the retrofit sweep | 18–21 days |
 | **4 — The phone is reliable** | S19–S24 | A call you can depend on and hold a real conversation with, and Jarvis calling you | 14–17 days |
 | **5 — It reaches** | S25–S32 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
 | **6 — It survives** | S33–S36 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
 | **7 — WhatsApp** | S37 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 81–98 working days** for one agent working sequentially, with
+**Total: roughly 84–102 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
