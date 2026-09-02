@@ -13,9 +13,13 @@
 #     project directory;
 #   * only the harness binary may be exec'd afterwards.
 #
-# sudoers patterns are fnmatch globs, so [a-z0-9-] below is a character class,
-# not a regex. A trailing * on the arguments is unavoidable — the harness takes a
-# prompt — and is why the binary itself is pinned.
+# sudoers patterns are fnmatch globs. A character class was tried first and
+# `visudo -c` rejected it, so the targets are matched with a plain `*` — which is
+# no weaker than it looks: sudo matches argv ELEMENT BY ELEMENT, so a wildcard
+# inside one argument cannot introduce another argument, and `--reuid=jarvis-p-*`
+# can only ever be a single argument beginning with `jarvis-p-`. The trailing `*`
+# on the harness arguments is unavoidable — it takes a prompt — which is why the
+# binary itself is pinned absolutely.
 Defaults:jarvis !requiretty
-jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-[a-z0-9-]* --regid=jarvis-p-[a-z0-9-]* --clear-groups -- /usr/local/bin/claude *
-jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-[a-z0-9-]* --regid=jarvis-p-[a-z0-9-]* --clear-groups -- /usr/bin/node *
+jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-* --regid=jarvis-p-* --clear-groups -- /usr/local/bin/claude *
+jarvis ALL=(root) NOPASSWD: /usr/bin/setpriv --reuid=jarvis-p-* --regid=jarvis-p-* --clear-groups -- /usr/bin/node *
