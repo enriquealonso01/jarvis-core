@@ -201,11 +201,17 @@ by a shallow answer.
 - **Tier 1 — the voice.** No tools, reasoning off, one short reply, sub-second. Its only decision is *answer* or *hand over*. Because it has no tools it must never claim anything was done.
 - **Tier 2 — the desk.** The full Supervisor with every tool, running after the caller has already been answered. It does the actual work and reports back on the channel Enrique prefers.
 
-**When Jarvis calls, unprompted.** Rare by design. Only for: a task blocked on
-something only Enrique can unblock and idle over an hour; a production incident on
-a professional project; a destructive action awaiting approval past its window; a
-security or isolation event. Anything else waits for WhatsApp. Never inside quiet
-hours — a blocked call becomes a WhatsApp plus an Issue and retries at 08:00.
+**When Jarvis calls, unprompted.** Rare by design, and only for six things: a
+task blocked over an hour on something only Enrique can unblock; a production
+incident on a professional project; a destructive action awaiting approval past
+its window; a security or isolation event; **a call he scheduled**; and a
+monitoring rule he explicitly authorised to call. Anything else waits for
+WhatsApp.
+
+Inside quiet hours it does not call at all — a blocked call becomes a WhatsApp
+plus an Issue and retries at 08:00 — with one narrow exception: a confirmed
+security incident or active data loss. A production outage at 3am does not
+qualify. The full rule and its rationale are in S23.
 
 ## I.3 The Control Center — the console
 
@@ -2240,13 +2246,13 @@ shared working tree.
 |---|---|---|---|
 | **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
 | **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
-| **3 — It is visible** | S13–S18 | A console that shows work, repairs credentials, controls output quality, and can be searched | 14–16 days |
-| **4 — The phone is reliable** | S19–S24 | A call you can depend on, and Jarvis calling you | 10–12 days |
+| **3 — It is visible** | S13–S18 | A console that shows work, repairs credentials, controls output quality, and can be searched | 15–17 days |
+| **4 — The phone is reliable** | S19–S24 | A call you can depend on and hold a real conversation with, and Jarvis calling you | 14–17 days |
 | **5 — It reaches** | S25–S32 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
 | **6 — It survives** | S33–S36 | Notifications, schedules, self-repair, restore, acceptance | 9–11 days |
 | **7 — WhatsApp** | S37 | The last thing. Voice note in, PR back. | 2–3 days |
 
-**Total: roughly 83–99 working days** for one agent working sequentially, with
+**Total: roughly 81–98 working days** for one agent working sequentially, with
 testing done properly at every step rather than deferred.
 
 That number is honest rather than encouraging. Two things make it smaller:
