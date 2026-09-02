@@ -225,6 +225,49 @@ correction of v1, where health led because health was all there was.
 **Navigation.** Home, Chats, Projects, Alerts, More. Everything else lives in More
 and in the command palette.
 
+### The persistent status bar
+
+Every authenticated page carries a compact bar:
+
+```
+● JARVIS HEALTHY     Working: TF-481     Queue: 4     Needs You: 2
+```
+
+Overall status, the current heavy task, queue length, the count needing Enrique,
+live connection state, global search, the command palette, notifications, and the
+session menu.
+
+**Six deterministic states**, and no others: `healthy` · `degraded` · `incident` ·
+`maintenance` · `offline` · `unknown`.
+
+Never invent a number like "97% healthy". Say:
+
+```
+Healthy
+14 of 14 critical components operational
+```
+
+A percentage with no documented formula behind it is a fake progress indicator
+wearing a different hat (0.45), and this one sits on every page.
+
+### The global composer
+
+Jarvis is reachable from every page, not only from a chat screen. The composer
+takes text, file uploads, image uploads, optionally a browser microphone
+recording, and optionally a project and a priority — both defaulting to
+auto-detect, because being made to classify his own message before sending it is
+the friction that stops him sending it.
+
+**Submitting creates a durable Inbox Event before any model sees it, and the
+console goes through exactly the same capture, routing, conversation and queue
+path as WhatsApp.** The console is a channel, not a privileged shortcut.
+
+That matters more than it looks. A second input path that skips the inbox would
+have its own bugs, its own dropped messages, and its own provenance gaps — and
+the one guarantee this whole system rests on is that **every input arrives the
+same way**. One path, exercised constantly, is what makes "nothing is lost"
+believable.
+
 ### Home / Command Center
 - What Jarvis is doing **right now**: the running task, its project, its phase, elapsed time, live tool events.
 - The queue: what is next, what is blocked and on what.
