@@ -1038,6 +1038,24 @@ what is waiting on him.
 **Done when:** an entire engineering run is legible from a phone.
 
 ## S15 — Repair the degraded console
+*Also owns the visual direction (I.3), which S13 and S14 predate.*
+
+**The visual direction has no other owner.** It was written after S13 and S14
+shipped, and it lives in Part I.3 describing what the console should feel like —
+but no step says "apply it". A design language nobody is assigned to implement
+does not get implemented; it gets quoted approvingly in a PR description and then
+ignored. This step applies it.
+
+Concretely, in addition to the audit below: dark graphite with lighter elevated
+panels, restrained cyan accent, and the **semantic colour discipline** — green
+only for healthy or succeeded, amber only for warning or needs-attention, red
+only for incident or destructive, purple only for Improvement. Sans-serif
+throughout, monospace confined to logs, commands, IDs, branches and SHAs.
+
+Retrofit S13's Home and S14's Work detail rather than leaving two pages in an
+older visual language than the rest — a console that is half-restyled reads as
+broken more than one that was never styled at all.
+
 *Size: 3–4 days.*
 
 **Build** Audit every page against real API fields. Mobile first.
@@ -1081,6 +1099,8 @@ sometimes while doing something else:
 - **Every one of the thirteen states, on at least one screen each.** Force them: kill the API for `offline`, revoke a session for `permission denied`, freeze the clock for `stale`. A state you cannot force is a state you have not implemented.
 - Navigate the entire console with the keyboard alone, and confirm focus is visible at every stop.
 - Run it in greyscale. Every status must still be readable — this is the fastest possible test for colour-alone information and it takes one minute.
+- **Colour audit**: every use of green, amber, red and purple in the console means what I.3 says it means. One decorative green is enough to make the next real green ambiguous.
+- Open Home, Work detail and a page built after this step side by side. They must look like the same product.
 - Turn on reduced-motion and confirm nothing pulses, hatches or animates.
 - Install it as a PWA on the phone and complete one full journey from the home-screen icon.
 
