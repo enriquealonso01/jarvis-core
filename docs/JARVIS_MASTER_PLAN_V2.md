@@ -357,6 +357,42 @@ Rules that do not bend:
 - A running worker observes the cancel flag within one heartbeat.
 - The watchdog stalls anything silent for 90s, recovers it from its last checkpoint, and records the whole path.
 
+### Liveness is not progress
+
+A heartbeat proves a process is **alive**. It does not prove it is **working**,
+and the difference is where stuck agents hide. `npm install` wedged on a network
+call heartbeats happily for an hour.
+
+So the watchdog reads two signals, not one:
+
+- **Heartbeat** — the process exists and its loop is turning.
+- **Progress events** — it did something: opened the repository, ran the tests, modified a file, called a tool. Every worker emits these as it goes.
+
+Alive with no progress for the silence window is **stuck**, and treated as such —
+CPU and network activity are corroborating evidence, not the verdict, because a
+process can spin busily while achieving nothing.
+
+Recovery is: inspect → attempt recovery → terminate if necessary → restore from
+checkpoint → a new worker resumes. `running → stalled → recovering → running`,
+each step written down and visible in the console. **The task never disappears.**
+
+### What a checkpoint must contain
+
+Checkpointing is what makes recovery useful rather than merely tidy, and a
+checkpoint that only records *where* a run got to forces the next worker to
+re-derive *why*. For an engineering task it carries:
+
+`objective` · `conversation context` · `current plan` · `branch` · `commit SHA` ·
+`files modified` · `commands executed` · `test results` · **`current hypothesis`** ·
+**`next intended action`** · `artifacts`
+
+The last two are the ones normally omitted and the ones that matter most. Without
+them a resuming worker restarts the investigation from the beginning, which looks
+like recovery and costs like a rerun.
+
+Some reasoning is lost when a worker dies. **The task, and every instruction
+Enrique gave it, are not.**
+
 ## II.4 Lanes and queue
 
 - **supervisor** — conversational turns. Always responsive.
