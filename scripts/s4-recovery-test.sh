@@ -12,6 +12,16 @@
 # was resolved, and a second runner finishes the work. Nothing disappears.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# Git Bash on Windows rewrites anything shaped like a unix path in an argument
+# into a Windows path, so `-e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/...` reached
+# the container as `C:/Program Files/Git/app/scripts/...`. The fixture then
+# failed to load, the fake model answered with nothing, and the suite reported a
+# product failure ("no reviewer route answered") for a bug that was entirely in
+# the shell. It cost an afternoon twice. Suites must not depend on which shell
+# started them.
+export MSYS2_ARG_CONV_EXCL='*'
+export MSYS_NO_PATHCONV=1
 COMPOSE="docker compose -f deploy/compose.dev.yaml"
 PSQL="$COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX"
 
@@ -29,6 +39,8 @@ cleanup() {
   docker rm -f "$RUNNER_CT" >/dev/null 2>&1
 }
 trap cleanup EXIT
+
+BEFORE_STALL_ISSUES=$(q "SELECT count(*) FROM issues WHERE dedupe_key = 'worker.crash:heavy';")
 
 TASK=$(q "INSERT INTO tasks (project_id, title, objective, state, lane, priority)
           SELECT id, 'A run that gets killed', 'Run long enough to be interrupted, then finish.',
@@ -102,10 +114,15 @@ check "and so did the context nobody had acted on" "1" \
 
 echo
 echo "--- the stall was reported, then closed ---"
-check "an issue was raised for the stall" "1" \
+# One MORE than there was, and the status of the one THIS run raised. A resolved
+# issue does not absorb the next occurrence, so the dedupe key accumulates a row
+# per run: the bare count read 4, and the bare status query returned four rows
+# joined by newlines and compared unequal to "resolved".
+check "an issue was raised for the stall" "$((BEFORE_STALL_ISSUES + 1))" \
   "$(q "SELECT count(*) FROM issues WHERE dedupe_key = 'worker.crash:heavy';")"
 check "and resolved once recovery worked" "resolved" \
-  "$(q "SELECT status FROM issues WHERE dedupe_key = 'worker.crash:heavy';")"
+  "$(q "SELECT status FROM issues WHERE dedupe_key = 'worker.crash:heavy'
+        ORDER BY created_at DESC LIMIT 1;")"
 
 # ------------------------------------------------------- a second runner finishes
 echo

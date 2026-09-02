@@ -10,6 +10,16 @@
 # Verdicts come from the database. The assistant's own reply is never the test.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# Git Bash on Windows rewrites anything shaped like a unix path in an argument
+# into a Windows path, so `-e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/...` reached
+# the container as `C:/Program Files/Git/app/scripts/...`. The fixture then
+# failed to load, the fake model answered with nothing, and the suite reported a
+# product failure ("no reviewer route answered") for a bug that was entirely in
+# the shell. It cost an afternoon twice. Suites must not depend on which shell
+# started them.
+export MSYS2_ARG_CONV_EXCL='*'
+export MSYS_NO_PATHCONV=1
 COMPOSE="docker compose -f deploy/compose.dev.yaml"
 PSQL="$COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX"
 API="http://127.0.0.1:8080"
@@ -23,6 +33,14 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 differs(){ if [ "$2" != "$3" ]; then ok "$1"; else bad "$1" "something other than '$2'" "$3"; fi; }
 
 q() { $PSQL -c "$1" | tr -d '\r'; }
+
+# Everything this suite counts has to be counted from HERE, not from the
+# beginning of the database. "Burst one" is the same title every run and
+# `supervisor.tool` accumulates a row per call forever, so a bare count says 9
+# where it means 3 and reads as the Supervisor having created work three times
+# over. The timestamp comes from Postgres, not the shell, so it is the same
+# clock the rows are stamped with.
+RUN_START=$(q "SELECT now();")
 
 login() {
   curl -s -o /dev/null -c "$COOKIE" -X POST "$API/api/auth/login" \
@@ -124,7 +142,8 @@ if [ "$burst_titles" != "3" ]; then
   q "SELECT left(raw_text,24)||' -> '||COALESCE(route_category,'-')||' | '||COALESCE(routing_note,'-') FROM inbox_events WHERE raw_text ILIKE 'burst%' ORDER BY received_at;" | sed 's/^/      /'
 fi
 check "each carries its own inbox event" "3" \
-  "$(q "SELECT count(DISTINCT origin_inbox_id) FROM tasks WHERE title LIKE 'Burst %';")"
+  "$(q "SELECT count(DISTINCT origin_inbox_id) FROM tasks
+        WHERE title LIKE 'Burst %' AND created_at >= '$RUN_START';")"
 check "all three are queued heavy on alpha-web" "3" \
   "$(q "SELECT count(*) FROM tasks t JOIN projects p ON p.id=t.project_id
         WHERE t.title LIKE 'Burst %' AND t.state='queued' AND t.lane='heavy' AND p.slug='alpha-web';")"
@@ -134,10 +153,10 @@ echo
 echo "=== 7. tool calls are audited, not just claimed ==="
 check "task_create audited once per created task" "4" \
   "$(q "SELECT count(*) FROM audit_events WHERE action='supervisor.tool' AND target='task_create'
-        AND (metadata->>'result') NOT LIKE 'ERROR%';")"
+        AND at >= '$RUN_START' AND (metadata->>'result') NOT LIKE 'ERROR%';")"
 check "refusals audited too" "3" \
   "$(q "SELECT count(*) FROM audit_events WHERE action='supervisor.tool' AND target='task_create'
-        AND (metadata->>'result') LIKE 'ERROR%';")"
+        AND at >= '$RUN_START' AND (metadata->>'result') LIKE 'ERROR%';")"
 
 # --------------------------------------- 8. the effect, not the row about it
 echo
@@ -159,7 +178,8 @@ check "the runner took it to succeeded" "succeeded" "$state"
 contains "on its own branch" "jarvis/task-" "$branch"
 
 # The world, not the database's opinion of the world.
-show=$($COMPOSE run --rm --no-deps -T runner sh -c   "git -C /var/lib/jarvis/projects/dev-sandbox/repo show --stat $branch -- JARVIS_FAKE_RUN.md 2>/dev/null || echo MISSING"   2>/dev/null | tr -d '')
+show=$($COMPOSE run --rm --no-deps -T runner sh -c   "git -C /var/lib/jarvis/projects/dev-sandbox/repo show --stat $branch -- JARVIS_FAKE_RUN.md 2>/dev/null || echo MISSING"   2>/dev/null | tr -d '
+')
 contains "the commit really exists in the repo" "JARVIS_FAKE_RUN.md" "$show"
 
 echo

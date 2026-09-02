@@ -9,6 +9,16 @@
 # evidence that a task exists.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# Git Bash on Windows rewrites anything shaped like a unix path in an argument
+# into a Windows path, so `-e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/...` reached
+# the container as `C:/Program Files/Git/app/scripts/...`. The fixture then
+# failed to load, the fake model answered with nothing, and the suite reported a
+# product failure ("no reviewer route answered") for a bug that was entirely in
+# the shell. It cost an afternoon twice. Suites must not depend on which shell
+# started them.
+export MSYS2_ARG_CONV_EXCL='*'
+export MSYS_NO_PATHCONV=1
 COMPOSE="docker compose -f deploy/compose.dev.yaml"
 PSQL="$COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX"
 API="http://127.0.0.1:8080"
@@ -40,6 +50,7 @@ echo
 echo "=== the five-minute memo: three destinations from one message ==="
 MEMO="Quick brain dump: alpha web needs the checkout page fixed, also for alpha mobile I thought of a nicer onboarding, oh and next month we should review pricing"
 tasks_before=$(q "SELECT count(*) FROM tasks;")
+BEFORE_DUMPS=$(q "SELECT count(*) FROM inbox_events WHERE raw_text LIKE 'Quick brain dump%';")
 reply=$(say "$MEMO")
 INBOX=$(q "SELECT id FROM inbox_events WHERE raw_text LIKE 'Quick brain dump%' ORDER BY received_at DESC LIMIT 1;")
 echo "  inbox=$INBOX"
@@ -63,15 +74,20 @@ check "every derived task carries origin_inbox_id" "0" \
   "$(q "SELECT count(*) FROM tasks WHERE conversation_id IN
         (SELECT id FROM conversations WHERE created_from_inbox_id = '$INBOX')
         AND origin_inbox_id IS NULL;")"
+# The property is "the two tasks live in two different threads", not "two rows
+# were INSERTed". On a database that already holds a thread for alpha-web,
+# Jarvis correctly reuses it, `created_from_inbox_id` names somebody else's
+# event, and counting creations reported ZERO threads for a memo that had just
+# been split across two of them.
 check "two threads were opened from this event" "2" \
-  "$(q "SELECT count(*) FROM conversations WHERE created_from_inbox_id = '$INBOX';")"
+  "$(q "SELECT count(DISTINCT conversation_id) FROM tasks WHERE origin_inbox_id = '$INBOX';")"
 check "each task sits in its own project's thread" "2" \
   "$(q "SELECT count(*) FROM tasks t JOIN conversations c ON c.id = t.conversation_id
         WHERE t.origin_inbox_id = '$INBOX' AND c.project_id = t.project_id;")"
 
 echo
 echo "--- the source is intact ---"
-check "still exactly one inbox event for the memo" "1" \
+check "still exactly one inbox event for the memo" "$((BEFORE_DUMPS + 1))" \
   "$(q "SELECT count(*) FROM inbox_events WHERE raw_text LIKE 'Quick brain dump%';")"
 check "its raw text is unchanged, whole" "1" \
   "$(q "SELECT count(*) FROM inbox_events WHERE id = '$INBOX' AND raw_text = \$\$$MEMO\$\$;")"

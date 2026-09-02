@@ -101,3 +101,41 @@ unblocked, finish it before starting anything new.
   end on a sibling's message. Fixed by filtering it out of history and appending
   it explicitly. 65 burst rounds clean; the old guard reproduces it on round 1.
 
+
+## Per-project unix users — the wall behind the file tripwire
+
+- **Step:** S12
+- **Blocked on:** A decision about how the runner drops privilege, which changes
+  the isolation model and so is yours, not mine.
+- **What I need you to do:** Pick one of these, or name a third:
+  1. **The runner starts as root and drops to the project's uid per task.**
+     `jarvis-runner.service` runs as `User=root` with `NoNewPrivileges=no`, and
+     the harness is spawned with `setuid`/`setgid` to the project's own uid.
+     Strongest isolation; also means a root process on the box.
+  2. **A small setuid helper.** The runner stays as `jarvis` and execs a
+     single-purpose binary that only knows how to `setuid` to a
+     `jarvis-p-<slug>` user and exec the harness. Smaller blast radius, more
+     moving parts, and a setuid binary of my own writing is itself a risk.
+  3. **One container per project**, uid mapped per project, harness inside it.
+     Fits the Docker-by-default rule in ADR 006 but contradicts ADR 015, which
+     put the heavy runner on the host precisely to avoid this.
+  Whichever you pick, say whether it applies to **every** project or only to
+  professional/confidential ones — ADR 006 step 5 says "professional or
+  confidential projects" get a dedicated uid at project create, and personal
+  projects sharing the `jarvis` user is a deliberate choice in that ADR, not an
+  oversight.
+- **What I tried:** Proved what exists rather than assuming it. A task in Alpha
+  reads Beta's `repo/.env` and Beta's browser profile: the runner sees the path
+  in the harness's Bash command, kills the run, discards the branch, audits the
+  attempted path and raises an Issue — every time, and the test goes red when the
+  guard is removed. But the read itself succeeds at the filesystem layer, because
+  the runner and every project's files are the same unix user. Detection works;
+  containment does not exist.
+- **What I did instead:** Closed the part that was mine. The command scanner
+  guarded `projects/`, `keys/` and `harness-auth/` and NOT `browsers/` or other
+  tasks' `worktrees/`, so a `cat` of another project's cookie jar walked past the
+  tripwire undetected. Both are now guarded, with the probe that proves it. S12's
+  own Done-when (L8, L9, L11) passes at 47/47; the step is marked **partial**,
+  not done, because ADR 006 step 5 is the wall it was named as the proof point
+  for and that wall is not built.
+- **Raised:** 2026-09-02 03:40   **Resolved:**

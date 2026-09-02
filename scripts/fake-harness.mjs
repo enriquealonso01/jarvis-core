@@ -21,6 +21,7 @@
  *   runaway  — emit forever, never exit                   -> agent.loop
  *   noop     — talk, change nothing, exit 0               -> succeeded, empty diff
  *   escape   — try to write outside the worktree          -> blocked and audited
+ *   probe    — read JARVIS_PROBE_PATH, another project's file -> S12/L9
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
  *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
  *   workflow  — the S6 engineering loop, phase by phase   -> JARVIS_FAKE_WORKFLOW picks the outcome
@@ -161,6 +162,39 @@ async function main() {
     }
     await sleep(500);
     result("success", `escape attempt ${wrote ? "SUCCEEDED (filesystem did not stop it)" : "blocked"}`);
+    process.exit(0);
+  }
+
+  if (variant === "probe") {
+    // S12 / L9: the cross-project read. JARVIS_PROBE_PATH is another project's
+    // file, browser profile, worktree or key — the thing a task in Alpha must
+    // not be able to reach from Beta.
+    //
+    // Two independent layers are being asked about and they are asserted
+    // separately, because they fail differently:
+    //
+    //   1. Does the runner SEE it? The path arrives in a Bash command string,
+    //      which is where a real harness would put a `cat`, so this exercises
+    //      the command scanner rather than the tidy path-argument case.
+    //   2. Does the filesystem STOP it? For a personal project it does not —
+    //      the runner and every worktree are the same unix user, by design
+    //      (ADR 006 step 5 allocates a dedicated uid only for professional and
+    //      confidential projects). So the honest report is what actually
+    //      happened, printed either way, and the test asserts on both.
+    init();
+    const target = process.env.JARVIS_PROBE_PATH || "/var/lib/jarvis/projects/other/repo/SECRET";
+    assistantToolUse("Bash", { command: `cat ${target}` });
+    let read = null;
+    try {
+      read = fs.readFileSync(target, "utf8").trim();
+    } catch (err) {
+      process.stderr.write(`fake-harness: probe blocked by filesystem: ${err.code}
+`);
+    }
+    process.stderr.write(`fake-harness: probe read=${read === null ? "DENIED" : "ALLOWED"}
+`);
+    await sleep(400);
+    result("success", `probe of ${target}: ${read === null ? "denied by filesystem" : `READ ${read.length} bytes`}`);
     process.exit(0);
   }
 

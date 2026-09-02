@@ -525,6 +525,62 @@ fail. `str.replace` and `sed` both fail quietly; make the edit assert, then
 confirm the sabotage is present in the file before drawing a conclusion from the
 run.
 
+### The shell rewrote the path, and the suite blamed the product
+**Symptom:** S12's cross-project probe reported that the runner did not notice a
+task reading another project's `.env` — the exact hole the step exists to close.
+Separately, S9 went from 18/18 to 10/8 with "no reviewer route answered" on
+every case, and S3b/S3c/S4 fell over with them.
+**Cause:** Git Bash on Windows rewrites anything shaped like a unix path in an
+argument. `-e JARVIS_PROBE_PATH=/var/lib/jarvis/projects/beta/repo/.env` arrived
+in the container as `C:/Program Files/Git/var/lib/jarvis/...`, so the probe asked
+for a path that does not exist and the guard correctly ignored it. The same
+rewrite turned `-e JARVIS_FAKE_MODEL_SCRIPT=/app/scripts/fixtures/...` into a
+path with no file behind it, `readScript` swallowed the ENOENT and returned
+empty arrays, and the fake reviewer — which fails closed by design — answered
+with nothing.
+**Fix:** every suite exports `MSYS2_ARG_CONV_EXCL='*'` and `MSYS_NO_PATHCONV=1`
+before it starts, and so does `scripts/sweep.sh`.
+**Lesson:** two hours went into "why is the escape guard broken" and "why did S9
+regress" for a bug that was in neither. When a suite's result changes with the
+shell that started it, suspect the shell before the code — and then make the
+suite independent of it, because the next person will not remember.
+
+### Assertions counted against the whole database, not against the run
+**Symptom:** after a day of runs, six assertions across S2, S3, S3b, S3c and S4
+went red on a green codebase: "one event, not three — actual 4", "task_create
+audited once per created task — expected 4, actual 14", "an issue was raised for
+the stall — actual 4", and a status query that returned
+`resolved\nresolved\nresolved\nresolved` and compared unequal to `resolved`.
+**Cause:** they were written as absolute counts — `count(*) FROM task_context`,
+`WHERE raw_text LIKE 'Quick brain dump%'`, `WHERE dedupe_key =
+'worker.crash:heavy'` — which are only correct on the first run after a seed.
+Every later run counted its own rows plus every earlier run's.
+**Fix:** count a delta (capture before, assert before+1) or scope to this run —
+`created_at >= $RUN_START`, `ORDER BY created_at DESC LIMIT 1`, or the id the
+test itself created. One assertion changed meaning rather than scope: "two
+threads were opened from this event" now counts `DISTINCT conversation_id` on
+the tasks, because reusing an existing project thread is correct behaviour and
+the old query called it zero threads.
+**Lesson:** an assertion that only holds on a freshly seeded database is a
+landmine with a delay fuse. It passes when written, and months later reports a
+product failure that never happened — which is worse than failing, because
+somebody will go looking for the bug.
+
+### A test left one row behind, and the seed died half-done
+**Symptom:** every suite that talks to the console failed at once with an empty
+conversation id and a 500 from the API. The stack looked broken.
+**Cause:** `dev-seed` truncates the work tables and then deletes non-fixture
+projects. S12 had allowlisted an auth profile to a temporary project, and
+`auth_profile_allowlists` has a plain foreign key with no `ON DELETE` rule, so
+the delete raised and the seed exited **after** the truncate. The database was
+left with no console thread at all.
+**Fix:** the seed removes the rows that point at a project (`auth_profile_
+allowlists`, `connection_project_allowlist`, `connections`) before deleting it.
+**Lesson:** a reset that is not atomic must do its destructive half last, or it
+turns one test's leftovers into a broken stack for every test after it. The
+seed's own comment already said "one test silently changes the world the next
+one runs in" — it was right, and it was about itself.
+
 ---
 
 ## Process

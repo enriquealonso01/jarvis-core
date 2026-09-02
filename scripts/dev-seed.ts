@@ -88,6 +88,23 @@ async function main(): Promise<void> {
   // truncate list above is all work tables, and the next run then had a project
   // in it that nobody had asked for. "Reset to a known state" has to mean the
   // projects too, or one test silently changes the world the next one runs in.
+  // Rows that POINT at a project have to go first. `auth_profile_allowlists`
+  // has a plain FK with no ON DELETE rule, so a suite that allowlisted a profile
+  // to a temporary project (S12 does exactly that) left a row that made this
+  // DELETE fail — and because the truncate above had already run, the seed died
+  // half-done and left the stack with no console thread at all. Every suite that
+  // ran afterwards failed on an empty conversation id and looked like a product
+  // regression.
+  const doomed = await pool.query<{ id: string }>(
+    `SELECT id FROM projects WHERE is_system = false AND slug <> ALL($1::text[])`,
+    [[PROJECT_SLUG, "alpha-web", "alpha-mobile"]],
+  );
+  const ids = doomed.rows.map((r) => r.id);
+  if (ids.length) {
+    await pool.query("DELETE FROM auth_profile_allowlists WHERE project_id = ANY($1::uuid[])", [ids]);
+    await pool.query("DELETE FROM connection_project_allowlist WHERE project_id = ANY($1::uuid[])", [ids]);
+    await pool.query("DELETE FROM connections WHERE project_id = ANY($1::uuid[])", [ids]);
+  }
   await pool.query(
     `DELETE FROM projects
      WHERE is_system = false AND slug <> ALL($1::text[])`,
