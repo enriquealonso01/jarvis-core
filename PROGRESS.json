@@ -147,7 +147,8 @@
       "title": "Global search, the command palette, and the activity feed",
       "stage": 3,
       "state": "done",
-      "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone."
+      "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone.",
+      "pr": 71
     },
     {
       "id": "S19",
