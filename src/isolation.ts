@@ -210,10 +210,21 @@ export async function recordDenial(
   );
 
   if (args.denial.code === "security.isolation") {
+    /*
+     * A denial that WORKED is not a critical incident.
+     *
+     * This filed every enforced boundary as critical/open, so the queue filled
+     * with the system doing its job — and criticals that fire on normal
+     * behaviour get ignored, which is how the real one gets missed. The event
+     * still gets an Issue, because a task reaching for something outside its
+     * project is worth reading; it is `medium`, and it does not page.
+     */
     await raiseIssue(pool, {
       category: "security.isolation",
       service: "broker",
-      title: "[security] cross-boundary access denied",
+      severityOverride: "medium",
+      notifyOverride: "ui_only",
+      title: "[security] cross-boundary access denied (nothing was granted)",
       dedupeKey: `sec.isolation:${args.projectId ?? "system"}:${args.connectionSlug ?? args.capability}`,
       projectId: args.projectId,
       taskId: args.taskId ?? null,

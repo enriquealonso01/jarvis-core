@@ -37,6 +37,38 @@ export function projectDir(slug: string): string {
   return path.join(PROJECTS_DIR, slug);
 }
 
+/**
+ * The project's directory, created with ONE owner whoever creates it.
+ *
+ * Two processes create this: the API and worker, which run as root inside
+ * containers, and the heavy runner, which runs as `jarvis` on the host. They
+ * share the volume, so whichever got there first decided the ownership — and on
+ * 2026-09-02 a project directory came out root:root 0700 while its neighbours
+ * were jarvis:jarvis, after which the runner died with
+ * `EACCES: mkdir '.../<slug>/.ssh'`.
+ *
+ * So: when this runs as root it hands the directory to the jarvis uid. A
+ * directory that already belongs to someone else is left alone — ADR 016 gives
+ * professional and confidential projects their own `jarvis-p-*` user, and
+ * chowning that away would undo the isolation it exists for.
+ */
+export async function ensureProjectHome(slug: string): Promise<string> {
+  const dir = projectDir(slug);
+  await fs.mkdir(dir, { recursive: true, mode: 0o750 });
+  if (process.getuid?.() !== 0) return dir;
+
+  const uid = Number(process.env.JARVIS_UID ?? 1000);
+  const gid = Number(process.env.JARVIS_GID ?? 988);
+  const st = await fs.stat(dir).catch(() => null);
+  // Only a root-owned directory is taken over: anything else was deliberate.
+  if (st && st.uid === 0) {
+    await fs.chown(dir, uid, gid).catch((err) => {
+      console.error(`could not hand ${dir} to uid ${uid}:`, err instanceof Error ? err.message : err);
+    });
+  }
+  return dir;
+}
+
 export function repoDir(slug: string): string {
   return path.join(projectDir(slug), "repo");
 }
@@ -80,6 +112,7 @@ export async function materialiseDeployKey(
   const priv = payload.private_key_openssh ?? payload.private_key;
   if (!priv) return { error: `deploy key for ${project.slug} has no private key` };
 
+  await ensureProjectHome(project.slug);
   const dir = path.dirname(keyPath(project.slug));
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const file = keyPath(project.slug);
@@ -213,7 +246,7 @@ export async function ensureProjectCheckout(
     return { ok: true, dir, cloned: false };
   }
 
-  await fs.mkdir(path.dirname(dir), { recursive: true });
+  await ensureProjectHome(project.slug);
   const cloned = await git(["clone", "--quiet", url, dir], { env, timeoutMs: 300_000 });
   if (!cloned.ok) return { ok: false, error: cloned.error };
   await audit(pool, projectId, "project.checkout.clone", `${project.github_owner}/${project.github_repo}`);

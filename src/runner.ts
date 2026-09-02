@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type pg from "pg";
 import { connectClient, createPool } from "./db.js";
@@ -191,7 +192,13 @@ async function prepareWorkspace(
   const slug = project?.slug ?? "unscoped";
   const short = task.id.slice(0, 8);
   const dir = path.join(WORKTREES, slug, short);
-  await fs.mkdir(path.dirname(dir), { recursive: true });
+  /*
+   * 0750, like its parent. It was being created with the default mask, so a
+   * worktree came out drwxr-xr-x under a drwxr-x--- parent — world-readable in
+   * principle, and inconsistent with every other directory in the tree.
+   */
+  await fs.mkdir(path.dirname(dir), { recursive: true, mode: 0o750 });
+  await fs.chmod(path.dirname(dir), 0o750).catch(() => undefined);
 
   const repo = project ? path.join(PROJECTS, project.slug, "repo") : null;
   let hasRepo = repo ? await fs.stat(path.join(repo, ".git")).then(() => true, () => false) : false;
@@ -335,6 +342,25 @@ export function toolCalls(event: Record<string, unknown>): { name: string; detai
   return out;
 }
 
+/**
+ * What a run may touch besides its own worktree.
+ *
+ * Its own project, or — with no project — its own corner of `unscoped`. A task
+ * with no project had NOTHING allowed but its cwd, so the ordinary business of a
+ * git worktree referencing its parent read as a cross-boundary access and raised
+ * a CRITICAL against `worktrees/unscoped`. Unscoped is a real boundary now: the
+ * task's own directory under it, and nothing else in it.
+ *
+ * Exported so the wiring is testable, not only the checker: the first version of
+ * this lived inline at the call site, where a test could assert what
+ * `escapedPath` does with a list and nothing at all about the list it is given.
+ */
+export function allowedPathsFor(slug: string | null, taskId: string): string[] {
+  return slug
+    ? [path.join(PROJECTS, slug)]
+    : [path.join(WORKTREES, "unscoped", taskId.slice(0, 8))];
+}
+
 export function escapedPath(
   cwd: string,
   event: Record<string, unknown>,
@@ -350,12 +376,30 @@ export function escapedPath(
    */
   alsoAllowed: string[] = [],
 ): string | null {
-  const permitted = [cwd, ...alsoAllowed].filter(Boolean);
-  const inside = (abs: string) =>
-    permitted.some((root) => {
+  /*
+   * The scratch directory is not outside.
+   *
+   * `jarvis-runner.service` sets `PrivateTmp=true`, so /tmp is the service's
+   * own namespace — nothing else on the box can see it, and nothing in it
+   * survives. A harness writing `/tmp/repro.mjs` to reproduce a bug is doing
+   * exactly what it should, and that was being filed as a CRITICAL isolation
+   * breach. A tripwire that fires on ordinary work is worse than none.
+   */
+  const permitted = [cwd, ...alsoAllowed, os.tmpdir(), "/tmp"].filter(Boolean);
+  const inside = (abs: string) => {
+    /*
+     * The root itself is not a secret. `/var/lib/jarvis` — the bare directory,
+     * not anything in it — was filed as a critical isolation breach, and all it
+     * reveals is the names of the directories underneath, every one of which is
+     * separately guarded below. An exact match only: `/var/lib/jarvis/keys` is
+     * still very much outside.
+     */
+    if (abs === ROOT) return true;
+    return permitted.some((root) => {
       const rel = path.relative(root, abs);
       return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
     });
+  };
   const message = event.message as { content?: unknown } | undefined;
   const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
   for (const block of content) {
@@ -901,7 +945,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       prompt: objective,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
-      allowedPaths: project ? [path.join(PROJECTS, project.slug)] : [],
+      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id),
       asUser,
       onEvent: (event) => {
         lastEventAt = Date.now();
