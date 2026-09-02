@@ -149,9 +149,33 @@ async function verify(): Promise<void> {
       || c.state === "placed");
     truthy("and a time to come back", Boolean(c.retry_after));
 
-    const issue = await pool.query<{ title: string; required_action: string; status: string }>(
-      `SELECT title, required_action, status FROM issues WHERE task_id = $1`, [taskId]);
+    /*
+     * Found by the CALL, not by the task.
+     *
+     * `fallBackToWhatsApp` raises the Issue against the outbound call - that is
+     * what it is about - so it carries a `call.fallback:<call id>` dedupe key
+     * and no task_id at all. Querying by task_id found nothing and this suite
+     * reported "an Issue was raised: FAIL" for a night when the Issue had been
+     * raised correctly, on time, and was sitting in the table. A test that looks
+     * in the wrong place does not report a gap in the system; it invents one.
+     */
+    const issue = await pool.query<{ title: string; status: string; retry: string | null }>(
+      `SELECT i.title, i.status, c.retry_after AS retry
+         FROM issues i
+         JOIN outbound_calls c ON c.id = (i.evidence->>'call_id')::uuid
+        WHERE i.dedupe_key = $1`,
+      [`call.fallback:${c.id}`],
+    );
     truthy("an Issue was raised", issue.rowCount && issue.rowCount > 0);
+    truthy("naming quiet hours", (issue.rows[0]?.title ?? "").includes("quiet hours"));
+    truthy("and waiting on him", issue.rows[0]?.status === "waiting_for_user");
+    /*
+     * The retry time is REACHABLE from the Issue, on the call it names. It is
+     * not a field on the Issue itself; whether it should be is a question for
+     * Enrique, not something to change in the frozen quiet-hours path.
+     */
+    truthy("and the time it comes back is reachable from it",
+      Boolean(issue.rows[0]?.retry));
     if (issue.rows[0]) {
       console.log(`        issue: ${issue.rows[0].title}`);
       truthy("carrying the retry time",
