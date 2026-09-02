@@ -10,6 +10,7 @@ import { raiseIssue } from "./notify.js";
 import { sseBroadcast, startSseBridge } from "./sse.js";
 import { ARTIFACTS_DIR, BROWSERS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
+import { asProjectUser, needsOwnUser, projectUnixUser, provisionCommand, unixUserExists } from "./unixuser.js";
 import {
   completedPhases,
   drainPhases,
@@ -143,20 +144,28 @@ async function resolveProfile(
 }
 
 /**
- * ADR 015 consequence: per-project unix users do not exist yet, so a
- * professional or confidential project cannot be isolated from the personal
- * harness profile on this box. Refuse rather than run it anyway — a run that
- * quietly ignores the classification is worse than one that does not happen.
+ * A professional or confidential project runs as its own unix user, or it does
+ * not run (ADR 006 step 5, decided in ADR 016).
+ *
+ * This used to be a flat refusal, because the users did not exist. They can be
+ * provisioned now, so the question became "has this one been?" — and the answer
+ * is asked of the host rather than of the database, because a row saying a user
+ * exists is not a user existing.
+ *
+ * The refusal stays, and it matters: falling back to the shared `jarvis` user
+ * would silently return to the state S12 found, where a cross-project read is
+ * caught by a tripwire and succeeds anyway. A task that waits is a much better
+ * failure than isolation that quietly is not there.
  */
-function isolationRefusal(project: Project | null): string | null {
+async function isolationRefusal(project: Project | null): Promise<string | null> {
   if (!project) return null;
-  if (project.project_type === "professional") {
-    return "professional project: per-project unix user not provisioned (ADR 006 step 5)";
-  }
-  if (project.confidentiality !== "normal") {
-    return `confidentiality=${project.confidentiality}: per-project unix user not provisioned`;
-  }
-  return null;
+  if (!needsOwnUser(project)) return null;
+  const wanted = projectUnixUser(project.slug);
+  if (await unixUserExists(wanted)) return null;
+  return (
+    `${project.project_type} / ${project.confidentiality}: this project runs as its own unix `
+    + `user and ${wanted} does not exist on this host. Run: ${provisionCommand(project.slug)}`
+  );
 }
 
 /**
@@ -413,6 +422,11 @@ async function runHarness(args: {
   signal: AbortSignal;
   /** Besides the worktree — the project's own checkout. */
   allowedPaths?: string[];
+  /**
+   * The unix user to drop to before exec'ing the harness (ADR 016). Null for a
+   * personal project, which shares `jarvis` by ADR 006 step 5.
+   */
+  asUser?: string | null;
 }): Promise<{
   code: number | null;
   sessionId: string | null;
@@ -452,7 +466,20 @@ async function runHarness(args: {
         "bypassPermissions",
       ];
 
-  const child = spawn(command, commandArgs, {
+  /*
+   * Drop to the project's own unix user (ADR 016).
+   *
+   * This is the wall behind the file tripwire. Everything else in this runner
+   * DETECTS a cross-project read; this is what makes the read fail. `sudo`
+   * elevates for exactly as long as `setpriv` takes to drop, and the sudoers
+   * rule permits nothing else and can never name root.
+   */
+  const spawned = args.asUser
+    ? asProjectUser(args.asUser, command, commandArgs)
+    : { command, args: commandArgs };
+  if (args.asUser) console.log(`harness runs as ${args.asUser}`);
+
+  const child = spawn(spawned.command, spawned.args, {
     cwd: args.cwd,
     env: {
       ...process.env,
@@ -685,7 +712,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     : null;
   const project = p?.rows[0] ?? null;
 
-  const refusal = isolationRefusal(project);
+  const refusal = await isolationRefusal(project);
   if (refusal) {
     await park(
       pool,
@@ -854,6 +881,20 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     /** Quoted in the Issue, because "it repeated itself" is not actionable. */
     let repeatedAction: string | null = null;
 
+    /*
+     * Which unix user this run gets (ADR 006 step 5, decided in ADR 016).
+     *
+     * A professional or confidential project runs as its own user, so a read of
+     * another project's files fails at the filesystem layer rather than merely
+     * being caught by the command scanner. If that user has not been
+     * provisioned on this host, the task PARKS: falling back to the shared
+     * `jarvis` user would be the silent loss of the isolation this exists for,
+     * and a silent fallback is worse than a task that waits.
+     */
+    // Which unix user this run gets. Whether it EXISTS was settled before the
+    // task was claimed, by `isolationRefusal`; this only names it.
+    const asUser = project && needsOwnUser(project) ? projectUnixUser(project.slug) : null;
+
     const outcome = await runHarness({
       cwd: workspace.dir,
       configDir: profile.dir,
@@ -861,6 +902,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
       allowedPaths: project ? [path.join(PROJECTS, project.slug)] : [],
+      asUser,
       onEvent: (event) => {
         lastEventAt = Date.now();
 
