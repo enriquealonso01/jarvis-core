@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a06346-cd89-72c0-82a4-c1557ce69b94"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 401 Unauthorized: Missing bearer or basic authentication in header)"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Falling back from WebSockets to HTTPS transport."}}
+{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header"}}
