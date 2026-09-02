@@ -43,8 +43,9 @@ const fixture = JSON.parse(
 const TITLE = `live router probe ${Date.now().toString(36).slice(-6)}`;
 
 async function clean(cid: string): Promise<void> {
-  await pool.query("DELETE FROM inbox_events WHERE conversation_id = $1", [cid]);
+  // Messages carry an inbox_event_id, so they go first.
   await pool.query("DELETE FROM messages WHERE conversation_id = $1", [cid]);
+  await pool.query("DELETE FROM inbox_events WHERE conversation_id = $1", [cid]);
   await pool.query("DELETE FROM conversations WHERE id = $1", [cid]);
 }
 
