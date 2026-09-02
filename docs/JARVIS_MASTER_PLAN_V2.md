@@ -21,7 +21,7 @@ build actually is, rather than assuming.
 
 1. **This document, Parts 0 through III.** Part 0 is what Jarvis is and what already exists; Part III is your backlog.
 2. **`docs/GAP_ANALYSIS.md`** — why v1 ended up with a chassis and no engine. Twenty minutes that will stop you repeating it.
-3. **`docs/DEBUG_NOTES.md`** — bugs already paid for, in full. Read before you write, not after you break something.
+3. **`docs/DEBUG_NOTES.md`** — bugs already paid for. Too long to read whole; it is grouped by area with an index, and the rule is **read the section for whatever you are about to touch, before you touch it.** Two entries read in advance beat sixty read afterwards.
 4. **`AGENTS.md`** — the non-negotiables. Persist before any model call; projects are security boundaries; never substitute an auth profile.
 5. **`docs/DATA_MODEL.md`, `docs/STATE_MACHINES.md`, `docs/ERROR_TAXONOMY.md`** — read-only law. The schema is already right; work with it rather than around it.
 
