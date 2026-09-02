@@ -1981,9 +1981,30 @@ see another project's session.
 ## S34 — Schedules, maintenance, improvement
 *Size: 3 days.*
 
+### One scheduler, and it is Jarvis's
+
+`OPENCLAW_INTEGRATION.md` specifies a sync worker mirroring `schedules` into
+OpenClaw automations, which then fire a webhook back at
+`/internal/schedules/fire`. The worker **already** fires schedules itself from
+Postgres, on its own loop, with `(schedule_id, scheduled_for)` idempotency.
+
+Building the sync as well would mean two schedulers firing the same schedule —
+which is precisely the duplicate-fire bug L14 exists to catch, installed
+deliberately. And it buys nothing: the worker is already running, already holds
+the schedule rows, and already survives restart.
+
+**Decision: Jarvis's worker is the only scheduler. The automations-sync section
+of `OPENCLAW_INTEGRATION.md` is superseded.** OpenClaw remains the transport for
+messages and the WhatsApp session, per II.2c — it is not a second source of
+timing truth.
+
+This does not conflict with "do not rebuild what OpenClaw already does": the
+worker was not built to replace OpenClaw automations, it existed first, and
+replacing it now would be the rebuild.
+
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
 
-**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
+**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
 
 **Debug** A duplicate fire after a restart means idempotency is keyed on something other than `scheduled_for`. A schedule that silently stops has usually hit its error count and paused itself — that is correct behaviour, but it must be visible in the console rather than only in a column. For Maintenance, confirm each auto-repair wrote what it did; a repair with no audit row is indistinguishable from a bug that fixed itself.
 
