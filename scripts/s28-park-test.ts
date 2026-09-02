@@ -31,16 +31,36 @@ const truthy = (m: string, a: unknown) => (a ? ok(m) : bad(m, "truthy", a));
 
 const STAMP = Date.now().toString(36).slice(-6);
 
+/**
+ * Tear down by asking the schema what points at `tasks`, rather than by keeping
+ * a hand-written list.
+ *
+ * The list approach failed three times in a row here — `task_transitions`, then
+ * `task_attempts`, then `task_checkpoints` — each time because the run got
+ * FURTHER than the previous one and wrote a table the teardown had never had to
+ * know about. That is a test whose cleanup encodes an assumption about how far
+ * the code gets, which is precisely the thing under change.
+ */
 async function clean(): Promise<void> {
-  for (const sql of [
-    `DELETE FROM issues WHERE task_id IN (SELECT id FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM task_events WHERE task_id IN (SELECT id FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM task_transitions WHERE task_id IN (SELECT id FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM task_context WHERE task_id IN (SELECT id FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM task_attempts WHERE task_id IN (SELECT id FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM audit_events WHERE target IN (SELECT id::text FROM tasks WHERE title LIKE $1)`,
-    `DELETE FROM tasks WHERE title LIKE $1`,
-  ]) await pool.query(sql, [`%${STAMP}%`]);
+  const like = `%${STAMP}%`;
+  const refs = await pool.query<{ table_name: string; column_name: string }>(
+    `SELECT DISTINCT tc.table_name, kcu.column_name
+     FROM information_schema.table_constraints tc
+     JOIN information_schema.key_column_usage kcu
+       ON kcu.constraint_name = tc.constraint_name
+     JOIN information_schema.constraint_column_usage ccu
+       ON ccu.constraint_name = tc.constraint_name
+     WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'tasks'`,
+  );
+  for (const r of refs.rows) {
+    await pool.query(
+      `DELETE FROM ${r.table_name} WHERE ${r.column_name} IN (SELECT id FROM tasks WHERE title LIKE $1)`,
+      [like],
+    ).catch(() => undefined);
+  }
+  await pool.query(
+    `DELETE FROM audit_events WHERE target IN (SELECT id::text FROM tasks WHERE title LIKE $1)`, [like]);
+  await pool.query(`DELETE FROM tasks WHERE title LIKE $1`, [like]);
 }
 
 async function makeTask(runtime: string): Promise<string> {
@@ -86,38 +106,35 @@ async function main(): Promise<void> {
     check("and waiting on him", "waiting_for_user", issue.rows[0]?.status);
   }
 
-  console.log("\n########## a real runtime whose binary is absent ##########\n");
+  console.log("\n########## asking for an engine the credential cannot drive ##########\n");
   {
     /*
-     * The other half: the id IS known, the binary is not there. This is the
-     * `provider.cred_expired`-class park the plan names, and it is a different
-     * failure from an unknown id — one is a typo, the other is a host that has
-     * not been set up, and telling him the wrong one wastes his time.
+     * The failure this exists to prevent, and the reason the runtime is taken
+     * from the chosen credential rather than from a field of its own: a task
+     * pinned to codex, while the only usable engineering credential is the
+     * Anthropic subscription. Running `codex` against Anthropic's login does not
+     * fail loudly — codex finds no session and reports 401, which reads exactly
+     * like an expired subscription and sends you looking in the wrong place.
+     *
+     * An auth directory and a CLI are a matched pair, so this parks.
      */
     const id = await makeTask("codex");
     await runHeavyTask(pool, id);
 
-    const t = await pool.query<{ state: string; waiting_reason: string }>(
-      `SELECT state, waiting_reason FROM tasks WHERE id = $1`, [id]);
+    const t = await pool.query<{ state: string; waiting_reason: string; ran_on_runtime: string | null }>(
+      `SELECT state, waiting_reason, ran_on_runtime FROM tasks WHERE id = $1`, [id]);
     const issue = await pool.query<{ category: string; required_action: string }>(
       `SELECT category, required_action FROM issues WHERE task_id = $1`, [id]);
 
-    if (issue.rows[0]?.category === "provider.cred_expired") {
-      ok("codex is absent here, and the park says so");
-      check("parked, not failed", "waiting_for_user", t.rows[0]?.state);
-      truthy("and says it can be requeued once it exists",
-        (issue.rows[0]?.required_action ?? "").includes("requeued"));
-    } else {
-      /*
-       * Codex IS installed on this host (it is on the box). Then this task got
-       * past the availability check, which is itself the correct behaviour — so
-       * assert that instead of pretending the branch was exercised.
-       */
-      ok("codex is installed here, so the availability check let it through");
-      const ran = await pool.query<{ ran_on_runtime: string | null }>(
-        `SELECT ran_on_runtime FROM tasks WHERE id = $1`, [id]);
-      check("and the run is recorded against codex", "codex", ran.rows[0]?.ran_on_runtime);
-    }
+    check("it parks", "waiting_for_user", t.rows[0]?.state);
+    check("nothing is recorded as having run it", null, t.rows[0]?.ran_on_runtime);
+    truthy("the reason names what was asked for",
+      (t.rows[0]?.waiting_reason ?? "").includes("codex"));
+    truthy("and the credential that was actually available",
+      (t.rows[0]?.waiting_reason ?? "").includes("anthropic")
+      || (issue.rows[0]?.required_action ?? "").includes("anthropic"));
+    truthy("and it says Jarvis will not cross the two",
+      (issue.rows[0]?.required_action ?? "").includes("another vendor"));
   }
 
   await clean();

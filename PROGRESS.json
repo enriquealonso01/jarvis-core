@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
   "total_steps": 40,
-  "updated_at": "2026-09-02T17:54:25.484811Z",
+  "updated_at": "2026-09-02T18:29:08.352326Z",
   "current_step": "S28",
   "steps": [
     {
@@ -211,7 +211,7 @@
       "title": "Jarvis calls Enrique",
       "stage": 4,
       "state": "blocked",
-      "evidence": "Built and merged (PR #123). The dial defect is fixed and deployed (PR #132): placeCall read the WhatsApp pair for a voice call, so `from` went out blank and Telnyx answered 422 10004; it now reads telnyx.from_e164/to_e164, and an unpinned sender is refused by name. 61 assertions in the fake, 7 seen red against the old lines. A REAL call was placed in production — Telnyx 200, real call_control_id, sweep logged 'ringing' — and Enrique received it. It did not RING: only call.hangup arrived for that leg, ~31s in, matching timeout_secs 30, which is the shape of a handset silencing an unknown number. Still blocked, on him saving +13057866217 as a contact; the 21:00 half is so far only proved in the fake. See BLOCKED.md."
+      "evidence": "Two of three halves observed in the world. The dial defect is fixed and deployed (PR #132): placeCall read the WhatsApp pair, so `from` went out blank and Telnyx answered 422 10004; it now reads telnyx.from_e164/to_e164 and refuses an unpinned sender by name. 61 assertions in the fake, 7 seen red. PLACING observed: Telnyx 200 with a real call_control_id. RINGING observed 2026-09-02 18:21Z once Enrique saved the number and enabled Emergency Bypass - call_transitions shows call.answered entering from state 'ringing', greeting played, a transcription ('This is just a test. Thank you.'), an answer at 2793ms total, then call.hangup 24s in. Exactly one call placed, via placeCall rather than the sweep, which walks every reason and dialled twice last time. STILL BLOCKED on the third half: 'stays silent at 21:00' is proved only in the fake. A phone that has never been observed staying quiet has not been observed staying quiet. See BLOCKED.md for the two ways to close it."
     },
     {
       "id": "S24",
