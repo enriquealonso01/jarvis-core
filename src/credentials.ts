@@ -68,12 +68,23 @@ export async function storeJsonCredential(
         [args.connectionSlug, credentialId, args.projectId ? "project" : "system", args.projectId ?? null],
       );
     }
+    /*
+     * IV.9's "secret updated", written inside the same transaction as the
+     * secret itself: "an audit row written after the fact is an audit row that
+     * will sometimes be missing."
+     */
     await client.query(
-      `INSERT INTO audit_events (actor, action, target, metadata)
-       VALUES ('bootstrap', 'credential.store', $1, $2)`,
+      `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+       VALUES ('bootstrap', 'credential.store', $1, $2, $3)`,
       [
         args.authProfileId ?? args.connectionSlug ?? "unknown",
-        JSON.stringify({ fingerprint: args.fingerprint, kind: args.kind, project_id: args.projectId ?? null }),
+        args.projectId ?? null,
+        JSON.stringify({
+          outcome: "allowed",
+          auth_profile: args.authProfileId ?? null,
+          fingerprint: args.fingerprint,
+          kind: args.kind,
+        }),
       ],
     );
     await client.query("COMMIT");

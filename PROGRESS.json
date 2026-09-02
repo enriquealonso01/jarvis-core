@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "8f0030bb447f3cf350a15ccc24f48d471664f11f",
+  "plan_sha": "2479ede578e92b6f5bab02664c87627af4b109eb",
   "total_steps": 40,
-  "updated_at": "2026-09-02T15:10:51.735Z",
-  "current_step": "S12b",
+  "updated_at": "2026-09-02T15:21:49.075Z",
+  "current_step": "S23",
   "steps": [
     {
       "id": "S1",
@@ -162,9 +162,9 @@
       "id": "S12b",
       "title": "Close the containment gaps",
       "stage": 3,
-      "state": "in_progress",
+      "state": "done",
       "pr": 110,
-      "evidence": "items 1-5 done; item 6 half done (Level 3 re-auth + approval binding, 29/29). The canonical audit keys remain"
+      "evidence": "all six items: deterministic router 31/31, SSH hardened, scrubber+canary 14/14, path guard 35/35, egress 14/14 live at the network layer, re-auth+binding 29/29 and the audit contract 31/31"
     },
     {
       "id": "S18b",

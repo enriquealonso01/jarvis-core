@@ -19,6 +19,7 @@ import {
 import { readJsonCredential } from "./credentials.js";
 import { inQuietHours, isAlwaysConfirm, validEnum, validSlug } from "./policy.js";
 import { transitionTask } from "./jobs.js";
+import { audit } from "./audit.js";
 import { raiseIssue } from "./notify.js";
 import { cronNextRun } from "./cron.js";
 import { audioDir, handleCallEvent, renderSpeech, type TelnyxEvent } from "./callcontrol.js";
@@ -445,6 +446,19 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
       return reply.code(409).send({ error: "task already finished" });
     }
     await transitionTask(pool, id, "cancelled", "cancelled from the console", "user", "cancel_requested_at = now()");
+    /*
+     * IV.9's "task cancelled". The transition table records the state change;
+     * the audit trail records that a PERSON made it, which is the question
+     * asked afterwards.
+     */
+    await audit(pool, {
+      actor: "user",
+      action: "task.cancel",
+      target: id,
+      taskId: id,
+      outcome: "allowed",
+      extra: { from_state: cur.rows[0].state },
+    });
     return { ok: true };
   });
   app.post("/api/tasks/:id/reprioritize", async (req, reply) => {
@@ -1184,15 +1198,14 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
           b.cron ? "cron changed" : b.paused ? "paused" : "resumed",
         ],
       );
-      await pool.query(
-        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-         VALUES ('user', 'schedule.update', $1, $2, $3)`,
-        [
-          before.rows[0].name,
-          before.rows[0].project_id,
-          JSON.stringify({ paused: r.rows[0].paused, cron: r.rows[0].cron }),
-        ],
-      );
+      await audit(pool, {
+        actor: "user",
+        action: "schedule.update",
+        target: before.rows[0].name,
+        projectId: before.rows[0].project_id,
+        outcome: "allowed",
+        extra: { paused: r.rows[0].paused, cron: r.rows[0].cron },
+      });
     }
     return { schedule: r.rows[0] };
   });
@@ -1597,11 +1610,15 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
       sha: b.sha,
     });
     if ("error" in result) return reply.code(502).send(result);
-    await pool.query(
-      `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-       VALUES ('broker', 'github.merge_pull_request', $1, $2, $3)`,
-      [`${p.github_owner}/${p.github_repo}#${pullNumber}`, p.id, JSON.stringify({ sha: b.sha })],
-    );
+    await audit(pool, {
+      actor: "broker",
+      action: "github.merge_pull_request",
+      target: `${p.github_owner}/${p.github_repo}#${pullNumber}`,
+      projectId: p.id,
+      outcome: "allowed",
+      tool: "github.merge",
+      extra: { sha: b.sha, grant_id: b.grant_id ?? null, task_id: b.task_id ?? null },
+    });
     return result;
   });
 

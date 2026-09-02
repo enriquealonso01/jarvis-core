@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { requireUser } from "./auth.js";
 import { raiseIssue } from "./notify.js";
+import { audit } from "./audit.js";
 
 const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
 
@@ -194,20 +195,21 @@ export async function recordDenial(
     connectionSlug?: string;
   },
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-     VALUES ('broker', $1, $2, $3, $4)`,
-    [
-      args.denial.code,
-      args.connectionSlug ?? args.capability,
-      args.projectId,
-      JSON.stringify({
-        capability: args.capability,
-        reason: args.denial.reason,
-        task_id: args.taskId ?? null,
-      }),
-    ],
-  );
+  /*
+   * IV.9's "connection denied", through the canonical keys. `outcome` is what
+   * makes this row answer "what happened" rather than "what was tried" — and
+   * for a denial the answer is the whole point.
+   */
+  await audit(pool, {
+    actor: "broker",
+    action: args.denial.code,
+    target: args.connectionSlug ?? args.capability,
+    projectId: args.projectId,
+    taskId: args.taskId ?? null,
+    tool: args.capability,
+    outcome: "denied",
+    reason: args.denial.reason,
+  });
 
   if (args.denial.code === "security.isolation") {
     /*
