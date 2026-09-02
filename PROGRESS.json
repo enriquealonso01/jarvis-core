@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "af862f6265bd8251739ca1564c262ab9c945923d",
+  "plan_sha": "a78dd6eda2411f1465a2e60c36958b4fa06131ea",
   "total_steps": 37,
-  "updated_at": "2026-09-02T08:02:33.605Z",
+  "updated_at": "2026-09-02T08:28:25.459Z",
   "current_step": "S12",
   "steps": [
     {
@@ -147,8 +147,8 @@
       "title": "Global search, the command palette, and the activity feed",
       "stage": 3,
       "state": "done",
-      "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone.",
-      "pr": 71
+      "pr": 71,
+      "evidence": "52 assertions: 37 API + 15 browser. Search across ten sources grouped by kind, including inside dumped documents via knowledge_chunks. The isolation clause proved as an isolation test: project B's marker planted in EVERY searchable source, invisible to a search scoped to A, while A's own content is found. Activity feed per project with pagination and an empty state; resource_metrics with a real least-squares slope. Palette commands hit the same endpoints as the pages, asserted in the database, and open with a tap on a phone."
     },
     {
       "id": "S19",

@@ -24,7 +24,7 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s4-drain-test s4-recovery-test s6-workflow-test s9-review-test s10-grants-test
         s11-recovery-test s12-isolation-test s13-home-test s14-live-detail-test
         s15-console-test s16-credential-test
-        s17-artifacts-test s18-search-test"
+        s17-artifacts-test s18-search-test s18b-retrofit-test"
 
 clearqueue() {
   $COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX -c \

@@ -6,7 +6,7 @@ import { requireUser } from "./auth.js";
 import { ingestUserMessage } from "./inbox.js";
 import { checksum } from "./supervisor.js";
 import { sseAdd, sseBroadcast, sseHeartbeat } from "./sse.js";
-import { requestRawBody, verifyInternalHmac } from "./hmac.js";
+import { internalIdempotency, requestRawBody, verifyInternalHmac } from "./hmac.js";
 import { verifyTelnyxWebhook } from "./telnyx.js";
 import { storeUpload, type StoredUpload } from "./uploads.js";
 import { taskTiming } from "./timing.js";
@@ -1510,6 +1510,9 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
 
   app.post("/internal/inbox/ingest", async (req, reply) => {
     if (!verifyInternalHmac(req, requestRawBody(req))) return reply.code(401).send({ error: "hmac" });
+    // S18b: a retried post must not create a second row.
+    const idem = await internalIdempotency(pool, req, "inbox.ingest");
+    if (idem.replay) return { ok: true, replay: true };
     const b = (req.body ?? {}) as {
       channel?: string;
       external_id?: string;
@@ -1540,6 +1543,9 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
 
   app.post("/internal/schedules/fire", async (req, reply) => {
     if (!verifyInternalHmac(req, requestRawBody(req))) return reply.code(401).send({ error: "hmac" });
+    // S18b: a retried post must not create a second row.
+    const idem = await internalIdempotency(pool, req, "schedules.fire");
+    if (idem.replay) return { ok: true, replay: true };
     const b = (req.body ?? {}) as { schedule_id?: string; scheduled_for?: string };
     const sched = await pool.query<{ id: string; name: string; project_id: string; paused: boolean }>(
       "SELECT id, name, project_id, paused FROM schedules WHERE id = $1",
@@ -1802,6 +1808,9 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
 
   app.post("/internal/workers/events", async (req, reply) => {
     if (!verifyInternalHmac(req, requestRawBody(req))) return reply.code(401).send({ error: "hmac" });
+    // S18b: a retried post must not create a second row.
+    const idem = await internalIdempotency(pool, req, "workers.events");
+    if (idem.replay) return { ok: true, replay: true };
     const b = (req.body ?? {}) as {
       task_id?: string;
       type?: string;

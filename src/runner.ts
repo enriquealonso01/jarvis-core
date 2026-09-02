@@ -737,7 +737,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
   let lastEventAt = Date.now();
   let lastProgressAt = 0;
   const startedAt = Date.now();
-  let stopReason: "cancelled" | "silent" | "timeout" | null = null;
+  let stopReason: "cancelled" | "silent" | "timeout" | "repeat" | null = null;
 
   try {
     workspace = await prepareWorkspace(pool, task, project);
@@ -815,12 +815,16 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     const agentsMd = await fs
       .readFile(path.join(workspace.dir, "AGENTS.md"), "utf8")
       .catch(() => null);
+    // S18b: hand the previous attempt's THINKING forward, not just its progress.
+    const { investigationBrief, lastInvestigation } = await import("./investigation.js");
+    const previousThinking = resumeFrom ? await lastInvestigation(pool, taskId) : null;
     const objective = workflowPrompt({
       title: task.title,
       objective: (task.objective ?? task.title).trim(),
       agentsMd,
       resumeFrom,
       completed: done,
+      brief: investigationBrief(previousThinking),
     });
     const phasesSeen = new Set<string>(done);
 
@@ -831,6 +835,24 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     let toolsRecorded = 0;
     let toolCalls_total = 0;
     let lastTool: string | null = null;
+
+    /*
+     * Liveness versus progress (S18b, `agent.repeat`).
+     *
+     * The silence detector catches a run that has stopped saying anything. It
+     * cannot catch the more expensive failure: a run that is talking constantly
+     * and saying the same thing — re-running the same failing test, re-editing
+     * the same line. That looks alive to every check we had, and burns a
+     * subscription producing identical non-progress.
+     *
+     * So: the same tool call with the same argument, this many times with
+     * nothing else in between, is not progress.
+     */
+    const REPEAT_LIMIT = Number(process.env.JARVIS_REPEAT_LIMIT ?? 6);
+    let repeatSignature: string | null = null;
+    let repeatCount = 0;
+    /** Quoted in the Issue, because "it repeated itself" is not actionable. */
+    let repeatedAction: string | null = null;
 
     const outcome = await runHarness({
       cwd: workspace.dir,
@@ -866,6 +888,19 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
             }
             break;
           }
+          const signature = `${call.name}:${call.detail}`;
+          if (signature === repeatSignature) {
+            repeatCount += 1;
+            if (repeatCount >= REPEAT_LIMIT && !stopReason) {
+              stopReason = "repeat";
+              repeatedAction = signature;
+              controller.abort();
+            }
+          } else {
+            repeatSignature = signature;
+            repeatCount = 1;
+          }
+
           toolsRecorded += 1;
           toolCalls_total += 1;
           void pool
@@ -938,10 +973,26 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       ? Boolean(dirty) || (head !== null && workspace.baseSha !== null && head !== workspace.baseSha)
       : true;
 
+    /*
+     * The six fields that record WHY, not just where (S18b, II.3).
+     *
+     * `files_modified` comes from git rather than from the agent's account of
+     * itself: what it says it changed and what it changed are different claims,
+     * and only one of them survives a crash.
+     */
+    const { investigationState } = await import("./investigation.js");
+    const touched = workspace.isRepo
+      ? await git(workspace.dir, ["diff", "--name-only", `${workspace.baseSha ?? "HEAD"}`])
+          .then((out) => out.split(NEWLINE).map((l) => l.trim()).filter(Boolean).slice(0, 100))
+          .catch(() => [])
+      : [];
+    const investigation = await investigationState(pool, taskId, touched).catch(() => null);
+
     await writeCheckpoint(pool, taskId, {
       harness: "claude_code",
       attempt: n,
       profile: profile.id,
+      ...(investigation ?? {}),
       worktree: workspace.dir,
       branch: workspace.branch,
       base_sha: workspace.baseSha,
@@ -1132,6 +1183,10 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
           transcript: relTranscript,
           stop_reason: stopReason,
           attempts_with_this_class: used,
+          // The taxonomy asks for the repeated action to be QUOTED. "It kept
+          // repeating itself" is not something anyone can act on; "it ran
+          // `npm test -- cart` six times" is.
+          ...(repeatedAction ? { repeated_action: repeatedAction } : {}),
         },
         requiredAction: verdict.park
           ? "This will not fix itself by retrying. Read the transcript and clear the cause."

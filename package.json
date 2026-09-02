@@ -40,6 +40,7 @@
     "dev:test:s16": "bash scripts/s16-credential-test.sh",
     "dev:test:s17": "bash scripts/s17-artifacts-test.sh",
     "dev:test:s18": "bash scripts/s18-search-test.sh",
+    "dev:test:s18b": "bash scripts/s18b-retrofit-test.sh",
     "dev:test:all": "bash scripts/sweep.sh"
   },
   "dependencies": {

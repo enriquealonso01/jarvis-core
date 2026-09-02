@@ -78,6 +78,14 @@ export function workflowPrompt(args: {
   agentsMd: string | null;
   resumeFrom: Phase | null;
   completed: Phase[];
+  /**
+   * What the last attempt was thinking, from its checkpoint (S18b).
+   *
+   * Without this a resumed run knows which phases are done and nothing about
+   * WHY — so it re-derives the hypothesis from scratch, which looks like
+   * recovery and costs like a rerun.
+   */
+  brief?: string;
 }): string {
   const resume = args.resumeFrom
     ? [
@@ -86,6 +94,7 @@ export function workflowPrompt(args: {
         `Already finished: ${args.completed.join(", ") || "(nothing recorded)"}.`,
         `Start at the "${args.resumeFrom}" phase. Do not redo the earlier ones —`,
         "read what the previous attempt left in the worktree and continue from there.",
+        args.brief ?? "",
       ].join("\n")
     : "";
 
