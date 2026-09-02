@@ -1043,7 +1043,7 @@ what is waiting on him.
 **Done when:** an entire engineering run is legible from a phone.
 
 ## S15 — Repair the degraded console
-*Also owns the visual direction (I.3), which S13 and S14 predate.*
+*Also owns the visual direction (I.3) and the System Health page (VII.1), neither of which has another owner.*
 
 **The visual direction has no other owner.** It was written after S13 and S14
 shipped, and it lives in Part I.3 describing what the console should feel like —
@@ -1056,6 +1056,18 @@ panels, restrained cyan accent, and the **semantic colour discipline** — green
 only for healthy or succeeded, amber only for warning or needs-attention, red
 only for incident or destructive, purple only for Improvement. Sans-serif
 throughout, monospace confined to logs, commands, IDs, branches and SHAs.
+
+**System Health is the other orphan.** VII.1 enumerates what must be monitored —
+the three service groups, six fields per model provider including *which roles
+depend on it*, the disk-growth forecast, throughput, data-protection and security
+signals, and the incident timeline shape. That inventory was written after S13
+shipped Home's health strip, and no step was ever asked to build the full page
+against it. S13's strip is a summary of something that does not exist yet.
+
+Build it here: the page exists in the console already, so this is completing an
+inventory rather than adding a surface. Anything in VII.1 with no real source
+renders `unknown` — that rule matters most on this page, because a health page
+that guesses is worse than no health page.
 
 Retrofit S13's Home and S14's Work detail rather than leaving two pages in an
 older visual language than the rest — a console that is half-restyled reads as
@@ -1106,6 +1118,7 @@ sometimes while doing something else:
 - Run it in greyscale. Every status must still be readable — this is the fastest possible test for colour-alone information and it takes one minute.
 - **Colour audit**: every use of green, amber, red and purple in the console means what I.3 says it means. One decorative green is enough to make the next real green ambiguous.
 - Open Home, Work detail and a page built after this step side by side. They must look like the same product.
+- **System Health against VII.1, item by item.** Every service group present, every provider showing all six fields, the incident timeline carrying recovery actions. A missing signal shows as missing, not as healthy — **absence of data must never render as absence of problems.**
 - Turn on reduced-motion and confirm nothing pulses, hatches or animates.
 - Install it as a PWA on the phone and complete one full journey from the home-screen icon.
 
@@ -2064,8 +2077,10 @@ that made the thread useful.
 
 ### Provenance is the point
 
-Every derived record carries `origin_inbox_id` back to the immutable event that
-caused it. That chain is what makes **"nothing is lost"** a checkable property
+Every derived record carries a reference back to the immutable event that caused
+it — `tasks.origin_inbox_id` and `conversations.created_from_inbox_id`. Two names
+for one idea, because that is what the schema actually uses; do not add a third
+column to unify them. That chain is what makes **"nothing is lost"** a checkable property
 rather than a hope: from any task, PR or artifact, you can walk back to the exact
 words Enrique said, and from any inbox event you can enumerate everything that
 happened because of it.
