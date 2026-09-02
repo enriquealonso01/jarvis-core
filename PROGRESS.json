@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "d35cdfcdbbd16c54630649864b53bece39497b54",
   "total_steps": 40,
-  "updated_at": "2026-09-02T13:42:51.812Z",
+  "updated_at": "2026-09-02T13:59:10.192Z",
   "current_step": "S12b",
   "steps": [
     {
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -162,7 +162,8 @@
       "id": "S12b",
       "title": "Close the containment gaps",
       "stage": 3,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "item 1 (the deterministic router) done: 31/31, a #slug code body reaches zero model calls; item 2 (SSH) hardened except the Tailscale-only step"
     },
     {
       "id": "S18b",
@@ -201,8 +202,8 @@
       "title": "The desk actually does the work",
       "stage": 4,
       "state": "done",
-      "evidence": "43/43 offline + 19/19 LIVE: a phone call produced PR #1 on enriquealonso01/s22-call-mtk4gjzz, confirmed by the GitHub API, with the completion report carrying the link",
-      "pr": 94
+      "pr": 94,
+      "evidence": "43/43 offline + 19/19 LIVE: a phone call produced PR #1 on enriquealonso01/s22-call-mtk4gjzz, confirmed by the GitHub API, with the completion report carrying the link"
     },
     {
       "id": "S23",

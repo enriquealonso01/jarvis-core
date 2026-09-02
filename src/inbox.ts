@@ -2,6 +2,7 @@ import type pg from "pg";
 import { checksum, runSupervisorTurn } from "./supervisor.js";
 import { raiseIssue } from "./notify.js";
 import { looksConfidential } from "./redaction.js";
+import { applyRouteB, deterministicRoute } from "./routeb.js";
 import { applyRoute, summariseRoute, type RouteOutcome } from "./routing.js";
 import { classifyInbox } from "./routing.js";
 
@@ -84,7 +85,7 @@ export async function ingestUserMessage(
   const confidential = ["confidential", "restricted"].includes(
     conv.rows[0].confidentiality ?? "",
   );
-  const payloadMode: "full" | "metadata_only" = confidential ? "metadata_only" : "full";
+  let payloadMode: "full" | "metadata_only" = confidential ? "metadata_only" : "full";
 
   let inboxId = args.inboxId ?? "";
   if (!inboxId) {
@@ -121,7 +122,62 @@ export async function ingestUserMessage(
     [args.conversationId, deriveThreadTitle(text)],
   );
 
-  if (!conv.rows[0].project_id && looksConfidential(text)) {
+  /*
+   * Stage B, before any model (ADR 005, S12b item 1).
+   *
+   * This is the gap S12b lists as LIVE: `classifyInbox` was the first thing to
+   * read an inbound body, and it is a model call. Now the project and the
+   * conversation are decided from the message itself — a `#slug`, a reply
+   * pointer, the ten-minute correlation window — and the verdict is written onto
+   * the event before anything is sent anywhere.
+   *
+   * What it buys is not tidiness. A confidential project is known BEFORE the
+   * Supervisor is asked, so its body is never what a model reads first.
+   */
+  const origin = await pool.query<{ channel: string; sender: string | null }>(
+    "SELECT channel, sender FROM inbox_events WHERE id = $1",
+    [inboxId],
+  );
+  const stageB = await deterministicRoute(pool, {
+    inboxId,
+    text,
+    channel: origin.rows[0]?.channel ?? "web",
+    sender: origin.rows[0]?.sender ?? null,
+    conversationId: args.conversationId,
+  }).catch((err) => {
+    console.error("stage B failed; falling through to the classifier:", err);
+    return null;
+  });
+  if (stageB) {
+    await applyRouteB(pool, inboxId, stageB).catch(() => undefined);
+    if (stageB.payloadMode === "metadata_only") payloadMode = "metadata_only";
+  }
+
+  /*
+   * A confidential body with a project now assigned goes no further.
+   *
+   * ADR 005: "An LLM is never the first reader of a confidential body." With
+   * the project known deterministically there is nothing left for a model to
+   * decide about WHERE this belongs, and the ADR forbids it seeing WHAT is in
+   * it. So it is filed, in that project, with zero model calls — which is the
+   * plan's own test for this item.
+   */
+  if (stageB?.projectId && stageB.confidential) {
+    await pool.query(
+      `UPDATE inbox_events SET processing_state = 'processed',
+         routing_note = $2
+       WHERE id = $1`,
+      [inboxId, `filed in ${stageB.projectSlug} by stage B; body withheld from the model (ADR 005)`],
+    );
+    const filed = `Filed in ${stageB.projectSlug}. It looks like code or logs, so I have not read it — open it in that project when you want it worked on.`;
+    await pool.query(
+      `INSERT INTO messages (conversation_id, inbox_event_id, role, body) VALUES ($1, $2, 'jarvis', $3)`,
+      [args.conversationId, inboxId, filed],
+    );
+    return { inboxId, assistant: filed };
+  }
+
+  if (!conv.rows[0].project_id && !stageB?.projectId && looksConfidential(text)) {
     // ADR 005 Stage C: suspected confidential body with no project assigned.
     // Fail closed rather than hand source code to a free/consumer model.
     await pool.query(
