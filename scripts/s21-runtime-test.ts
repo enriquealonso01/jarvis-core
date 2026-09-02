@@ -154,8 +154,32 @@ async function main(): Promise<void> {
     clearSentCommands();
     await upToListening(ccid);
 
+    /*
+     * Scope the call to a project before the handover fires.
+     *
+     * This used to run unscoped, and the handover created a heavy task with
+     * `project_id = null` — which is exactly the chain that reached Enrique on a
+     * live call: no project, so no repository, so the runner built in
+     * `worktrees/unscoped/`, so the isolation tripwire raised a CRITICAL, so a
+     * security event rang the phone inside quiet hours.
+     *
+     * The guarantee this block exists for is "the request is filed, in full,
+     * rather than lost", and that is unchanged. What changed is that a
+     * call-created task must have somewhere to be done — so the fixture now
+     * gives it one, and the unscoped case is asserted separately in
+     * `call-never-unscoped-test`, where the answer is that no task is created
+     * at all.
+     */
     const t0 = Date.now();
     await handleCallEvent(pool, ev("call.transcription", ccid, said("check the alpha migration")));
+    // After the transcription AND a beat: the conversation is created as the
+    // turn opens, which happens just after this event is dispatched.
+    await sleep(600);
+    await pool.query(
+      `UPDATE conversations SET project_id = (SELECT id FROM projects WHERE slug = 'dev-sandbox')
+       WHERE id = (SELECT conversation_id FROM calls WHERE call_control_id = $1)`,
+      [ccid],
+    );
     await sleep(WINDOW * 1.5 + TURN_MS.budget + 600);
     process.env.JARVIS_MODEL_DELAY_MS = "0";
 

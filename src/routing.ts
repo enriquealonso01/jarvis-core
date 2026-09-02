@@ -584,7 +584,7 @@ export async function applyRoute(
         memoryId: stored.rows[0].id,
         contextId: null,
         question: null,
-        summary: `remembered: ${segment.text.slice(0, 60)}`,
+        summary: spokenSummary("remembered", segment.text),
       });
       continue;
     }
@@ -620,7 +620,7 @@ export async function applyRoute(
         memoryId: null,
         contextId: null,
         question: null,
-        summary: `config task: ${segment.text.slice(0, 60)}`,
+        summary: spokenSummary("instruction", segment.text),
       });
       continue;
     }
@@ -651,7 +651,7 @@ export async function applyRoute(
       memoryId: null,
       contextId: null,
       question: null,
-      summary: `task in ${slug}: ${(segment.title ?? segment.text).slice(0, 60)}`,
+      summary: spokenSummary("work", segment.title ?? segment.text, slug),
     });
   }
 
@@ -680,6 +680,34 @@ export async function applyRoute(
  * Exported so a test can assert on it directly. What it must never contain is
  * anything ABOUT him — see the ambiguous branch in `applyRoute`.
  */
+/**
+ * What a destination SAYS it did, in words a person can hear.
+ *
+ * `summariseRoute` renders these straight to the caller — on the phone they are
+ * read aloud by a text-to-speech voice — and they used to be internal labels
+ * with his own sentence stapled on and truncated at sixty characters. On a live
+ * call that produced, in a butler's voice: "config task: Yeah, if I don't
+ * mention anything, you should always go for". A label, a fragment, and no verb.
+ *
+ * PR #142 fixed the same class of leak in the `question` field of an ambiguous
+ * destination and stopped there, which was too narrow: `summary` is spoken for
+ * every destination that ACTED. This is that fix finished.
+ *
+ * The text he said is deliberately not echoed back. He knows what he said; what
+ * he cannot know is what became of it.
+ */
+export function spokenSummary(
+  kind: "remembered" | "instruction" | "work",
+  subject: string,
+  slug?: string | null,
+): string {
+  const trimmed = (subject ?? "").trim().replace(/\s+/g, " ");
+  const short = trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
+  if (kind === "remembered") return "Noted, and stored.";
+  if (kind === "instruction") return "I have filed that as a change to how I work.";
+  return slug ? `Queued in ${slug}: ${short}` : `Queued: ${short}`;
+}
+
 export function questionAboutUnplaced(text: string): string {
   const words = (text ?? "").trim().replace(/\s+/g, " ");
   if (!words) return "Sorry, I did not catch that. What would you like me to do?";

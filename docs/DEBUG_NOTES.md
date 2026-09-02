@@ -107,6 +107,8 @@ is two or three entries, and it is where the time is actually saved.
 - [A CHECK constraint rejected every verdict and nothing said so](#a-check-constraint-rejected-every-verdict-and-nothing-said-so)
 - [Three probes lied because MSYS rewrote the path](#three-probes-lied-because-msys-rewrote-the-path)
 - [A stray container claimed every task and looked like a regression](#a-stray-container-claimed-every-task-and-looked-like-a-regression)
+- [The harness was root because the containment made it root](#the-harness-was-root-because-the-containment-made-it-root)
+- [A grep that could pass for the wrong reason](#a-grep-that-could-pass-for-the-wrong-reason)
 
 
 ---
@@ -1411,3 +1413,54 @@ that reads as a regression in whatever you just changed. Before believing a
 sudden broad failure, run `docker ps` and check WHO is running and with what
 environment. Suites that deviate from the fake harness are the dangerous ones to
 leave lying around.
+
+---
+
+### The harness was root because the containment made it root
+**Symptom:** every heavy task on Claude failed terminally within ten seconds,
+zero tool calls, `the harness exited 1: harness stderr:
+--dangerously-skip-permissions cannot be used with root/sudo privileges for
+security reasons`. The runner reported it as a harness crash. The runner runs as
+`jarvis`, not root, and `sudo -u jarvis claude ...` by hand did NOT reproduce it.
+**Cause:** `unshare -r` (`--map-root-user`), which is how the egress namespace is
+built. An unprivileged user cannot create a network namespace; mapping to root in
+a new USER namespace is where the capabilities come from. So inside its own
+containment the harness genuinely is uid 0, and Claude Code 2.1.252 now refuses
+to bypass permissions as root.
+**The fix that looked right and was not:** switching to `-c`
+(`--map-current-user`). The uid is preserved and Claude runs — and capabilities
+are cleared on `execve` for a non-root euid, so every `ip route add unreachable
+...` inside the namespace fails with EPERM. Those routes are added with
+`2>/dev/null`. The containment silently disappeared and fifteen of the sixteen
+egress assertions stayed green; only "the API container is unreachable on the
+Docker network" caught it. Measured afterwards rather than assumed: `-r`
+ROUTE_ADDED, `-c` "RTNETLINK answers: Operation not permitted".
+**Fix:** keep `-r`, and set `IS_SANDBOX=1` for the Claude runtime. That flag
+exists for a process sandboxed by something the CLI cannot see, which is exactly
+true here — its own network namespace with no route to Jarvis, a dedicated unix
+user (ADR 016), and a path tripwire. The egress suite now asserts the ROUTES are
+installed, not only that the network is unreachable.
+**Lesson:** a containment mechanism can have a second identity as a side effect,
+and vendors are entitled to change their minds about what they refuse to do. When
+a tool reports a privilege it should not have, ask what your own sandbox granted
+it before assuming a bug. And a test that checks a consequence tells you
+something broke; one that checks the mechanism tells you what.
+
+---
+
+### A grep that could pass for the wrong reason
+**Symptom:** a fixture fix was verified with `grep -c "giveProjectApiCredential\|
+git.*fetch.*origin"`, which printed `2`. Both halves looked applied. Only one
+was: `giveProjectApiCredential` matched twice, and the second edit had silently
+failed to apply because its search string did not match the file.
+**Cost:** two more parity runs against a fixture that still seeded nothing, each
+producing a failure that looked like a product defect.
+**Fix:** verify each change with its own distinctive string, and prefer a check
+the code itself performs — the fixture now `throw`s if the seed is not on the
+branch the runner builds from.
+**Lesson:** an OR pattern with a count is not a verification; it cannot tell you
+WHICH branch matched. The same failure appeared twice in one session in different
+clothes: a `pkill -f s28-parity-live` that also matched the SSH command running
+it, so the deploy died and the OLD script's output was read as the new one's.
+Both are the same mistake — accepting a signal that something other than the
+thing under test could have produced.
