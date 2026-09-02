@@ -588,6 +588,21 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### An unreachable API signed you out of a console you were signed in to
+**Symptom:** with the API unreachable, every page in the console redirected to
+the login screen. S15's "does every screen name the state" pass reported no state
+on all fifteen routes, because none of them was still on screen to report one.
+**Cause:** every page began `const me = await api("/api/me"); if (!me.ok)
+window.location.href = "/login/"`. A network failure is not-ok, so an outage was
+indistinguishable from an expired session — and the console then told Enrique the
+one thing that was definitely false.
+**Fix:** redirect only on 401 or 403. Everything else is reported by the shell's
+connection banner, which says whether the request failed to arrive, came back an
+error, or is simply old.
+**Lesson:** `!res.ok` collapses "the server refused you" and "there is no server"
+into one branch, and the two need opposite responses. Wherever a failure decides
+what to tell the user, the status code has to be looked at, not the boolean.
+
 ### The test harness served the console from a different origin, and the CSRF guard did its job
 **Symptom:** three of L17's six journeys failed — adding context to a running
 task, approving something, and anything else that POSTs. The endpoints existed,

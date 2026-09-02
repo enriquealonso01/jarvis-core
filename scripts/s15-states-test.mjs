@@ -151,9 +151,31 @@ async function main() {
       await sleep(500);
     }
     check("it is `offline`", "offline", p?.state);
+    // The shell's banner is now the first panel on the page, so this asserts on
+    // its wording; the queue's own, more specific copy is checked below.
     truthy(
-      "and it says the page is showing nothing, not zero",
-      (p?.text ?? "").toLowerCase().includes("nothing, not zero"),
+      "and it says the request did not get there, rather than showing zeroes",
+      (p?.text ?? "").toLowerCase().includes("did not get to the api"),
+    );
+    /*
+     * Polled, not read once. The shell's banner reacts to the FIRST failed
+     * request; the queue's own panel cannot appear until its own fetch has also
+     * failed, which is a moment later. Reading both at the instant the first one
+     * appeared made this fail about one run in three — an intermittent that says
+     * "the queue has no offline state" when the queue has one and is half a
+     * second behind.
+     */
+    let allPanels = [];
+    for (let i = 0; i < 20; i += 1) {
+      allPanels = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-testid="panel-state"]')].map((e) =>
+          (e.textContent ?? "").trim()));
+      if (allPanels.some((t) => t.toLowerCase().includes("nothing, not zero"))) break;
+      await sleep(400);
+    }
+    truthy(
+      "and the queue still says it is showing nothing, not zero",
+      allPanels.some((t) => t.toLowerCase().includes("nothing, not zero")),
     );
     server = startServer();
     for (let i = 0; i < 40; i += 1) {
@@ -176,6 +198,149 @@ async function main() {
       check("it is `permission_denied`", "permission_denied", p?.state);
       truthy("and offers a way back in", (p?.text ?? "").toLowerCase().includes("sign in"));
     }
+
+    // ================================================= every screen, not one
+    /*
+     * The plan's requirement is "every important screen defines all of these,
+     * explicitly, rather than falling through to a blank panel". One screen
+     * doing it is a demo. So: take the API away and revoke the session, and walk
+     * every route asking each one what it thinks is happening.
+     */
+    console.log("\n########## every screen names the state, not just /queue ##########\n");
+
+    const ROUTES = [
+      "/", "/work/", "/queue/", "/inbox/", "/issues/", "/approvals/", "/actions/",
+      "/artifacts/", "/projects/", "/connections/", "/models/", "/schedules/",
+      "/maintenance/", "/improvement/", "/settings/",
+    ];
+
+    // Log back in first — the permission-denied case above deleted the session.
+    await page.goto(`${BASE}/login/`, { waitUntil: "networkidle" });
+    await page.fill('input[type="email"]', process.env.JARVIS_OPERATOR_EMAIL ?? "dev@jarvis.local");
+    await page.fill('input[type="password"]', process.env.JARVIS_OPERATOR_PASSWORD ?? "dev-password-1234");
+    await page.click('button[type="submit"]');
+    await page.waitForURL((u) => !u.pathname.includes("login"), { timeout: 15000 });
+
+    console.log("=== offline, on every route ===");
+    /*
+     * The API requests are aborted at the network layer rather than by stopping
+     * the server, for two reasons. It is what an offline phone actually does —
+     * the fetch throws, it does not get a 502 — and it leaves the static files
+     * serving, so each route can still be navigated to with the API already
+     * unreachable. Stopping the server and then calling `fetch` by hand did not
+     * work at all: a raw fetch never goes through `api()`, so nothing recorded
+     * the failure, and every route reported no state for a banner that was
+     * working.
+     */
+    await page.route("**/api/**", (r) => r.abort());
+    const missing = [];
+    for (const route of ROUTES) {
+      await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
+      let seen = null;
+      for (let i = 0; i < 20; i += 1) {
+        seen = await panel(page);
+        if (seen && ["offline", "stale"].includes(seen.state)) break;
+        await sleep(400);
+      }
+      if (!seen || !["offline", "stale"].includes(seen.state)) {
+        missing.push(`${route}:${seen?.state ?? "none"}`);
+      }
+    }
+    check(`all ${ROUTES.length} routes say so when the API is unreachable`, "", missing.join(" | "));
+    await page.unroute("**/api/**");
+
+    /*
+     * `stale` is one of the two the plan singles out as most often skipped and
+     * most important: "a screen showing real numbers from twenty minutes ago,
+     * with no indication of that, is worse than a screen showing nothing."
+     *
+     * Forced by waiting, not by a test seam. A minute of wall clock for one
+     * assertion is the price of the assertion being about the real threshold
+     * rather than about a variable the test set itself.
+     */
+    console.log("\n=== stale: the outage lasts long enough that the screen is history ===");
+    await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+    await sleep(1200);
+    await page.route("**/api/**", (r) => r.abort());
+    await page.evaluate(() => {
+      void (window.fetch("/api/me").catch(() => undefined));
+    });
+    let staleSeen = null;
+    for (let i = 0; i < 40; i += 1) {
+      staleSeen = await panel(page);
+      if (staleSeen?.state === "stale") break;
+      await sleep(2500);
+    }
+    check("after a minute offline it stops calling itself merely offline", "stale", staleSeen?.state);
+    truthy(
+      "and says how old what you are looking at is",
+      /\d+ minute/.test(staleSeen?.text ?? ""),
+    );
+    truthy(
+      "in words, not just a colour",
+      (staleSeen?.text ?? "").toLowerCase().includes("history, not now"),
+    );
+    await page.unroute("**/api/**");
+
+    /*
+     * "No page shows an invented number" — the other half of S15's Done when,
+     * and the one the Debug section has a specific warning about: "v1's console
+     * under-reported for days because the count was capped upstream."
+     *
+     * Both list endpoints cap what they return (tasks 100, artifacts 200). A
+     * page that counts the array it was given reports the cap as the total the
+     * moment the table passes it, and the number looks plausible for months.
+     */
+    console.log("\n=== counts come from the database, not from the page's own array ===");
+    const taskTotal = Number(await sql("SELECT count(*) FROM tasks"));
+    const artifactTotal = Number(await sql("SELECT count(*) FROM artifacts"));
+    console.log(`  the database holds ${taskTotal} tasks and ${artifactTotal} artifacts`);
+
+    await page.goto(`${BASE}/work/`, { waitUntil: "networkidle" });
+    await sleep(1500);
+    const workText = (await page.textContent("body")) ?? "";
+    if (taskTotal > 100) {
+      truthy(
+        `the work page reports ${taskTotal} tasks, not its page of 100`,
+        workText.includes(String(taskTotal)),
+      );
+      truthy(
+        "and says the list is a page of them",
+        /shown of/.test(workText),
+      );
+    } else {
+      console.log("  (skipped: fewer than 100 tasks, so the cap cannot be hit)");
+    }
+
+    await page.goto(`${BASE}/artifacts/`, { waitUntil: "networkidle" });
+    await sleep(1500);
+    const artText = (await page.textContent("body")) ?? "";
+    if (artifactTotal > 200) {
+      truthy(
+        `the artifacts page reports ${artifactTotal}, not its page of 200`,
+        artText.includes(String(artifactTotal)),
+      );
+    } else {
+      console.log("  (skipped: fewer than 200 artifacts)");
+    }
+
+    console.log("\n=== permission denied, on every route ===");
+    await sql("DELETE FROM sessions");
+    const missingDenied = [];
+    for (const route of ROUTES) {
+      await page.goto(`${BASE}${route}`, { waitUntil: "networkidle" });
+      await sleep(1200);
+      const seen = await panel(page);
+      const bounced = page.url().includes("login");
+      if (!bounced && seen?.state !== "permission_denied") {
+        missingDenied.push(`${route}:${bounced ? "login" : seen?.state ?? "none"}`);
+      }
+    }
+    check(
+      `all ${ROUTES.length} routes say so when the session is gone`,
+      "",
+      missingDenied.join(" | "),
+    );
 
     console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   } finally {

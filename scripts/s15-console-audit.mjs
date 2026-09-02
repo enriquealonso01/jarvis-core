@@ -209,6 +209,60 @@ const barPatterns = (page) =>
     return { missing: false, states, same, unlabelled: [...byState.values()].filter((v) => !v.label).length };
   });
 
+/**
+ * Accessible contrast, which S15 asks for and which nobody checks by eye.
+ *
+ * WCAG AA: 4.5:1 for body text, 3:1 for large text (18.66px bold or 24px). The
+ * background is walked up the tree because most elements are transparent and
+ * inherit the card behind them.
+ */
+const contrast = (page) =>
+  page.evaluate(() => {
+    const parse = (c) => {
+      const m = c.match(/rgba?\(([^)]+)\)/);
+      if (!m) return null;
+      const [r, g, b, a] = m[1].split(",").map((v) => parseFloat(v));
+      return { r, g, b, a: a === undefined ? 1 : a };
+    };
+    const lum = ({ r, g, b }) => {
+      const f = (v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const bgOf = (el) => {
+      let node = el;
+      while (node) {
+        const c = parse(getComputedStyle(node).backgroundColor);
+        if (c && c.a > 0.5) return c;
+        node = node.parentElement;
+      }
+      return { r: 9, g: 13, b: 22, a: 1 };
+    };
+    const bad = [];
+    for (const el of document.querySelectorAll("body *")) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      // Only elements whose own text is their content — not wrappers.
+      const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!own) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || parseFloat(cs.opacity) < 0.4) continue;
+      const fg = parse(cs.color);
+      if (!fg) continue;
+      const size = parseFloat(cs.fontSize);
+      const large = size >= 24 || (size >= 18.66 && Number(cs.fontWeight) >= 700);
+      const l1 = lum(fg);
+      const l2 = lum(bgOf(el));
+      const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+      if (ratio < (large ? 3 : 4.5)) {
+        bad.push(`${el.tagName}.${String(el.className).slice(0, 24)} ${ratio.toFixed(2)}:1`);
+      }
+    }
+    return [...new Set(bad)].slice(0, 5);
+  });
+
 /** Reduced motion must actually reduce motion. */
 const animating = (page) =>
   page.evaluate(() => {
@@ -306,6 +360,9 @@ async function main() {
 
       const grey = await colourAlone(page);
       check(`  no state told by colour alone`, "", grey.join(" | "));
+
+      const dim = await contrast(page);
+      check(`  every piece of text meets AA contrast`, "", dim.join(" | "));
 
       const moving = await animating(page);
       check(`  nothing animates under reduced motion`, "", moving.join(" | "));
