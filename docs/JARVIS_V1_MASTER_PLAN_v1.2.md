@@ -1,5 +1,15 @@
 # JARVIS V1 MASTER PLAN
 
+> **SUPERSEDED by `JARVIS_MASTER_PLAN_V2.md`.**
+>
+> The frozen v1 product plan. It is not wrong so much as mis-weighted: of its
+> 2,273 lines, 19 specified the senior-engineer workflow — the one capability
+> Jarvis exists for — while error taxonomy, backups, notifications and UI took
+> thousands. A faithful implementer built exactly what it emphasised.
+>
+> Kept because most of its *content* survives in the v2 plan, and because the
+> distortion is worth being able to see. `GAP_ANALYSIS.md` explains it.
+
 **Version:** 1.2 - general OS; V1 seeds only Improvement and Maintenance  
 **Date:** 2026-08-31  
 **Status:** Current V1 implementation baseline (supersedes 1.1 for product/seed scope); later architectural changes require a versioned decision record  

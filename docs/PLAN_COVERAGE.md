@@ -1,5 +1,11 @@
 # Plan coverage map
 
+> **SUPERSEDED by `JARVIS_MASTER_PLAN_V2.md`. Do not use this as a coverage claim.**
+>
+> It maps v1.2's 91 sections to specs. The plan's own Appendix is the current
+> traceability table. Kept because the mapping shows which v1 sections had homes
+> and which did not — which is part of why the engine went unbuilt.
+
 Every master-plan heading has a home. If you need behavior and it is not in this table, write an ADR — do not invent a feature.
 
 Frozen text: `JARVIS_V1_MASTER_PLAN_v1.2.md` (v1.1 historical).

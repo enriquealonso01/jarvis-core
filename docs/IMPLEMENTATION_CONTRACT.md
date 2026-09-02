@@ -1,5 +1,13 @@
 # Jarvis V1 implementation contract
 
+> **Written against `JARVIS_V1_MASTER_PLAN_v1.2.md`, which is superseded.**
+>
+> **Still useful for wiring, defaults and mechanics** where the v2 plan does not
+> contradict it — that is what it was for and it is good at it. **Never for
+> product, sequencing, or "what should exist".** Its section references point at
+> v1.2's numbering. Where it and `JARVIS_MASTER_PLAN_V2.md` disagree, the plan
+> wins.
+
 **Status:** accepted with the ADRs  
 **Product freeze:** `JARVIS_V1_MASTER_PLAN_v1.2.md`  
 **Purpose:** Specify every mechanic the plan left implicit so implementation does not invent product or architecture. This document does **not** add features. It binds wiring, defaults, and “how.”
