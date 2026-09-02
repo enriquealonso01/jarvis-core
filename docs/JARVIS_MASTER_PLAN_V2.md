@@ -620,6 +620,7 @@ integration mistakes than three agents coordinating through a document.
 5. **Commit per step,** with the test evidence in the commit body. One PR per step or per tight pair. A branch spanning five steps cannot be reviewed or reverted.
 6. **When something breaks twice for the same reason, write it down** in `docs/DEBUG_NOTES.md`. The call agent's self-transcription bug and its runaway-recording loop were each found the expensive way; both are now one-line comments in `callcontrol.ts`. Repeat that pattern.
 7. **Do not start the next step until the current one is observed working.** Half-finished steps compound.
+8. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
 
 ---
 
@@ -983,7 +984,8 @@ one is **self-reported by the party being measured.** So:
 - A step waiting on Enrique is `blocked`. Never `done`, never quietly skipped.
 - A step whose real half is covered only by the fake harness is `partial`, and it says which half is real.
 - A gate is `green` only when every test under it has passed **with evidence attached**. Not "should pass".
-- **`total_steps` is counted from the plan on every update, never hardcoded.** The plan has grown from 30 steps to 37 during the build, and a stale denominator turns the bar into a flattering lie.
+- **`total_steps` is counted from the plan on every update, never hardcoded.** The plan has grown from 30 steps to 38 during the build, and a stale denominator turns the bar into a flattering lie. Count with `^## S\d+b? — ` — **the `b?` matters**: a step inserted after its neighbour was already finished gets a letter suffix so the numbers around it stay stable, and a counter matching only `S\d+` silently misses it. That is not hypothetical; it is how this step itself went missing from the first `PROGRESS.json`.
+- **Every step in the plan appears in `PROGRESS.json`, including this one.** A step absent from the file is not "not started" — it is invisible, which is strictly worse, because nothing will ever surface it again.
 - Where two states are arguable, **pick the lower one.**
 
 Updated in the same commit as the change it describes — starting a step,
