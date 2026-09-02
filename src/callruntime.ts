@@ -37,6 +37,54 @@ import { createTask } from "./work.js";
  * assertion is a suite that stops being run. The shipped numbers are the plan's.
  */
 const SCALE = Number(process.env.JARVIS_TURN_SCALE ?? 1);
+/**
+ * The task a handover files, or nothing at all.
+ *
+ * The handover used to call `createTask` with `projectId: null` unconditionally,
+ * so every phone turn whose budget expired without the router filing anything
+ * produced a HEAVY task with no project, titled with the raw utterance. That is
+ * how the sentence "Hello, can you finish what you were saying?" became a run:
+ * the router classified it `question` and filed nothing, the desk was slow, the
+ * budget expired, and the handover manufactured work out of a pleasantry. The
+ * run then landed in an empty directory and tripped the isolation tripwire.
+ *
+ * Two rules, and they are the same rule twice:
+ *
+ *   no project, no task   heavy work needs a repository. Without one there is
+ *                         nothing to check out and nothing to read, so the desk
+ *                         simply finishes and its answer lands in the thread -
+ *                         which it does anyway, task or no task.
+ *   never unscoped        a call-created task always carries its project.
+ *
+ * Exported so this is testable directly. Reaching it through a whole simulated
+ * turn tests the turn.
+ */
+export async function handoverTaskFor(
+  pool: pg.Pool,
+  args: { conversationId: string; inboxId: string | null; heard: string },
+): Promise<string | null> {
+  const conv = await pool.query<{ project_id: string | null }>(
+    `SELECT project_id FROM conversations WHERE id = $1`,
+    [args.conversationId],
+  );
+  const projectId = conv.rows[0]?.project_id ?? null;
+  if (!projectId) return null;
+
+  return await createTask(pool, {
+    projectId,
+    conversationId: args.conversationId,
+    originInboxId: args.inboxId,
+    title: args.heard.slice(0, 120),
+    objective: args.heard,
+    lane: "heavy",
+    priority: "normal",
+    cause: "handed over from a phone call: the phone-side budget expired",
+  }).catch((err) => {
+    console.error("handover task could not be created:", err instanceof Error ? err.message : err);
+    return null;
+  });
+}
+
 export const TURN_MS = {
   /** Nothing has been said yet: acknowledge. The plan's budget is ≤700ms. */
   ack: Math.round(600 * SCALE),
@@ -318,18 +366,10 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
       return `handed over after ${Date.now() - startedAt}ms, already filed as ${already[0]}`;
     }
 
-    const taskId = await createTask(pool, {
-      projectId: null,
+    const taskId = await handoverTaskFor(pool, {
       conversationId: ctx.conversationId,
-      originInboxId: ctx.inboxId,
-      title: ctx.heard.slice(0, 120),
-      objective: ctx.heard,
-      lane: "heavy",
-      priority: "normal",
-      cause: "handed over from a phone call: the phone-side budget expired",
-    }).catch((err) => {
-      console.error("handover task could not be created:", err instanceof Error ? err.message : err);
-      return null;
+      inboxId: ctx.inboxId,
+      heard: ctx.heard,
     });
 
     const line = await pickLine(pool, { ccid: ctx.ccid, kind: "handover", turnId });
