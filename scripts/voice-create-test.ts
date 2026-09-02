@@ -28,7 +28,7 @@
  */
 import fs from "node:fs";
 import {
-  CATEGORIES, questionAboutUnplaced, summariseRoute,
+  CATEGORIES, questionAboutUnplaced, summariseRoute, systemPrompt,
   type Category, type RouteOutcome,
 } from "../src/routing.js";
 
@@ -142,6 +142,33 @@ async function main(): Promise<void> {
      */
     truthy("a create-project category exists",
       (CATEGORIES as readonly string[]).includes("create_project"));
+  }
+
+  console.log("\n########## the router is told what was already said ##########\n");
+  {
+    /*
+     * Defect 3. `classifyInbox` was given the current utterance, the project
+     * list and the open tasks — and nothing else. On turn 3 Enrique said "just
+     * select the defaults, I want a project that is personal", and the router
+     * replied that "no project name is given", which was true of that sentence
+     * and false of the conversation: he had named it in turn 1.
+     *
+     * Asserted on the prompt rather than on a model's behaviour. Whether the
+     * model then uses the history is its business; whether it was TOLD is ours,
+     * and it is the part that was actually broken.
+     */
+    const withNothing = systemPrompt([], [], []);
+    truthy("with no history the prompt says so plainly",
+      withNothing.includes("this is the first thing said"));
+
+    const history = fixture.turns.slice(0, 2).map((t) => ({ role: "user", body: t.heard }));
+    const withHistory = systemPrompt([], [], history);
+    truthy("the name he gave in turn 1 is in the prompt for turn 3",
+      withHistory.includes("Test Project"));
+    truthy("attributed to him, not presented as the current message",
+      withHistory.includes("Enrique: I want to create a project"));
+    truthy("and the prompt says why it is there",
+      withHistory.includes("a name given three turns ago is still the name he means"));
   }
 
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);

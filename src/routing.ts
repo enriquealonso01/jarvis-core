@@ -71,9 +71,12 @@ export const ROUTE_CLASSIFIER_MARKER = "ROUTE CLASSIFIER";
 
 export type OpenTask = { short: string; title: string; state: string; slug: string | null };
 
-function systemPrompt(
+export type PriorTurn = { role: string; body: string };
+
+export function systemPrompt(
   projects: { slug: string; name: string }[],
   openTasks: OpenTask[],
+  history: PriorTurn[] = [],
 ): string {
   const known = projects.map((p) => `- ${p.slug} (${p.name})`).join("\n") || "(none)";
   const open_ = openTasks.length
@@ -81,6 +84,23 @@ function systemPrompt(
         .map((t) => `- ${t.short} [${t.state}] ${t.title}${t.slug ? " (" + t.slug + ")" : ""}`)
         .join(NEWLINE)
     : "(none)";
+  /*
+   * What was already said in this conversation.
+   *
+   * The router used to get the current utterance and nothing else, and on a
+   * phone call that is close to useless: he says "a project called Test Project"
+   * and two turns later "just use the defaults", and the second sentence on its
+   * own has no subject at all. It was classified ambiguous with the reason "no
+   * project name is given" - which was true of the sentence and false of the
+   * conversation.
+   *
+   * Only what has already been through this same gate is included, so this adds
+   * no new class of content to a model call.
+   */
+  const said = history.length
+    ? history.map((h) => `- ${h.role === "user" ? "Enrique" : "Jarvis"}: ${h.body}`).join(NEWLINE)
+    : "(nothing yet - this is the first thing said)";
+
   return [
     `${ROUTE_CLASSIFIER_MARKER}. You are the router for Enrique's assistant, Jarvis.`,
     "",
@@ -113,6 +133,10 @@ function systemPrompt(
     "- Over-creating work is as wrong as creating none. If he is telling you something rather than",
     "  asking for it, that is capture, not work.",
     "- Keep 'text' close to his own wording for that segment.",
+    "",
+    "Earlier in this conversation, oldest first. A fragment often only makes sense",
+    "against these - a name given three turns ago is still the name he means:",
+    said,
     "",
     "Projects that exist:",
     known,
@@ -250,6 +274,19 @@ export async function classifyInbox(
     [args.conversationId ?? null],
   );
 
+  /*
+   * The turns before this one. Bounded at eight and truncated per line: the
+   * router is a small fast model on the latency path of a phone call, and the
+   * point is to recover a name or a subject, not to re-read the conversation.
+   */
+  const history = args.conversationId
+    ? (await pool.query<{ role: string; body: string }>(
+        `SELECT role, left(body, 240) AS body FROM messages
+         WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 8`,
+        [args.conversationId],
+      )).rows.reverse()
+    : [];
+
   const unavailable = (reason: string, model: string): RouteDecision => ({
     segments: [{ category: "ambiguous", project: null, text: args.text, reason }],
     category: "ambiguous",
@@ -260,7 +297,7 @@ export async function classifyInbox(
 
   let decision: RouteDecision;
   try {
-    const raw = await quickCompletion(pool, systemPrompt(projects.rows, open.rows), args.text, {
+    const raw = await quickCompletion(pool, systemPrompt(projects.rows, open.rows, history), args.text, {
       maxTokens: 1200,
     });
     decision = raw
