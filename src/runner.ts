@@ -13,6 +13,7 @@ import { sseBroadcast, startSseBridge } from "./sse.js";
 import { ARTIFACTS_DIR, BROWSERS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
 import { asProjectUser, needsOwnUser, projectUnixUser, provisionCommand, unixUserExists } from "./unixuser.js";
+import { egressArgv, planEgress } from "./egress.js";
 import {
   completedPhases,
   drainPhases,
@@ -541,10 +542,26 @@ async function runHarness(args: {
    * elevates for exactly as long as `setpriv` takes to drop, and the sudoers
    * rule permits nothing else and can never name root.
    */
-  const spawned = args.asUser
+  const dropped = args.asUser
     ? asProjectUser(args.asUser, command, commandArgs)
     : { command, args: commandArgs };
   if (args.asUser) console.log(`harness runs as ${args.asUser}`);
+
+  /*
+   * And its own network namespace (II.5, S12b item 5).
+   *
+   * The privilege drop stops it reading Jarvis's files; this stops it reaching
+   * Jarvis's ports. Both are needed and neither substitutes for the other — a
+   * harness with a shell and a route to 127.0.0.1:5432 has stepped around every
+   * control in Part IV without needing a bug.
+   */
+  const egress = await planEgress();
+  const spawned = egress.isolated
+    ? { command: egress.command, args: [...egress.args, ...egressArgv(dropped.command, dropped.args)] }
+    : dropped;
+  if (!egress.isolated) {
+    console.error(`harness egress NOT isolated: ${egress.reason}`);
+  }
 
   const child = spawn(spawned.command, spawned.args, {
     cwd: args.cwd,
@@ -558,6 +575,18 @@ async function runHarness(args: {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+
+  /*
+   * Bring the namespace up now that there is a pid to attach to, then release
+   * the harness. If this throws the run still proceeds — with no network at all
+   * rather than with the containment silently missing, which is the safe
+   * direction — and the error is on the transcript.
+   */
+  if (egress.isolated && child.pid) {
+    await egress.ready(child.pid).catch((err) => {
+      console.error("egress namespace failed to come up:", err instanceof Error ? err.message : err);
+    });
+  }
 
   // Held on an object, not as plain `let`s: they are only ever assigned inside
   // the stdout callback, which TypeScript's control-flow analysis cannot see, so
@@ -631,6 +660,9 @@ async function runHarness(args: {
   });
 
   args.signal.removeEventListener("abort", onAbort);
+  // The namespace dies with its process; slirp does not, and a slirp per run
+  // that nobody stops is a process leak with a name.
+  if (egress.isolated) egress.cleanup();
   await new Promise((r) => sink.end(r));
 
   // Build the failure explanation from whatever the run actually left behind,

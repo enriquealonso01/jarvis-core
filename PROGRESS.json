@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "be4893ccf46009523508b153062abdabee43eab1",
+  "plan_sha": "d9c8373c18498becc98c9079f3b9eec0d1221d8b",
   "total_steps": 40,
-  "updated_at": "2026-09-02T14:13:02.904Z",
+  "updated_at": "2026-09-02T14:37:50.849Z",
   "current_step": "S12b",
   "steps": [
     {
@@ -164,7 +164,7 @@
       "stage": 3,
       "state": "in_progress",
       "pr": 110,
-      "evidence": "items 1 (router, 31/31), 2 (SSH, all but the Tailscale-only step) and 3 (scrubber + canary, 14/14) done"
+      "evidence": "items 1,2,3,4,5 done; item 5 proved live 14/14 at the network layer. Item 6 (audit keys + console re-auth) and the egress LOGGING half remain"
     },
     {
       "id": "S18b",
