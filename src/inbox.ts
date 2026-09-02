@@ -35,7 +35,26 @@ export function deriveThreadTitle(text: string): string {
 
 export async function ingestUserMessage(
   pool: pg.Pool,
-  args: { conversationId: string; body: string; inboxId?: string },
+  args: {
+    conversationId: string;
+    body: string;
+    inboxId?: string;
+    /**
+     * Called the moment ROUTING is done, before the Supervisor is asked
+     * anything (S22).
+     *
+     * The phone runtime needs to know this and cannot wait for the whole call
+     * to return. Its budget ladder hands over at 25 seconds, and on a real call
+     * the desk took longer than that — so the handover created a task of its
+     * own while the router was still about to create the correctly-scoped one.
+     * Two tasks for one sentence, the second with no project at all.
+     *
+     * A callback rather than a second entry point: the plan's one-input-path
+     * rule is what makes the phone and WhatsApp provably identical, and a
+     * parallel copy of this function is how that stops being true.
+     */
+    onRouted?: (result: { tasks: string[]; passthrough: boolean }) => void;
+  },
 ): Promise<{ inboxId: string; assistant?: string; error?: string }> {
   const conv = await pool.query<{
     id: string;
@@ -169,6 +188,17 @@ export async function ingestUserMessage(
       ])
       .catch(() => undefined);
     outcome = { destinations: [], questions: [], passthrough: true };
+  }
+
+  if (args.onRouted) {
+    const made = await pool
+      .query<{ id: string }>("SELECT id FROM tasks WHERE origin_inbox_id = $1", [inboxId])
+      .catch(() => ({ rows: [] as { id: string }[] }));
+    try {
+      args.onRouted({ tasks: made.rows.map((r) => r.id), passthrough: outcome.passthrough });
+    } catch {
+      /* a listener must never take the message down */
+    }
   }
 
   if (!outcome.passthrough) {

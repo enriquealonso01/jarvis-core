@@ -175,10 +175,22 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
    */
   await pool.query("UPDATE call_turns SET tool_started_at = now() WHERE id = $1", [turnId]);
   const deskAt = Date.now();
+  /*
+   * What the ROUTER made of it, as soon as it knows.
+   *
+   * The handover needs this. On a real call the desk took 25 seconds and the
+   * handover created a task of its own — while the router was in the middle of
+   * creating the correctly-scoped one. Two tasks for one sentence, and the
+   * handover's had no project, so the runner had no repo, so the harness wrote
+   * outside its worktree and the isolation tripwire killed the run. One
+   * missing fact at the top of that chain.
+   */
+  let routed: { tasks: string[]; passthrough: boolean } | null = null;
   const work = ingestUserMessage(pool, {
     conversationId: ctx.conversationId,
     body: ctx.heard,
     inboxId: ctx.inboxId,
+    onRouted: (r) => { routed = r; },
   })
     .then((r) => ({ ok: true as const, answer: r.assistant ?? null }))
     .catch((err) => {
@@ -282,6 +294,27 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
      * summarised request is a request the desk has to guess at.
      */
     handedOver = true;
+
+    /*
+     * If the router already filed it, the handover has nothing to file. Saying
+     * so is the whole job: "the desk is still working on the thing you asked
+     * for" is true, and a second task for the same sentence is not.
+     */
+    const already = (routed as { tasks: string[] } | null)?.tasks ?? [];
+    if (already.length) {
+      const line = await pickLine(pool, { ccid: ctx.ccid, kind: "handover", turnId });
+      const said = await saySafely(t, ctx, line, "handover");
+      await finishTurn(pool, turnId, {
+        outcome: said ? "handed_over" : "interrupted",
+        handover_task_id: already[0],
+        total_ms: Date.now() - startedAt,
+      });
+      cancelTurn(ctx.ccid);
+      await ctx.release();
+      void deferred(pool, ctx, work, { turnId, spoken: false });
+      return `handed over after ${Date.now() - startedAt}ms, already filed as ${already[0]}`;
+    }
+
     const taskId = await createTask(pool, {
       projectId: null,
       conversationId: ctx.conversationId,
