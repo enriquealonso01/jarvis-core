@@ -22,6 +22,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createPool } from "../src/db.js";
 import { githubCreatePrivateRepo, githubProvisionDeployKey } from "../src/github.js";
+import { giveProjectApiCredential } from "./lib/projectcred.js";
 import { readJsonCredential } from "../src/credentials.js";
 import {
   ensureProjectCheckout, gitEnv, loadProject, materialiseDeployKey, repoDir, sshUrl,
@@ -83,6 +84,15 @@ async function main(): Promise<void> {
   const pid = project.rows[0].id;
   const key = await githubProvisionDeployKey(pool, pid, repo.owner, repo.name);
   if ("error" in key) throw new Error(`key: ${key.error}`);
+  /*
+   * And an API credential, which is a different thing from the deploy key.
+   *
+   * The key pushes the branch; opening the pull request needs a token. Without
+   * this the run reached the PR step, parked, and raised a ticket asking
+   * Enrique to add a GitHub credential for a throwaway repository - a real
+   * request against a project that exists for ten minutes.
+   */
+  await giveProjectApiCredential(pool, pid, SLUG);
   /*
    * Allowlist both engines for this project.
    *
