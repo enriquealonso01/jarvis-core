@@ -3014,7 +3014,33 @@ build tasks from that machine, and **have things ready before he sits down.**
 He should be able to say *"go into my work desktop"*, *"prepare this workspace"*,
 or *"have this open for me when I get there"*, and have it happen.
 
-### Unavailability is normal, not an error
+### Project isolation has no mechanism here, so it needs one
+
+Every other boundary in this plan rests on something the operating system
+enforces: unix users, path guards, container namespaces, separate credentials. **On
+Enrique's desktop none of that exists.** It is one user account containing his
+personal files, his other work, TicketFlipping's source, his browser sessions and
+his keys. A task in project Alpha with a shell there can read all of it, and II.5
+has nothing to say about it because II.5 describes the server.
+
+This is the widest boundary in the plan and the one specified fastest. It needs a
+mechanism, not a test.
+
+- **Default deny, allowlist per project.** A project declares which paths on the workstation it may touch, at onboarding, the same way it declares its repository. Alpha reaches `~/dev/alpha` and nothing above it. **A project with no declared paths gets no desktop access at all** — that is the correct default and it should be the common case.
+- **Some desktop work is not project work.** *"Prepare my workspace"*, *"open my mail client"*, *"get the machine ready"* belong to Enrique, not to a project. Those run in the `system` scope S45 introduces, and a project-scoped task cannot reach them.
+- **Never harvest credentials.** SSH keys, browser profiles and cookie stores, password-manager data, cloud CLI tokens — read by nothing, ever, for any reason. This is not a permission that can be granted per project; it is a line the connector does not have code to cross.
+- **Path checks happen on the workstation**, not on the server. A server-side check on a path string is advice; the agent holding the shell is what enforces it.
+
+### Acting on a machine someone is using
+
+The server has no one sitting at it. The desktop does, and Jarvis opening windows
+under his hands is worse than not acting at all.
+
+- **Foreground actions — opening applications, moving windows, typing — only when the machine is idle or he asked for them just now.** Preparing a workspace he requested is fine. Rearranging his screen mid-sentence is not.
+- **Background actions — files, builds, git, starting a service — any time the machine is reachable.**
+- If he is active and a foreground action is queued, it waits and says so rather than fighting him for the keyboard.
+
+
 
 The machine is generally on during weekdays and off when he travels. **Off is an
 expected state, not a failure.** A request for an unreachable workstation queues
@@ -3032,7 +3058,10 @@ does not raise an incident.
 - The same request with the machine off → queued, truthful reason, **no incident raised**, and it happens when the machine returns.
 - The machine goes offline mid-task → parks and resumes, does not fail.
 - A desktop action is audited with the machine named.
-- **Isolation holds**: a task in one project cannot use the desktop connector to read another project's files. The workstation has everything on it, which is exactly why this test matters more here than anywhere else.
+- **Isolation holds, and now there is something to test**: a task in project Alpha attempts a path outside Alpha's declared allowlist → refused **on the workstation**, audited, and the run killed exactly as a server-side escape would be. Then confirm Alpha *can* reach its own declared path, or the guard proves only that everything is blocked.
+- A project with no declared desktop paths gets no desktop access, and asking for it produces a clear refusal rather than a confusing failure.
+- **The credential test**: attempt to read an SSH key, a browser cookie store and a password-manager file from a desktop task. All three refused, none of them by an allowlist entry that could be added later.
+- Foreground action requested while he is typing → it waits and says so. The same action on an idle machine → it happens.
 
 ### Debug
 If actions fire against a machine that has gone away, reachability is being
