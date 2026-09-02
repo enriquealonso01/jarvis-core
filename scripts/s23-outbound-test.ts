@@ -43,7 +43,46 @@ async function clean(): Promise<void> {
   await pool.query("DELETE FROM schedules WHERE name LIKE $1", [`%${STAMP}%`]);
 }
 
+/**
+ * The second pass: a `site.yaml` with no `telnyx` block at all.
+ *
+ * It is a separate process rather than another block below because
+ * `JARVIS_SITE_YAML` is read at import time and the file cannot be swapped
+ * mid-run. It earns the extra invocation: an unpinned sender is precisely the
+ * production state that produced `422 10004 Missing required parameter /from`,
+ * and the only way to be sure Jarvis now refuses instead of dialling into the
+ * void is to take the pin away and watch it refuse.
+ */
+async function noTelnyxPass(): Promise<void> {
+  await clean();
+  clearDialled();
+  console.log("########## no telnyx pair pinned: refuse, do not dial blank ##########\n");
+
+  const { id } = await wantCall(pool, {
+    reason: "blocked_task",
+    subject: `something is blocked ${STAMP}`,
+    now: nyc("2026-09-02T14:00:00"),
+  });
+  const attempt = await placeCall(pool, id);
+  check("the dial is refused", false, attempt.placed);
+  truthy("naming the missing pin", attempt.detail.includes("from_e164"));
+  check("and nothing was dialled", 0, dialled.length);
+
+  const row = await pool.query<{ state: string; attempts: number }>(
+    "SELECT state, attempts FROM outbound_calls WHERE id = $1", [id]);
+  truthy("the call is not recorded as placed", row.rows[0]?.state !== "placed");
+  check("and the attempt is not spent, so a fix can retry", 0, row.rows[0]?.attempts);
+
+  await clean();
+}
+
 async function main(): Promise<void> {
+  if (process.env.JARVIS_S23_NO_TELNYX === "1") {
+    await noTelnyxPass();
+    console.log(`\n==== ${pass} passed, ${fail} failed ====`);
+    return;
+  }
+
   await clean();
   clearDialled();
 
@@ -208,6 +247,17 @@ async function main(): Promise<void> {
     check("and it rings", true, first.placed);
     check("once", 1, dialled.length);
     truthy("saying who and why", dialled[0]?.subject.startsWith("This is Jarvis"));
+
+    /*
+     * Which numbers. A voice call is dialled on the Telnyx pair; this read the
+     * WhatsApp pair instead, and because `whatsapp.jarvis_e164` is blank in
+     * production the first real dial came back
+     * `422 10004 Missing required parameter /from`. The fixture gives all four
+     * numbers different values so these two assertions can only pass for the
+     * right reason.
+     */
+    check("it dials FROM the telnyx number", "+15557770001", dialled[0]?.from);
+    check("and TO the telnyx number", "+15557770002", dialled[0]?.to);
 
     const again = await placeCall(pool, id);
     check("a second attempt is refused", false, again.placed);

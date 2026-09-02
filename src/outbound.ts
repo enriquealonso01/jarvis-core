@@ -150,7 +150,7 @@ export async function wantCall(
 /** Test seam, matching the rest of the phone path. */
 const FAKE = process.env.JARVIS_TELNYX === "fake";
 /** Every dial that would have gone out, when the line is faked. */
-export const dialled: { to: string; subject: string; reason: string }[] = [];
+export const dialled: { to: string; from: string; subject: string; reason: string }[] = [];
 export function clearDialled(): void {
   dialled.length = 0;
 }
@@ -179,15 +179,23 @@ export async function placeCall(
     return { placed: false, detail: `call is ${call.state}` };
   }
 
+  // A voice call is dialled on the Telnyx pair, NOT the WhatsApp pair. These
+  // were the WhatsApp numbers, and `whatsapp.jarvis_e164` is blank, so every
+  // real dial went out with an empty `from` and Telnyx answered
+  // `422 10004 Missing required parameter /from`. WhatsApp's owner number is
+  // kept as a fallback for `to` only — it is the same human either way — but
+  // there is no fallback for `from`: a call must leave from a number Telnyx
+  // knows we own.
   const { sitePin } = await import("./siteconfig.js");
-  const to = sitePin((c) => c.whatsapp?.owner_e164) ?? "";
-  const from = sitePin((c) => c.whatsapp?.jarvis_e164) ?? "";
-  if (!to) return { placed: false, detail: "no owner number pinned in site.yaml" };
+  const to = sitePin((c) => c.telnyx?.to_e164) ?? sitePin((c) => c.whatsapp?.owner_e164) ?? "";
+  const from = sitePin((c) => c.telnyx?.from_e164) ?? "";
+  if (!to) return { placed: false, detail: "no telnyx to_e164 or whatsapp owner_e164 pinned in site.yaml" };
+  if (!from) return { placed: false, detail: "no telnyx from_e164 pinned in site.yaml" };
 
   const opening = openingLine(call.reason, call.subject);
 
   if (FAKE) {
-    dialled.push({ to, subject: opening, reason: call.reason });
+    dialled.push({ to, from, subject: opening, reason: call.reason });
     await pool.query(
       `UPDATE outbound_calls SET state = 'placed', placed_at = now(), attempts = attempts + 1,
               call_control_id = $2 WHERE id = $1`,
