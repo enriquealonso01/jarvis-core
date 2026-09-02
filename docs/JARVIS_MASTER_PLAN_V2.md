@@ -3042,6 +3042,31 @@ When S37 is green, this is true:
 
 There is no Stage 8. That is the product.
 
+## After S37 — the handover
+
+ADR 012 is deliberate about something the plan never followed through on:
+`jarvis-core` and `jarvis-control-center` are **not** seeded as Jarvis projects.
+They are the repositories we implement. The operator onboards them later, through
+the same chat as any other project, by saying *"this repo is Jarvis Core."*
+
+That moment is the real end of this document. Today a coding agent builds Jarvis
+from a plan. After S37, **Jarvis can be given its own repository and build
+itself** — which is when it stops being a project and starts being a system.
+
+It needs guardrails the other projects do not, because a project that can edit
+its own runtime is a different kind of thing:
+
+- **Onboarded as a normal project, at professional care.** Not a system project — the system layer (II.5) exists to change *configuration*, and this is code. Same PR flow, same review, same tests.
+- **It may never merge or deploy to itself autonomously.** Always-confirm, every time, regardless of any grant. The usual argument for a grant is that the reviewer caught anything serious — but here the reviewer is running on the thing being changed.
+- **The runner cannot be updated by a task it is running.** Replacing the binary underneath a live run is the one deploy that cannot be rolled back by the thing doing the rolling back. Updates to the runner are applied by the *system* worker between runs, or by Enrique.
+- **A failed health check after a self-deploy rolls back automatically** (VII.5), and the rollback path must not depend on anything the deploy just changed.
+- **Maintenance watches the deploy it just performed** for longer than it watches anyone else's.
+
+None of that is in scope for this plan. It is written here so the ending is a
+decision rather than a drop-off — and so the first person to think *"Jarvis could
+just fix that itself"* finds the conditions already written down instead of
+inventing them at the keyboard.
+
 ---
 
 ## Appendix — requirements traceability
