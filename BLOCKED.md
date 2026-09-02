@@ -149,3 +149,25 @@ unblocked, finish it before starting anything new.
   read now fails `Permission denied` in the kernel, not at the tripwire
   (`scripts/s12-privdrop-test.sh`, 28/28, with the negative control showing the
   read succeeding again when `--clear-groups` is dropped).
+
+## No Telnyx `connection_id`, so Jarvis has never actually dialled out
+
+- **Step:** S23
+- **Blocked on:** `telnyx.connection_id` is not pinned in `site.yaml`. Outbound
+  calls go through `POST /v2/calls`, which requires the Call Control application
+  id; without it the sweep refuses to dial and says so.
+- **What I need you to do:** Paste the Call Control application id from the
+  Telnyx portal (Voice → Call Control Applications → the one the inbound number
+  points at) into `site.yaml` as `telnyx.connection_id`. Inbound already works,
+  so the application exists — it is only its id that Jarvis does not know.
+- **What I tried:** Everything that does not need it. S23 is built and merged
+  (PR #123): the six reasons and no others, quiet hours with the narrow security
+  override, the WhatsApp fallback when a call cannot be placed, and 54/54 in the
+  fake. Two genuinely blocked tasks are sitting in the queue right now with the
+  sweep reporting `no telnyx connection_id pinned in site.yaml` against them —
+  which is the correct behaviour and also the proof that the decision half works.
+- **What I did instead:** Marked S23 `blocked`, not `done`. Its Done-when is "a
+  genuinely blocked task rings the phone during the day and stays silent at
+  21:00", and a phone that has never rung has not been observed ringing.
+- **Raised:** 2026-09-02 18:05
+

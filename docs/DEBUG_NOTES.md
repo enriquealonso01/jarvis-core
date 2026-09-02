@@ -890,6 +890,27 @@ one runs in" — it was right, and it was about itself.
 
 ---
 
+### `pnpm build` on the host half-succeeded for days, and nobody noticed
+**Symptom:** deploying S24, `sudo -u jarvis pnpm build` in `/opt/jarvis/core`
+printed a wall of `TS5033 ... EACCES: permission denied` — but only for files
+that already existed. `dist/callreview.js` and `dist/retention.js`, both new,
+were written fine, so a casual `ls` of the new modules looked like success.
+**Cause:** 28 files in `dist/` were owned by `root` from an earlier build run as
+root. `tsc` overwrites in place, so every module that had been compiled by root
+before was unwritable by `jarvis` — and `tsc` reports those as errors and
+carries on emitting the rest. The exit code is non-zero, but a pipeline that
+ends in `| tail -3` shows the last three lines, which were the *new* files.
+**Fix:** `chown -R jarvis:jarvis dist` and rebuild. `callcontrol.js`,
+`worker.js` and `product.js` all changed size on the second run — meaning the
+host runner had been executing stale compiled code for every one of those 28
+modules since whenever that root build happened.
+**Lesson:** this is the same fault Enrique reported against `/var/lib/jarvis/
+projects/<slug>` — two identities (root in a container, `jarvis` on the host)
+creating the same files. One owner per path, and check the exit code, not the
+tail of the log. A build that partially fails is worse than one that fails.
+
+---
+
 ## Process
 
 ### Thirty-one overnight ticks produced no progress on the thing that mattered
