@@ -15,7 +15,16 @@ import { readJsonCredential } from "./credentials.js";
  * real provider means either a real invalid credential on every run or no test
  * at all, and the second is what usually happens.
  */
-export type ConnTest = { ok: boolean; detail: string };
+export type ConnTest = {
+  ok: boolean;
+  detail: string;
+  /**
+   * Whether anything was actually called. A connection with no live check is
+   * `tested: false`, and its health is written as `unknown` rather than green:
+   * "we stored something" is not "it works".
+   */
+  tested: boolean;
+};
 
 const FAKE = process.env.JARVIS_CONNTEST === "fake";
 
@@ -32,11 +41,13 @@ export async function testConnection(pool: pg.Pool, slugOrId: string): Promise<C
     [slugOrId],
   );
   const c = conn.rows[0];
-  if (!c) return { ok: false, detail: "there is no connection by that name" };
-  if (!c.credential_id) return { ok: false, detail: "no credential is stored for it yet" };
+  if (!c) return { ok: false, detail: "there is no connection by that name", tested: true };
+  if (!c.credential_id) return { ok: false, detail: "no credential is stored for it yet", tested: true };
 
   let ok = false;
   let detail = "";
+  /** False when nothing was actually called: untested is not healthy. */
+  let tested = true;
   try {
     if (FAKE) {
       const cred = await readJsonCredential(pool, c.credential_id);
@@ -84,12 +95,44 @@ export async function testConnection(pool: pg.Pool, slugOrId: string): Promise<C
       });
       ok = res.ok;
       detail = ok ? "Composio accepted the key" : `Composio answered ${res.status}`;
+    } else if (c.slug === "telnyx") {
+      const cred = await readJsonCredential(pool, c.credential_id);
+      const res = await fetch("https://api.telnyx.com/v2/phone_numbers?page[size]=1", {
+        headers: { Authorization: `Bearer ${cred.api_key}` },
+      });
+      ok = res.ok;
+      detail = ok ? "Telnyx accepted the key" : `Telnyx answered ${res.status}`;
+    } else if (c.slug === "fireworks") {
+      const cred = await readJsonCredential(pool, c.credential_id);
+      const res = await fetch("https://api.fireworks.ai/inference/v1/models", {
+        headers: { Authorization: `Bearer ${cred.api_key}` },
+      });
+      ok = res.ok;
+      detail = ok ? "Fireworks accepted the key" : `Fireworks answered ${res.status}`;
+    } else if (c.slug === "netcup_scp") {
+      /*
+       * A stored token is not a working token, and this one had no branch at
+       * all: it fell through to `ok = true` and reported healthy for a
+       * credential nobody had ever called. The check exchanges the refresh
+       * token for an access token — which is the only thing that can prove it
+       * still works — and persists the rotation while it is there, because
+       * netcup issues a new refresh token every time.
+       */
+      const { netcupAccessToken } = await import("./deviceflow.js");
+      const token = await netcupAccessToken(pool);
+      ok = token.ok;
+      detail = token.ok ? "netcup issued an access token" : token.detail;
     } else if (c.slug === "backup_b2") {
       ok = true;
       detail = "restic verifies the repository on its own schedule";
     } else {
-      // A connection with no live check is reported as untested rather than as
-      // healthy. "We stored something" is not "it works".
+      /*
+       * No live check. This used to answer `ok = true` and write
+       * `health = healthy`, which is a green light for "we stored something" —
+       * the false green Enrique found on netcup, and it was never specific to
+       * netcup. Untested is its own state and is written as its own state.
+       */
+      tested = false;
       ok = true;
       detail = "stored; this connection has no live check";
     }
@@ -100,7 +143,7 @@ export async function testConnection(pool: pg.Pool, slugOrId: string): Promise<C
 
   await pool.query(`UPDATE connections SET health = $2, last_tested_at = now() WHERE slug = $1`, [
     c.slug,
-    ok ? "healthy" : "degraded",
+    tested ? (ok ? "healthy" : "degraded") : "unknown",
   ]);
-  return { ok, detail };
+  return { ok, detail, tested };
 }
