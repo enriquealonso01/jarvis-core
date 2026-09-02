@@ -25,7 +25,11 @@ let stage = 0;
 for (const line of plan) {
   const s = /^# STAGE (\d+)/.exec(line);
   if (s) { stage = Number(s[1]); continue; }
-  const m = /^## (S\d+) — (.+?)\s*$/.exec(line);
+  // S13b and S18b are real steps with their own Done when lines, and the old
+  // pattern skipped them: `S\d+` does not match "S18b". So `progress-sync S18b
+  // done` silently updated nothing, and the denominator was two short — the
+  // exact "flattering lie" the derived total_steps exists to prevent.
+  const m = /^## (S\d+[a-z]?) — (.+?)\s*$/.exec(line);
   if (m) steps.push({ id: m[1], title: m[2], stage });
 }
 if (!steps.length) {
