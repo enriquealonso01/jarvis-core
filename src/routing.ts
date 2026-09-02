@@ -329,7 +329,21 @@ export async function classifyInbox(
         decision.reason.slice(0, 1000) || null,
       ],
     )
-    .catch(() => undefined);
+    /*
+     * Swallowed on purpose — a routing RECORD must never take a message down.
+     * But swallowed silently is how `create_project` verdicts went missing for
+     * a day: a CHECK constraint still listing the original five categories
+     * rejected every one of them, the message routed correctly anyway, and
+     * `route_category` was simply null. Nothing anywhere said so.
+     *
+     * So it still cannot throw, and it can no longer be quiet.
+     */
+    .catch((err: unknown) => {
+      console.error(
+        `route verdict not persisted for ${args.inboxId} (category ${decision.category}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
 
   return decision;
 }

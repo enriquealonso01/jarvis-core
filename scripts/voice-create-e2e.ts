@@ -94,6 +94,30 @@ async function main(): Promise<void> {
     console.log(`  < ${(r.assistant ?? "(nothing)").slice(0, 140)}`);
   }
 
+  console.log("\n########## the verdict was written down ##########\n");
+  {
+    /*
+     * routing.ts opens by saying "Wrong routing is invisible otherwise, and the
+     * documented way to find the bug is to read a day of verdicts". That only
+     * holds if the verdict can be written.
+     *
+     * It could not. `create_project` was added to CATEGORIES and the CHECK
+     * constraint on `inbox_events.route_category` still listed the original
+     * five, so every one of these verdicts was rejected — and the write is
+     * deliberately wrapped in a catch, because a routing record must never take
+     * a message down. The result was perfect behaviour and no record of it:
+     * project created, reply correct, route_category null.
+     *
+     * Asserted here rather than trusted, because the whole failure mode is that
+     * nothing complains.
+     */
+    const ev = await pool.query<{ route_category: string | null; route_model: string | null }>(
+      `SELECT route_category, route_model FROM inbox_events
+       WHERE conversation_id = $1 ORDER BY received_at LIMIT 1`, [cid]);
+    check("the first turn's verdict persisted", "create_project", ev.rows[0]?.route_category);
+    check("naming the router as what decided it", "router", ev.rows[0]?.route_model);
+  }
+
   console.log("\n########## he was never described in the third person ##########\n");
   for (const [i, r] of replies.entries()) {
     check(`turn ${i + 1} said nothing about him`, null, rationale(r));
