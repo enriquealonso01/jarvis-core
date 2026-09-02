@@ -77,7 +77,30 @@ export async function planEgress(): Promise<EgressPlan> {
   return {
     isolated: true,
     command: "/usr/bin/unshare",
-    args: ["-rn", "--fork", "--pid", "--mount-proc", "/bin/sh", "-c", waiter(sentinel)],
+    /*
+     * `-c` (--map-current-user), NOT `-r` (--map-root-user).
+     *
+     * `-r` was here because an unprivileged user cannot create a network
+     * namespace without capabilities, and mapping to root in a new user
+     * namespace grants them. It works, and it has a consequence nobody looked
+     * for: inside the namespace the harness IS uid 0. Claude Code 2.1.252
+     * refuses to bypass permissions as root — "--dangerously-skip-permissions
+     * cannot be used with root/sudo privileges for security reasons" — so every
+     * heavy task on Claude failed terminally with zero tool calls, and the
+     * runner reported it as a harness crash.
+     *
+     * `-c` maps the current user to ITSELF and still makes it the owner of the
+     * new user namespace, which is where the capabilities come from. Verified on
+     * the box: uid stays 1000, `unshare -cn` yields a namespace with only a
+     * down `lo`, and slirp4netns still brings up tap0 at 10.0.2.100/24 with DNS
+     * resolving. Same isolation, without telling the harness it is root.
+     *
+     * It is also more honest. ADR 016 went to some trouble to run the harness as
+     * an unprivileged, per-project user; handing it a namespace where it
+     * believes itself root undoes the story that code tells, even if the outer
+     * uid is unchanged.
+     */
+    args: ["-cn", "--fork", "--pid", "--mount-proc", "/bin/sh", "-c", waiter(sentinel)],
     sentinel,
     async ready(pid: number) {
       slirp = spawn(

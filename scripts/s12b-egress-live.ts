@@ -70,6 +70,26 @@ async function main(): Promise<void> {
   console.log(`  ${available.reason}`);
   if (!available.ok) throw new Error(available.reason);
 
+  console.log("\n########## and it is still not root in there ##########\n");
+  {
+    /*
+     * The namespace used to be created with `unshare -r`, which maps the caller
+     * to uid 0 inside it. That is the ordinary way to get the capabilities a
+     * network namespace needs, and it had a consequence nobody was looking for:
+     * Claude Code 2.1.252 refuses `--permission-mode bypassPermissions` when it
+     * finds itself running as root, so EVERY heavy task on Claude failed
+     * terminally with zero tool calls and a stderr line about sudo.
+     *
+     * `-c` maps the user to itself and still owns the namespace. This asserts
+     * the identity, because the network assertions below passed happily
+     * throughout — isolation was never the thing that broke.
+     */
+    const who = await inNamespace(`id -u`);
+    console.log(`  uid inside the namespace: ${who.out}`);
+    truthy("the harness is not uid 0 inside its own namespace", who.out !== "0");
+    check("it is the same unprivileged user as outside", process.getuid?.().toString() ?? "?", who.out);
+  }
+
   console.log("\n########## what the run can still do ##########\n");
   {
     const net = await inNamespace(
