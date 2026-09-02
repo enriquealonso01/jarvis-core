@@ -91,7 +91,12 @@ check "the checkpoint calls it a drain" "drained" \
 echo
 echo "=== the watchdog requeues it, and a new runner finishes the work ==="
 JARVIS_STALL_SECONDS=5 $COMPOSE up -d --no-build worker >/dev/null 2>&1
-for _ in $(seq 1 60); do
+# S18b put a LADDER in front of the requeue: rung 1 waits 30s (twice), rung 2
+# nudges, and only rung 3 requeues. Sixty seconds was enough when the watchdog
+# requeued on sight and is not enough now — the assertion is about where the
+# task ends up, not how fast it gets there, so the budget covers the ladder's
+# own backoffs rather than the ladder being made impatient to suit the test.
+for _ in $(seq 1 180); do
   st=$(q "SELECT state FROM tasks WHERE id='$TASK';")
   [ "$st" = "queued" ] && break
   sleep 1
@@ -103,8 +108,12 @@ check "it walked the documented states" "running>stalled>recovering>queued" \
           AND at >= (SELECT min(at) FROM task_transitions WHERE task_id='$TASK' AND to_state='running');")"
 $COMPOSE stop worker >/dev/null 2>&1
 
+# Long enough to outlast the ladder's cooling-off period. Rung 3 requeues with
+# `lease_until = now() + 15s` — the backoff IS a lease, which is what lets a rung
+# cool off without a scheduler of its own — so a runner that gave up after eight
+# seconds went home before the task it came for was claimable.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ID=after-drain -e RUNNER_ONCE=1 \
-  -e RUNNER_IDLE_EXIT_MS=8000 -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
+  -e RUNNER_IDLE_EXIT_MS=40000 -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s4-drain-runner2.log 2>&1
 branch=$(q "SELECT COALESCE(branch,'') FROM tasks WHERE id='$TASK';")
 check "the work completed on a second attempt" "succeeded" "$(q "SELECT state FROM tasks WHERE id='$TASK';")"

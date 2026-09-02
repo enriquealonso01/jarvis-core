@@ -38,6 +38,34 @@ state machine.
 
 ---
 
+### The runaway loop came back as a one-word kindness
+**Symptom:** S19's first run: three transcription segments of one sentence
+produced three spoken replies, and a second process sent mid-call was answered
+rather than refused. Both regressions the step exists to prevent, on the same
+run that introduced the state machine meant to prevent them.
+**Cause:** the persisted gate was written as `move(..., "thinking", { from:
+["listening", "speaking"] })`. Allowing `speaking` looked like politeness — let
+the caller interrupt — and it is exactly the runaway loop: while a reply is
+playing, every further segment is admitted and answered.
+**Fix:** `from: ["listening"]`, one state wide. Barge-in is S20 and needs the
+playback actually stopped, not the gate widened.
+**Lesson:** the regression tests were written before the feature, exactly as the
+plan orders, and they caught the feature reintroducing the bug within an hour of
+it being written. Had they been written afterwards they would have been written
+to match the code, and the code was wrong.
+
+### A faked provider hid what was actually said
+**Symptom:** "and what it says is that it is still working" failed while the
+call plainly said it — the assertion could see only a URL.
+**Cause:** with TTS working, a line goes out as `playback_start` with an
+`audio_url`; only the fallback path carries the words in `speak`'s `payload`.
+Asserting on the command body therefore tested the failure path and nothing
+else.
+**Fix:** `spokenLines` records every line handed to the voice, whichever voice
+speaks it.
+**Lesson:** when a fake stands in for a provider, assert on the thing that
+crossed the boundary, not on the shape the boundary happened to take that day.
+
 ## Workers and the queue
 
 ### The heavy lane never ran anything, for the entire life of v1
@@ -50,6 +78,32 @@ the heavy lane at all.
 **Lesson:** a deferral written into a scoping document is invisible six weeks
 later. If the thing being deferred is the reason the system exists, it is not a
 deferral, it is a cancellation.
+
+### The recovery ladder parked tasks and never came back for them
+**Symptom:** S4's drain test, run while verifying S19, left its task in
+`recovering` forever. Three minutes of waiting did not move it.
+**Cause:** the watchdog only looks at tasks in `running` or `preparing` — which
+was right when recovery was one action (requeue, and the task is running again
+next tick). Rung 1 of the S18b ladder is `wait`, which leaves the task in
+`recovering` **on purpose**. Nothing ever looked at it again, so every stalled
+task waited thirty seconds and then waited forever.
+**Fix:** `climbParked()` in the worker: any task in `recovering` whose last
+recovery event is older than that rung's backoff climbs again.
+**Lesson:** the ladder's own test called `climb()` in a loop, so it proved the
+ladder climbs when something calls it — and never asked whether anything in
+production calls it twice. A unit test that supplies the caller cannot discover
+that there is no caller. The suite that caught this drives the real watchdog.
+
+### A backoff is a lease, so the runner has to outlive it
+**Symptom:** after the fix above, the requeue worked and the second runner still
+found nothing: the task sat `queued` and the runner exited.
+**Cause:** `requeue()` implements a rung's cooling-off period by setting
+`lease_until = now() + backoff`, which the claim query already respects. Rung 3
+waits 15s; the test's runner gave up after `RUNNER_IDLE_EXIT_MS=8000`.
+**Fix:** the S4 runners idle for 40s, longer than any rung's backoff.
+**Lesson:** when a delay is expressed as data another query already honours,
+nothing announces it. Everything downstream that has its own patience has to be
+told about it.
 
 ### Task claiming silently broke and the suite stayed green
 **Symptom:** no task was ever claimed after a queue-fairness change.

@@ -24,13 +24,19 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s4-drain-test s4-recovery-test s6-workflow-test s9-review-test s10-grants-test
         s11-recovery-test s12-isolation-test s13-home-test s14-live-detail-test
         s15-console-test s16-credential-test
-        s17-artifacts-test s18-search-test s18b-retrofit-test"
+        s17-artifacts-test s18-search-test s18b-retrofit-test s19-call-test"
 
 clearqueue() {
   $COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX -c \
     "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
      WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null 2>&1
 }
+
+# A named subset runs on its own: `bash scripts/sweep.sh s18-search-test s19-call-test`.
+# The whole sweep takes longer than some callers are willing to wait, and half a
+# sweep run twice is worth more than a whole one that gets killed in the middle
+# and leaves its runner containers behind.
+if [ "$#" -gt 0 ]; then SUITES="$*"; fi
 
 broken=0
 results=""

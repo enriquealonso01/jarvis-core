@@ -8,6 +8,7 @@ import { cronMatches } from "./cron.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
+import { sweepCallDeadlines } from "./callcontrol.js";
 
 const WORKER_ID = process.env.WORKER_ID ?? "system-1";
 const ARTIFACTS = ARTIFACTS_DIR;
@@ -116,6 +117,39 @@ async function watchdog(pool: ReturnType<typeof createPool>) {
        WHERE dedupe_key = $1 AND status NOT IN ('resolved', 'ignored')`,
       [`worker.crash:${lane}`],
     );
+  }
+
+  await climbParked(pool);
+}
+
+/**
+ * Climb again for tasks an earlier rung parked.
+ *
+ * The stale query above only sees `running` and `preparing`, which was right
+ * when recovery was a single action: requeue, and the task is running again by
+ * the next tick. The ladder broke that assumption. Rung 1 is `wait`, which
+ * leaves the task in `recovering` on purpose — and nothing ever looked at it
+ * again, so a stalled task waited thirty seconds and then waited forever. It
+ * cost S4's drain test, which is the only suite that drives the watchdog end to
+ * end; the ladder's own test called `climb()` in a loop and so never noticed
+ * that in production nothing calls it twice.
+ */
+async function climbParked(pool: ReturnType<typeof createPool>) {
+  const { climb, backoffSecondsFor } = await import("./ladder.js");
+  const parked = await pool.query<{ id: string; rung: string; waited: number }>(
+    `SELECT t.id, e.name AS rung, EXTRACT(epoch FROM now() - e.at)::int AS waited
+     FROM tasks t
+     JOIN LATERAL (
+       SELECT name, at FROM task_events
+       WHERE task_id = t.id AND type = 'recovery'
+       ORDER BY at DESC, id DESC LIMIT 1
+     ) e ON true
+     WHERE t.state = 'recovering'`,
+  );
+  for (const t of parked.rows) {
+    if (t.waited < backoffSecondsFor(t.rung)) continue;
+    const step = await climb(pool, t.id, `rung ${t.rung} did not resolve it after ${t.waited}s`);
+    console.log(`watchdog: task ${t.id} climbs to rung ${step.rung} (${step.name}) — ${step.detail}`);
   }
 }
 
@@ -349,6 +383,11 @@ async function main() {
       await watchdog(pool);
       await drainOutbox(pool);
       await audioRetention(pool);
+      // A leg deadline that only exists inside the request that started it dies
+      // with the process. Swept from out here, a call survives an API restart.
+      for (const note of await sweepCallDeadlines(pool).catch(() => [] as string[])) {
+        console.log(`call sweep: ${note}`);
+      }
       await reapWorktrees(pool).catch(() => undefined);
       const id = await claimTask(pool, "system", WORKER_ID);
       if (id) {
