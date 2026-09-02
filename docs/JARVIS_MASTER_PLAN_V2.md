@@ -259,6 +259,30 @@ costs, submit, done. Single-use token; replay is a 409.
 Audit trail, config versions, model registry and routing, quiet hours, retention,
 export.
 
+### Visual direction
+
+It should feel like an exceptionally polished operations console — closer to a
+professional cloud platform than a movie prop, while still being recognisably
+Jarvis.
+
+- Dark graphite background, slightly lighter elevated panels.
+- Restrained cyan or cool blue as the accent. Restrained is the operative word.
+- **Colour carries meaning, and only that meaning.** Green is healthy or succeeded. Amber is a warning or something needing attention. Red is an incident, a destructive operation, or a serious failure. Purple identifies Jarvis Improvement activity. A colour used decoratively is a colour that no longer means anything.
+- Clean sans-serif throughout. **Monospace only** for logs, commands, IDs, branches, SHAs and technical values — where character-level precision matters and proportional type actively hurts.
+- Subtle animation for live state changes, so something arriving is noticeable without being theatrical.
+
+And explicitly not:
+
+- glowing borders everywhere
+- moving backgrounds
+- decorative gauges that communicate nothing
+- a fake holographic interface
+
+The semantic-colour rule above and the **no-information-by-colour-alone** rule in
+S15 are complements, not a contradiction: colour must mean the same thing
+everywhere, *and* never be the only thing carrying that meaning. Green plus a
+tick, amber plus a word.
+
 **No sci-fi chrome. No fake percentages. No decorative dashboards.** This is an
 operations console.
 
