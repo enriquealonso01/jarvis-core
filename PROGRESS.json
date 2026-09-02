@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "e5e5b7d75a41d011621f2702c75ca442a907cd2d",
+  "plan_sha": "b723b3cc6e7f3e9836db34b181e1722ac6d698d9",
   "total_steps": 40,
-  "updated_at": "2026-09-02T15:58:51.376Z",
-  "current_step": "S25",
+  "updated_at": "2026-09-02T16:48:26.106Z",
+  "current_step": "S26",
   "steps": [
     {
       "id": "S1",
@@ -211,7 +211,7 @@
       "title": "Jarvis calls Enrique",
       "stage": 4,
       "state": "blocked",
-      "evidence": "Built and merged (PR #123): six reasons, quiet hours, the WhatsApp fallback, 54/54 in the fake. NOT done — the Done-when is 'a genuinely blocked task rings the phone during the day', and no real dial has happened: telnyx.connection_id is not pinned in site.yaml, so the outbound sweep correctly reports it as unable to dial. Blocked on Enrique."
+      "evidence": "Built and merged (PR #123), 54/54 in the fake. telnyx.connection_id is now pinned in /etc/jarvis/site.yaml (3039460355509061310) and read correctly, but the first REAL dial returned 422 'from is required': placeCall reads whatsapp.jarvis_e164 (blank) instead of telnyx.from_e164. Fix and place a real call — see BLOCKED.md 'IN FLIGHT'. The Done-when needs an observed ring; a phone that has never rung has not been observed ringing."
     },
     {
       "id": "S24",
@@ -224,7 +224,8 @@
       "id": "S25",
       "title": "Shrink the model routing",
       "stage": 5,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",

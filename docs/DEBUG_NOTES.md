@@ -36,10 +36,16 @@ is two or three entries, and it is where the time is actually saved.
 - [Watchdog tickets were opened and never closed](#watchdog-tickets-were-opened-and-never-closed)
 
 **Credentials and routing**
+- [The `to_e164` in `site.yaml` is not the number the outbound dial uses](#the-to_e164-in-siteyaml-is-not-the-number-the-outbound-dial-uses)
 - [Every model route failed and the reason was unknowable](#every-model-route-failed-and-the-reason-was-unknowable)
 - [Host logins were completed and Jarvis kept asking for them](#host-logins-were-completed-and-jarvis-kept-asking-for-them)
 
 **Backups and deploys**
+- [`deploy-control-center.sh` republished a stale build, silently](#deploy-control-centersh-republished-a-stale-build-silently)
+- [There are two `/opt/jarvis` trees and only one of them is the build context](#there-are-two-optjarvis-trees-and-only-one-of-them-is-the-build-context)
+- [The console has been reporting a build state from a file nobody updates](#the-console-has-been-reporting-a-build-state-from-a-file-nobody-updates)
+- [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
+- [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
 - [Deploying the console 404'd the whole site](#deploying-the-console-404d-the-whole-site)
 - [The dev harness profile evaporated the first time the worker ran](#the-dev-harness-profile-evaporated-the-first-time-the-worker-ran)
@@ -60,6 +66,8 @@ is two or three entries, and it is where the time is actually saved.
 - [The runner had no memory ceiling](#the-runner-had-no-memory-ceiling)
 
 **Test environment**
+- [Deleting a test project needs eight tables and one circular link](#deleting-a-test-project-needs-eight-tables-and-one-circular-link)
+- [A suite failed on the consequence of its own second case](#a-suite-failed-on-the-consequence-of-its-own-second-case)
 - [The API could not start anywhere except the box](#the-api-could-not-start-anywhere-except-the-box)
 - [A test changed the API container's environment and every later suite lied](#a-test-changed-the-api-containers-environment-and-every-later-suite-lied)
 - [A bind mount left a directory where the test expected a file](#a-bind-mount-left-a-directory-where-the-test-expected-a-file)
@@ -1009,6 +1017,94 @@ and nothing had reached the remote -- the push failing is what surfaced it.
 the prose contains apostrophes; and after `git checkout -b`, check
 `git branch --show-current` before working, not at push time. A branch that was
 never created looks exactly like a branch you are already on.
+
+---
+
+### `deploy-control-center.sh` republished a stale build, silently
+**Symptom:** the console was redeployed and came back one version BEHIND — the
+new page was missing and an older one was live.
+**Cause:** the script takes a tarball of the **built static export** (`out/`) and
+defaults to `/tmp/cc-out.tgz`. It was called with no argument after a tarball of
+the SOURCE tree had been copied to the box, so it re-published whatever
+`/tmp/cc-out.tgz` still held from the previous deploy. Its only sanity check is
+that the tarball has `index.html` at its root, which a stale build passes.
+**Fix:** `pnpm build` in `jarvis-control-center`, then `cd out && tar czf
+/tmp/cc-out.tgz .`, scp it, then run the script **with that path**. It rsyncs
+`--delete` into `/opt/jarvis/control-center`, which also means a source tree
+untarred there beforehand is cleaned up.
+**Lesson:** a publish step with a default input path will eventually publish the
+default. Pass the argument every time.
+
+### There are two `/opt/jarvis` trees and only one of them is the build context
+**Symptom:** `docker compose up -d --build api worker` printed "Running" for
+both, the containers were not recreated, and `dist/callreview.js` was absent
+from the image after a deploy that reported success.
+**Cause:** the compose file lives at `/opt/jarvis/deploy/compose.yaml` (which is
+the project working dir) but its **build context is `/opt/jarvis/core`**. Code
+extracted into `/opt/jarvis` changes nothing the image is built from. The host
+runner (`jarvis-runner.service`, `User=jarvis`) also runs from
+`/opt/jarvis/core/dist`, so that one tree feeds both.
+**Fix:** extract into `/opt/jarvis/core`, `chown -R jarvis:jarvis dist`,
+`sudo -u jarvis pnpm build`, then `cd /opt/jarvis/deploy && docker compose up -d
+--build api worker`, then `systemctl restart jarvis-runner`.
+**Lesson:** "compose said Running" is not "the new code is deployed". Check for a
+file you just added inside the container before believing a deploy.
+
+### The console has been reporting a build state from a file nobody updates
+**Symptom:** the Control Center build bar sat at S5 / 37 steps / plan_sha
+`b02f8f8` while the repo was on S25 / 40 steps — 21 hours stale.
+**Cause:** the bar fetches `/PROGRESS.json`, served from
+`/opt/jarvis/control-center/PROGRESS.json`, which is a **copy** published by
+`scripts/progress-publish.sh`. That script is run by hand, and its own comment
+tells you to run it "in the same breath" as updating `PROGRESS.json` — an
+instruction, not a mechanism. It was run once and never again. Note also that
+`deploy-control-center.sh` rsyncs `--delete`, so a console deploy REMOVES the
+published copy unless it is re-published afterwards.
+**Fix (not yet done — see BLOCKED.md):** serve the file from one source rather
+than copying it, or publish on every state change. Until then, run
+`scripts/progress-publish.sh` after every `progress-sync.mjs` AND after every
+console deploy.
+**Lesson:** a second copy of the truth, kept in step by a documented habit, is
+the orphan pattern this plan keeps naming. The bar was not wrong about anything
+except which file it was reading.
+
+### The `to_e164` in `site.yaml` is not the number the outbound dial uses
+**Symptom:** with `telnyx.connection_id` finally pinned, a real outbound dial
+returned `422 10004 Missing required parameter /from`.
+**Cause:** `placeCall` in `src/outbound.ts` reads `whatsapp.owner_e164` and
+`whatsapp.jarvis_e164` for a **phone call**. The phone pair lives under
+`telnyx.from_e164` / `telnyx.to_e164`; `whatsapp.jarvis_e164` is blank, so the
+`from` went out empty. Only a real dial finds this — every fake-mode test passes,
+because `FAKE` returns before `telnyxDial` is reached.
+**Fix (in flight — see BLOCKED.md):** read the telnyx pair for voice.
+**Second trap on the retry:** `placeCall` refuses when `attempts > 0`
+("Jarvis does not redial"), and `reasonsToCall` skips any task that already has
+an `outbound_calls` row. So re-testing needs the row reset —
+`UPDATE outbound_calls SET state='wanted', blocked_reason=NULL, attempts=0` — not
+just another sweep.
+
+### Deleting a test project needs eight tables and one circular link
+**Symptom:** suite cleanup aborted on `tasks_project_id_fkey`, leaving the
+project, its tasks and its auth profiles behind for the next run to trip over.
+**Cause:** everything with a foreign key to `tasks` has to go first
+(`task_transitions`, `task_events`, `task_attempts`, `task_checkpoints`,
+`task_context`, `artifacts`, `outbound_calls`, `schedule_runs`,
+`call_turns.handover_task_id`), plus `issues` — and `tasks.blocked_by_issue_id`
+points BACK at `issues`, so one of the two links must be nulled before either
+row can go. `user_action_requests` hangs off `issues` as well.
+**Fix:** see `cleanup()` in `scripts/s25-routing-test.sh`, which does it in the
+working order. `SELECT conname FROM pg_constraint WHERE confrelid =
+'tasks'::regclass` is how to regenerate the list rather than guessing it.
+
+### A suite failed on the consequence of its own second case
+**Symptom:** after S25, `s11-recovery-test` reported 18 failures with
+`attempts=0` and `phases_kept=0` for every case after the second.
+**Cause:** case 2 deliberately provokes a subscription limit. S25 made that mark
+the profile spent for five hours, and dev has exactly one usable engine, so every
+later case parked with "every engineering route is spent" before running.
+**Fix:** `clearqueue()` now also clears `quota_json` for subscription profiles.
+**Lesson:** when a step changes what a failure MEANS, the suites that provoke
+that failure on purpose need their fixtures re-read, not just their assertions.
 
 ---
 

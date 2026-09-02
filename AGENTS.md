@@ -1,6 +1,21 @@
 # Jarvis Core — implementation agent instructions
 
-You are implementing Jarvis, a single-user personal AI operating system for Enrique. Read the docs before writing code. Do not add product features that are not in the current plan (v1.2).
+You are implementing Jarvis, a single-user personal AI operating system for
+Enrique. Read the docs before writing code. Do not add product features that are
+not in the current plan.
+
+## Read in this order, before touching anything
+
+1. **`docs/JARVIS_MASTER_PLAN_V2.md`** — the plan being executed. Start at 0.0
+   "Start here" and 0.5, then Part III, which is the backlog. **V2 supersedes
+   `docs/JARVIS_V1_MASTER_PLAN_v1.2.md`**, which is kept only as history.
+2. **`PROGRESS.json`** — which step is current, what is done, what is blocked,
+   and the evidence behind each claim. `git log --oneline -20` is the check on it.
+3. **`BLOCKED.md`** — everything waiting on Enrique, and anything left in flight.
+   Re-read it every session; if something there is now unblocked, finish it
+   before starting anything new.
+4. **`docs/DEBUG_NOTES.md`** — bugs already paid for. Read before you write.
+5. This file, for the non-negotiables below.
 
 ## Source of truth
 
