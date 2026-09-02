@@ -3309,6 +3309,19 @@ Each gate is a set of tests with **numbers in them**. A gate written as a feelin
 ("capture works under load") passes whenever someone wants it to. The quantities
 below come from the planning conversation and are the point of the exercise.
 
+### The loops are inherited, and four were never wired in
+
+`FULL_LOOPS.md` defines twenty-one loops, several marked *critical*. This plan
+referenced seventeen. **L0, L5, L16 and L18 appeared nowhere** — including L0,
+which is marked *critical, product* and is the only loop that asks whether a
+fresh install is usable at all.
+
+They are wired into the gates below. Worth noting how it happened: the gates were
+written from the transcript and from what the steps needed, and `FULL_LOOPS.md`
+was treated as a source to cite rather than a list to reconcile. **Citing a
+document is not the same as covering it**, and the difference is invisible until
+someone counts.
+
 ### A gate has to be answerable as a gate
 
 Part VIII defines six gates in terms of L-loops and N-narratives. There are now
@@ -3341,6 +3354,7 @@ purpose, and that crossing is what it exists to check.
 ## Gate 1 — It acts *(blocks everything else)*
 - **N1** the fix, end to end — console first, then voice note at S37
 - **S8** seeded failing test → passing PR, in the suite and proven able to go red
+- **L0** first run: open the console with nothing configured, talk to the global Supervisor, paste documentation, ask Jarvis to remember it, create a project from that conversation. **Marked critical in `FULL_LOOPS.md` and referenced nowhere in this plan until now** — it is the only loop that tests whether a fresh install is usable at all, and it is the first thing that would be run on a restored machine
 - **L0b** the happy engineering loop
 - **S1's five harness variants** each producing the right taxonomy class
 
@@ -3366,13 +3380,14 @@ purpose, and that crossing is what it exists to check.
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
+- **L5** connection repair end to end: expire a credential, get one deduplicated issue, submit a new one on the action page, connection tests, issue resolves, blocked task requeues — **and the provider-level profile is reused rather than a duplicate created**, which is the half N4 does not check
 - **L17** the six mobile journeys
 - **S13** the console leads with work, not health
 - **L10** notification brevity: zero messages for trivial capture, exactly two for a long task
 - An output can be rejected with a note, revised, and the versions compared, without leaving the console (S17)
 - **Expired connection**: expire a GitHub credential → **one** deduplicated issue, and **every affected task links to it**. Reauthenticating closes the issue and resumes all of them, not just the one that hit it first
 - **Stuck worker, visible**: hang a worker deliberately → the task timeline in the console shows stalled → recovering → resumed. The watchdog's intervention must be legible in the UI, not only in the database
-- **Client security**: inspect browser traffic and client storage → no provider secret, no OpenClaw admin token, no database credential, no secret value in logs or analytics
+- **L16** UI security: inspect browser traffic and client storage → no provider secret, no OpenClaw admin token, no database credential, no secret value in logs or analytics
 - **Re-auth on Level 3**: an approval with a valid session but no recent password re-entry is refused. Then, with re-auth, it succeeds — and a second Level 3 inside the grace window does not re-prompt
 - **Stale approval**: change the underlying state between rendering an approval and clicking it → refused and re-presented, never applied. **This is the one that produces a wrong outcome with an audit trail saying it was authorised**
 
@@ -3392,6 +3407,7 @@ purpose, and that crossing is what it exists to check.
 - **N7** self-repair at 03:00 without waking him
 - **N2** a question answered weeks later with a citation, across a restore
 - **N8** the weekly report arrives and activates nothing on its own
+- **L18** Improvement, forced: one candidate discovered and recorded with source and licence, a sandbox evaluation artifact produced, a recommendation written — **and nothing risky activated**. The evaluation happening is not the test; the not-activating is
 
 ## The V1 completeness list
 
