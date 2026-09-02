@@ -2284,10 +2284,52 @@ billing-related, production-impacting, or security-relevant becomes an Issue and
 waits.
 
 ## VII.3 Backup
-Restic to Backblaze B2, encrypted, nightly, including the database dump. A
-restore drill runs monthly and records its outcome where the console can see it.
-**A backup nobody has restored is not a backup** — this was already caught once
-in v1, when the backups did not contain the database.
+
+Restic to Backblaze B2, encrypted, nightly. A restore drill runs monthly and
+records its outcome where the console can see it. **A backup nobody has restored
+is not a backup** — already caught once in v1, when the backups did not contain
+the database.
+
+### What "authoritative state" means
+
+Enumerated, because "the database dump" is what v1 thought it was backing up:
+
+`Postgres dump` · **`OpenClaw's own state directory`** · projects · conversations ·
+tasks · schedules · auth metadata · encrypted credentials · files · artifacts ·
+memory and knowledge · model registry · **benchmarks** · configuration ·
+**voice configuration** · project instruction versions
+
+Three of these are the ones a backup script written from memory will miss:
+
+- **OpenClaw's state directory.** It holds the paired WhatsApp session. Lose it and recovery means re-pairing by QR — a manual step, on Enrique's phone, at exactly the moment everything else is on fire. It is not Jarvis's data, which is precisely why it gets forgotten.
+- **Benchmarks.** Losing them means every model's earned role (S29) has to be re-measured before routing can be trusted again.
+- **Voice configuration.** A restored Jarvis that answers the phone in a different voice is a restored Jarvis that feels broken.
+
+Backups must be consistent, encrypted, stored off-server, and **periodically
+proven by restoration**.
+
+### `jarvis export` and `jarvis restore`
+
+Two documented commands, not a runbook of steps to follow carefully. Export
+produces one encrypted bundle of everything above; restore brings it up
+elsewhere. The commands are the deliverable — a procedure that only works when
+performed carefully by someone who remembers the order is not a recovery plan.
+
+Connections that genuinely cannot migrate (an OAuth grant bound to a host) become
+**UserActionRequests after restore** rather than silent failures, so a restored
+system tells Enrique exactly what it still needs.
+
+### No critical state belongs to one vendor
+
+State must never live exclusively inside Netcup, Composio, ElevenLabs, Telnyx,
+the console host, or any single model provider. Infrastructure-specific
+dependencies sit behind configuration and adapters, so moving to another VPS,
+to AWS, or to a future GPU workstation is a migration rather than a rebuild.
+
+This is the same argument as open weights in VI.0, generalised: **a dependency
+you cannot leave is a decision you only get to make once.** The restore-onto-a-
+second-machine test in S31 is what keeps it honest, because a portability claim
+nobody has exercised is a portability claim that is false.
 
 ## VII.4 Improvement (seeded at boot, weekly)
 Discovers new models, free tiers, provider changes, MCP servers, GitHub skills,
