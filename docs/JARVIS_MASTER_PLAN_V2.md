@@ -1301,6 +1301,10 @@ recorded on the task.
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
 
+**Internal HMAC idempotency** *(IV.7 named it; no step owned it).* Dedupe
+internal posts on their request id. It is the smallest of the five sources and
+the easiest to skip, which is why it is written down.
+
 **The status bar and the global composer** *(never had an owner).* Both are
 specified in I.3 and belong to no step. The status bar carries the six
 deterministic states on every authenticated page; the composer reaches Jarvis
@@ -2140,13 +2144,19 @@ that works on your machine and nowhere else.
 Inbound integrations retry. **Deduplicate on the provider's external event id**,
 always, before anything else happens to the event:
 
-| Source | Retries because | Dedupe on |
-|---|---|---|
-| WhatsApp webhook | delivery retry | message id |
-| Telnyx callback | callback retry | `call_control_id` + event type + sequence |
-| OAuth callback | user refresh, double submit | state token, single-use |
-| Scheduled run | restart mid-fire | `(schedule_id, scheduled_for)` |
-| Internal HMAC post | client retry | request id |
+| Source | Retries because | Dedupe on | Owned by |
+|---|---|---|---|
+| WhatsApp webhook | delivery retry | message id | S37 |
+| Telnyx callback | callback retry | `call_control_id` + event type + sequence | **S19** |
+| OAuth callback | user refresh, double submit | state token, single-use | **S16** |
+| Scheduled run | restart mid-fire | `(schedule_id, scheduled_for)` | S34 |
+| Internal HMAC post | client retry | request id | **S18b** |
+
+The owner column exists because three of these had no step at all. A contract in
+Part IV is a promise, not an assignment — and an unassigned promise is
+indistinguishable from a decoration. **Telnyx is the urgent one**: the phone is
+live now, its callbacks retry now, and a duplicated `call.answered` is a second
+greeting talking over the first.
 
 A repeated delivery must never create a second task. The dedupe happens at
 ingest, before classification and before any model, because a duplicate that
