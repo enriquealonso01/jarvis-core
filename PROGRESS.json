@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "f5847013509dca960b26994b245199020973f65e",
+  "plan_sha": "c09eb9c8e24a72b501dc669663d847a2d68495cd",
   "total_steps": 39,
-  "updated_at": "2026-09-02T10:45:36.922Z",
-  "current_step": "S19",
+  "updated_at": "2026-09-02T10:46:23.683Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -170,8 +170,9 @@
       "id": "S19",
       "title": "Call reliability hardening",
       "stage": 4,
-      "state": "in_progress",
-      "evidence": "43/43 incl. ten consecutive calls with three forced provider failures; PR open"
+      "state": "done",
+      "evidence": "43/43; ten consecutive calls incl. three forced provider failures all ended with a stored transcript",
+      "pr": 83
     },
     {
       "id": "S20",
