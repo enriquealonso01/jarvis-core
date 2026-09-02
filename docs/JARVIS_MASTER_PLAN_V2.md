@@ -1074,6 +1074,12 @@ autonomous loop is ever pointed at the suite again.
 ## S10 — Grants, merge, deploy
 *Size: 2–3 days.*
 
+> **S42 changes when a grant is needed, not how one works.** Private actions —
+> anything only Enrique can see — need no grant and no approval at all; this
+> machinery is for externally visible work. Build the eight conditions here
+> exactly as written: S42 widens what proceeds without asking, and weakens none
+> of them.
+
 **Build** Task grants per IV.6 with all eight invalidation conditions. Merge and deploy broker-gated. Production on professional projects needs a live approval and defaults off.
 
 **Test** Each of the eight invalidation conditions **individually**. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
@@ -2700,6 +2706,27 @@ friction the requirements name.
 The approval gate is for externally visible actions Jarvis **proposes, infers,
 expands beyond the request, or initiates on its own.** Those are the ones he did
 not ask for.
+
+### How this uses S10's grants rather than replacing them
+
+S10 already builds task grants: an instruction pre-authorises named actions for a
+task, bound to a commit, with eight conditions that invalidate it. **That is the
+machinery for exactly what this step describes**, and the two must be built as one
+thing, not two.
+
+- **Private actions need no grant.** S10's machinery exists for externally visible work. If nobody but Enrique can see it, there is no grant, no approval and no prompt — just the audit row. This is where most of the friction disappears, and it disappears by doing *less*, not by adding a mechanism.
+- **A grant is how "explicit instruction counts as approval" is made durable and bounded.** The instruction authorises; the grant records what it authorised, for which task, against which commit, until when.
+- **The eight invalidation conditions still apply, all of them.** "He said do it" does not survive the scope expanding, the SHA changing, a destructive migration appearing, or billing needing to be enabled.
+
+That last point is the one to get right, because this step could be misread as
+loosening it. **It does not.** S42 widens what proceeds *without asking* — private
+work — and it does not weaken what invalidates an authorisation once given.
+
+Read the two rules together and they say the same thing from opposite ends: S10's
+condition 2 invalidates a grant when **scope materially expands**, and this step
+gates externally visible actions Jarvis **proposes, infers or expands beyond the
+request**. Those are one rule. An action Enrique did not ask for does not inherit
+the authority of one he did.
 
 ### Visibility is the test, not the tool
 
