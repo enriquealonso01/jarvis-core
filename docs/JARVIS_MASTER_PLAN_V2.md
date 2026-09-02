@@ -407,6 +407,32 @@ age.
 **Nothing is ever dropped for being busy.** If Jarvis is working and Enrique
 sends three more things, all three are captured, threaded, and queued.
 
+**Enrique's reordering always wins.** A manual reprioritise in the console beats
+every rule above it, including the starvation cap. He does not have to argue with
+the scheduler.
+
+### The queue is a thing he can see
+
+Not a Redis list hidden in the backend. The running item shows its project,
+objective, **elapsed time** and **current phase** (`engineering → testing`); each
+queued item shows its project, objective and **when it was added**. Position is
+meaningful and visible, because a queue you cannot see is indistinguishable from
+a system that lost your request.
+
+### Conservative scheduling in V1, deliberately
+
+The default is **FIFO-ish**: priority and the starvation cap shape it, and
+nothing else does.
+
+There is an obvious next move — while task #1 sits in a ten-minute test suite,
+do lightweight prep for #2 rather than let the box idle. **That is explicitly not
+V1.** Opportunistic scheduling makes failures much harder to reason about: two
+tasks touching the box at once turns "which one broke it" into a question, and
+the whole recovery story in II.3 assumes it is answerable.
+
+Recorded here so it is neither invented early nor forgotten later. It needs an
+ADR, a measured idle-RAM figure, and the recovery semantics worked out first.
+
 ## II.5 Isolation
 
 A project is a security boundary. Concretely:
