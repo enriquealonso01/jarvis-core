@@ -10,6 +10,85 @@ test is a fix that stays fixed.
 
 Format: symptom → cause → fix → the general lesson.
 
+## Index
+
+This file is long enough that "read it before you write" is not an instruction
+anyone follows. **Read the section for the area you are about to touch** — that
+is two or three entries, and it is where the time is actually saved.
+
+**Phone**
+- [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
+- [One utterance produced several replies, and the call ran away](#one-utterance-produced-several-replies-and-the-call-ran-away)
+- [A python edit that asserted its anchors, failed, and left nothing behind](#a-python-edit-that-asserted-its-anchors-failed-and-left-nothing-behind)
+- [An assertion that could not fail because the code guarded twice](#an-assertion-that-could-not-fail-because-the-code-guarded-twice)
+- [A suite left live Level 3 approvals, and the next suite clicked one](#a-suite-left-live-level-3-approvals-and-the-next-suite-clicked-one)
+- [The scrubber redacted the search term, and the test reported a leak](#the-scrubber-redacted-the-search-term-and-the-test-reported-a-leak)
+- [`RETURNING` gave back the value it had just written](#returning-gave-back-the-value-it-had-just-written)
+- [The "are you still there?" prompt swallowed the caller mid-sentence](#the-are-you-still-there-prompt-swallowed-the-caller-mid-sentence)
+- [The runaway loop came back as a one-word kindness](#the-runaway-loop-came-back-as-a-one-word-kindness)
+- [A faked provider hid what was actually said](#a-faked-provider-hid-what-was-actually-said)
+
+**Workers and the queue**
+- [The heavy lane never ran anything, for the entire life of v1](#the-heavy-lane-never-ran-anything-for-the-entire-life-of-v1)
+- [The recovery ladder parked tasks and never came back for them](#the-recovery-ladder-parked-tasks-and-never-came-back-for-them)
+- [A backoff is a lease, so the runner has to outlive it](#a-backoff-is-a-lease-so-the-runner-has-to-outlive-it)
+- [Task claiming silently broke and the suite stayed green](#task-claiming-silently-broke-and-the-suite-stayed-green)
+- [Watchdog tickets were opened and never closed](#watchdog-tickets-were-opened-and-never-closed)
+
+**Credentials and routing**
+- [Every model route failed and the reason was unknowable](#every-model-route-failed-and-the-reason-was-unknowable)
+- [Host logins were completed and Jarvis kept asking for them](#host-logins-were-completed-and-jarvis-kept-asking-for-them)
+
+**Backups and deploys**
+- [The backups did not contain the database](#the-backups-did-not-contain-the-database)
+- [Deploying the console 404'd the whole site](#deploying-the-console-404d-the-whole-site)
+- [The dev harness profile evaporated the first time the worker ran](#the-dev-harness-profile-evaporated-the-first-time-the-worker-ran)
+- [Assertions inside `$( )` are decoration: the subshell throws the count away](#assertions-inside---are-decoration-the-subshell-throws-the-count-away)
+- [Retryable failures leave tasks queued, and the next test claims them](#retryable-failures-leave-tasks-queued-and-the-next-test-claims-them)
+- [A containment tripwire that destroyed two correct runs](#a-containment-tripwire-that-destroyed-two-correct-runs)
+- [A vague report is not the same as an unreproducible one](#a-vague-report-is-not-the-same-as-an-unreproducible-one)
+- [The Supervisor answered the wrong message when two arrived at once](#the-supervisor-answered-the-wrong-message-when-two-arrived-at-once)
+- [A fixture that lied about being GitHub-linked parked every successful run](#a-fixture-that-lied-about-being-github-linked-parked-every-successful-run)
+- [`info/exclude` lives in the COMMON dir, and the first real run proved it](#infoexclude-lives-in-the-common-dir-and-the-first-real-run-proved-it)
+- [The harness could edit but not execute, so its loop could never finish](#the-harness-could-edit-but-not-execute-so-its-loop-could-never-finish)
+- [A worktree's `.git` is a file, so the exclude was never written](#a-worktrees-git-is-a-file-so-the-exclude-was-never-written)
+- [Phases were recorded only on the success path, so crashes lost them](#phases-were-recorded-only-on-the-success-path-so-crashes-lost-them)
+- [A two-phase key test regenerated the keys between the phases](#a-two-phase-key-test-regenerated-the-keys-between-the-phases)
+- [A restart threw away the run it was supposed to preserve](#a-restart-threw-away-the-run-it-was-supposed-to-preserve)
+- [`kill -TERM -1` does not signal PID 1, so the repro missed the bug](#kill--term--1-does-not-signal-pid-1-so-the-repro-missed-the-bug)
+- [A failed harness run was recorded with a blank summary](#a-failed-harness-run-was-recorded-with-a-blank-summary)
+- [The runner had no memory ceiling](#the-runner-had-no-memory-ceiling)
+
+**Test environment**
+- [The API could not start anywhere except the box](#the-api-could-not-start-anywhere-except-the-box)
+- [A test changed the API container's environment and every later suite lied](#a-test-changed-the-api-containers-environment-and-every-later-suite-lied)
+- [A bind mount left a directory where the test expected a file](#a-bind-mount-left-a-directory-where-the-test-expected-a-file)
+- [The build-fails-silently trap, a third time — and the fix](#the-build-fails-silently-trap-a-third-time--and-the-fix)
+- [The seed did not reset what a test had created, so tests changed each other](#the-seed-did-not-reset-what-a-test-had-created-so-tests-changed-each-other)
+- [A fixture keyed on a phrase swallowed every longer message containing it](#a-fixture-keyed-on-a-phrase-swallowed-every-longer-message-containing-it)
+- [TRUNCATE CASCADE quietly deleted every conversation](#truncate-cascade-quietly-deleted-every-conversation)
+- [The sabotage did not compile, so the build failed and the old image kept running](#the-sabotage-did-not-compile-so-the-build-failed-and-the-old-image-kept-running)
+- [A whole test run went red on a UUID that was perfectly valid](#a-whole-test-run-went-red-on-a-uuid-that-was-perfectly-valid)
+- [A deliberate sabotage silently did nothing, and the test "passed"](#a-deliberate-sabotage-silently-did-nothing-and-the-test-passed)
+- [The shell rewrote the path, and the suite blamed the product](#the-shell-rewrote-the-path-and-the-suite-blamed-the-product)
+- [Assertions counted against the whole database, not against the run](#assertions-counted-against-the-whole-database-not-against-the-run)
+- [Every live update the runner sent went into an empty room](#every-live-update-the-runner-sent-went-into-an-empty-room)
+- [A CHECK constraint turned the recovery ladder into the loop it forbids](#a-check-constraint-turned-the-recovery-ladder-into-the-loop-it-forbids)
+- [A line in an activity feed took down a state transition](#a-line-in-an-activity-feed-took-down-a-state-transition)
+- [A script edited and run in the same command runs the version bash already read](#a-script-edited-and-run-in-the-same-command-runs-the-version-bash-already-read)
+- [The keyboard test pressed Enter on whatever it found, and cancelled the task](#the-keyboard-test-pressed-enter-on-whatever-it-found-and-cancelled-the-task)
+- [An unreachable API signed you out of a console you were signed in to](#an-unreachable-api-signed-you-out-of-a-console-you-were-signed-in-to)
+- [The test harness served the console from a different origin, and the CSRF guard did its job](#the-test-harness-served-the-console-from-a-different-origin-and-the-csrf-guard-did-its-job)
+- [A failed build left the last good one in place, and the sabotage passed](#a-failed-build-left-the-last-good-one-in-place-and-the-sabotage-passed)
+- [One open connection stopped every one-shot runner from exiting](#one-open-connection-stopped-every-one-shot-runner-from-exiting)
+- [The offline switch does not apply to localhost](#the-offline-switch-does-not-apply-to-localhost)
+- [A test left one row behind, and the seed died half-done](#a-test-left-one-row-behind-and-the-seed-died-half-done)
+- [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
+
+**Process**
+- [Thirty-one overnight ticks produced no progress on the thing that mattered](#thirty-one-overnight-ticks-produced-no-progress-on-the-thing-that-mattered)
+
+
 ---
 
 ## Phone
