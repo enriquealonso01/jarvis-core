@@ -1726,6 +1726,55 @@ Frozen. These are the invariants every step is built against. Changing one is
 its own commit, never bundled into feature work — a schema or taxonomy change
 smuggled inside a feature is how a whole stage becomes unrevertable.
 
+## IV.0 The three core objects
+
+The separation between these matters enormously, and getting it wrong is not
+recoverable later — the provenance chain either exists from the first write or
+it does not exist at all.
+
+**Inbox Event — exactly what Enrique gave Jarvis. Immutable.**
+
+A WhatsApp message, a voice note, a phone transcript, a console message, a file
+upload, a scheduled firing, a webhook. Written before any model sees it and
+**never edited, never corrected, never rewritten**. A bad transcription is fixed
+by adding a derived record that supersedes it, not by changing the original — the
+original is the evidence of what was actually said, and it is the only thing in
+the system that cannot be reconstructed.
+
+**Conversation — the ongoing context around something.**
+
+Scoped to a project, or global for the Supervisor thread. Titled from its first
+message, never named by hand. Holds his messages, Jarvis's replies, and agent
+activity in one readable thread.
+
+**Task — work Jarvis needs to perform.**
+
+From "investigate the inventory timeout, reproduce, fix, test, open a PR" down to
+"remember this".
+
+### The relationships, and they are not one-to-one
+
+```
+Inbox Event ──1:N──> Conversation      (S3 splitting: one memo, three projects)
+Conversation ─1:N──> Task              (one thread can spawn several pieces of work)
+Task ─────────N:1──> Conversation      (or none, for a scheduled task)
+```
+
+**One conversation contains several tasks** over its life, and a task may be
+trivial. Modelling these 1:1 is the mistake that makes both the console and the
+routing wrong: it forces a new thread per piece of work, which shreds the context
+that made the thread useful.
+
+### Provenance is the point
+
+Every derived record carries `origin_inbox_id` back to the immutable event that
+caused it. That chain is what makes **"nothing is lost"** a checkable property
+rather than a hope: from any task, PR or artifact, you can walk back to the exact
+words Enrique said, and from any inbox event you can enumerate everything that
+happened because of it.
+
+A record that cannot name its origin is a bug, even when its content is correct.
+
 ## IV.1 Schema
 37 tables, already migrated. The task table already carries `worktree_path`,
 `branch`, `head_sha`, `harness`, `external_session_id`, `auth_profile_id` — the
