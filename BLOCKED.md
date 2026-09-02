@@ -26,6 +26,27 @@ unblocked, finish it before starting anything new.
   ownership fixed, `runner.env` written, `dist/` built, migrations 010+011
   applied to the live DB, unit installed and enabled.
 
+## WhatsApp is not paired, and 19 notifications are waiting on it
+
+- **Step:** S37 item 4
+- **Blocked on:** Scanning a QR code with your phone. Only you can do that.
+- **What is ready:** The whole path, proven as far as it can be proven without a
+  phone. The bridge exposes an HMAC-authenticated send route inside OpenClaw,
+  the worker calls it, and 19 queued notifications sit at `attempts = 0` with
+  `channel not paired yet; deferred without spending an attempt`.
+- **Why they are deferred rather than retried:** Wiring a real transport turned
+  a channel that never sent anything into one that tries and is refused. Left
+  alone, the retry curve would have spent all seven attempts before you scanned
+  anything, marked the queue `failed`, revived it, and looped. Deferring keeps
+  all 19 intact so that on pairing each arrives exactly once - not zero.
+- **What I need you to do:** Nothing yet. The channel is not configured in
+  OpenClaw at all (`openclaw channels list` reports none), so there is no QR to
+  scan yet. I am doing that next; you will get the QR when there is one.
+- **What I could not test:** Delivery itself. Even `--dry-run` needs a live
+  channel, so the live path ends at `Channel is unavailable: whatsapp`. That
+  the 19 arrive exactly once can only be observed after you pair.
+- **Raised:** 2026-09-02 22:05
+
 ## Postgres password was not URL-safe
 
 - **Step:** S4
