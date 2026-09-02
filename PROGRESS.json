@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "Tier 1 latency — the spoken turn pinned to the small model, avg 398ms."
+  "working_on": "Fixed: Jarvis was rejecting its own outbound call legs on every placed call."
 }

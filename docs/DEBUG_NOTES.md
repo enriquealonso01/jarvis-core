@@ -21,6 +21,7 @@ is two or three entries, and it is where the time is actually saved.
 - [`plugins install` reported success while installing nothing](#plugins-install-reported-success-while-installing-nothing)
 - [An OpenClaw plugin http handler must write its own response](#an-openclaw-plugin-http-handler-must-write-its-own-response)
 - [Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval](#configuring-the-whatsapp-channel-needs-a-newer-runtime-and-a-non-interactive-approval)
+- [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
@@ -378,6 +379,28 @@ lived there too, and a deploy replaced it with main's copy, which lacks
 different clock than the code. And the install output said exactly what was
 wrong, both times, into a `>/dev/null` - suppressing the output of a step whose
 success you are assuming is how two hours disappear.
+
+### Jarvis rejected its own outbound calls, and the calls worked anyway
+**Symptom:** an Issue, `[telnyx] rejected a call from an unrecognised number`,
+five occurrences in a day, evidence `{"from": "+13057866217", "reason": "caller
+is not the owner"}`. That number is Jarvis's own Telnyx number.
+**Cause:** Telnyx sends `call.initiated` for outbound legs as well as inbound
+ones, and the owner check ran on both. Every call Jarvis placed was measured
+against "is the caller Enrique?", answered no - the caller is Jarvis - and was
+sent a `reject`.
+**Why nobody noticed:** the calls still connected. A later event arriving with no
+call row invents one, so the conversation carried on and the rejection showed up
+only as a ticket that looked like nuisance callers. A self-healing fallback hid a
+real defect for a day.
+**Fix:** `isOwnOutboundLeg` - the ccid matching a row we placed (authoritative,
+from our own API response), Telnyx's own `direction`, or the from matching our
+number for the race where the webhook beats the write. The last is
+caller-controlled so it only ever WITHHOLDS: an outbound leg is neither answered
+nor rejected, so a spoofer gets silence.
+**Lesson two:** the test for "no spurious Issue" first passed under sabotage,
+because `raiseIssue` dedupes - a repeat bumps `occurrences` instead of adding a
+row. Count occurrences, not rows, or the assertion is blind to exactly the
+repetition it is meant to catch.
 
 ### Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval
 **Symptom:** `channels add --channel whatsapp` failed with `requires plugin API
