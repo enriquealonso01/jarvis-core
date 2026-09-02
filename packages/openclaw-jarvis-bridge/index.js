@@ -116,6 +116,8 @@ export default definePluginEntry({
     try {
       log.info?.(`[jarvis-bridge] api keys: ${Object.keys(api).join(",")}`);
       log.info?.(`[jarvis-bridge] runtime keys: ${Object.keys(api.runtime ?? {}).join(",")}`);
+      log.info?.(`[jarvis-bridge] runtime.channel: ${Object.keys(api.runtime?.channel ?? {}).join(",")}`);
+      log.info?.(`[jarvis-bridge] runtime.gateway: ${Object.keys(api.runtime?.gateway ?? {}).join(",")}`);
     } catch (err) {
       log.info?.(`[jarvis-bridge] surface probe failed: ${err?.message}`);
     }
