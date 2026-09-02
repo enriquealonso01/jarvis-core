@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "76dd6a283ffdcbba1e49b4244e79a7e17ec0bac5",
+  "plan_sha": "f8d203fca792f3efbb5e1fad11188fe418df6f70",
   "total_steps": 37,
-  "updated_at": "2026-09-02T06:41:30.473Z",
+  "updated_at": "2026-09-02T07:08:40.700Z",
   "current_step": "S12",
   "steps": [
     {
@@ -131,14 +131,16 @@
       "title": "The credential loop",
       "stage": 3,
       "state": "done",
-      "evidence": "N4 end to end from a phone with no session: 26 assertions, every effect checked in the database. A dead credential parks three tasks, produces ONE ticket and ONE link; the wrong key is refused with the provider's own words while the ticket stays open; the right key stores project-scoped, tests healthy, closes the ticket and requeues all three by itself. Replayed link 409, expired link 409 and stores nothing.",
-      "pr": 65
+      "pr": 65,
+      "evidence": "N4 end to end from a phone with no session: 26 assertions, every effect checked in the database. A dead credential parks three tasks, produces ONE ticket and ONE link; the wrong key is refused with the provider's own words while the ticket stays open; the right key stores project-scoped, tests healthy, closes the ticket and requeues all three by itself. Replayed link 409, expired link 409 and stores nothing."
     },
     {
       "id": "S17",
       "title": "Artifacts and output control",
       "stage": 3,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "75 assertions: 57 API + 18 browser. All twelve types render; provenance recorded AT registration; the full state path plus both exits; a rejection with a note creates a queued task against the same project; v2 supersedes v1 with both surviving and a line-level compare; superseding at the same path is REFUSED because the old bytes would be gone; quarantined artifacts cannot be downloaded at all; fifty artifacts paginate; a run with no output says so.",
+      "pr": 68
     },
     {
       "id": "S18",

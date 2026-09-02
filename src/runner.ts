@@ -616,16 +616,31 @@ async function registerArtifact(
   pool: pg.Pool,
   projectId: string | null,
   relPath: string,
+  provenance?: { taskId: string; authProfile: string },
 ): Promise<void> {
   const full = path.join(ARTIFACTS, relPath);
   const st = await fs.stat(full).catch(() => null);
   if (!st) return;
   const buf = await fs.readFile(full);
-  await pool.query(
-    `INSERT INTO artifacts (project_id, path, sha256, mime, bytes, source, quarantine_state, retention_class)
-     VALUES ($1, $2, $3, 'application/x-ndjson', $4, 'harness', 'clean', 'build')`,
-    [projectId, relPath, crypto.createHash("sha256").update(buf).digest("hex"), st.size],
-  );
+  // Through recordArtifact, with the provenance attached AT REGISTRATION (S17).
+  // The plan: "provenance written later is provenance that will sometimes be
+  // missing." This used to be a bare INSERT with no type, no state and no
+  // creator, so every run transcript arrived as an anonymous blob.
+  const { recordArtifact } = await import("./artifacts.js");
+  await recordArtifact(pool, {
+    projectId,
+    path: relPath,
+    type: "test_report",
+    mime: "application/x-ndjson",
+    bytes: st.size,
+    sha256: crypto.createHash("sha256").update(buf).digest("hex"),
+    source: "harness",
+    retentionClass: "build",
+    taskId: provenance?.taskId ?? null,
+    agent: "runner",
+    harness: HARNESS_SPEC,
+    authProfile: provenance?.authProfile ?? null,
+  });
 }
 
 async function park(
@@ -893,7 +908,10 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     // recorded nothing, so a resumed run had no phase to resume from.
     await drainPhases(pool, taskId, workspace.dir, phasesSeen).catch(() => undefined);
 
-    await registerArtifact(pool, task.project_id, relTranscript).catch(() => undefined);
+    await registerArtifact(pool, task.project_id, relTranscript, {
+      taskId,
+      authProfile: profile.id,
+    }).catch(() => undefined);
     if (outcome.sessionId) {
       await pool.query(`UPDATE tasks SET external_session_id = $2 WHERE id = $1`, [taskId, outcome.sessionId]);
     }
