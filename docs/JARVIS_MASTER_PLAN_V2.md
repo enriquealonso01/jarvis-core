@@ -706,6 +706,34 @@ and provenance (`conversation_id`, `origin_inbox_id`). Heavy work goes to
 about **when**, **where**, and **into what**. Three behaviours, all from the
 planning conversation, all currently absent.
 
+### 3z — The order, and it is a safety property (ADR 005)
+
+**An LLM is never the first reader of a confidential body.** The plan specified
+this step as model-driven classification and segmentation and skipped the
+pipeline ADR 005 defines, so the shipped router hands every raw inbound body to a
+model before anything has looked at it.
+
+The order:
+
+**A — Persist.** Inbox event written. No model. Already true.
+
+**B — Deterministic router. No LLM.** Assign project and conversation from rules,
+in order: an explicit user correction stored on the event; an in-message
+`#project-slug` or configured alias; a reply or thread pointer to an existing
+conversation; a correlation window (same channel and sender, last event under ten
+minutes, that conversation's project still exists, and the text does not name a
+different project); a sticky active project under two hours old; an allowlisted
+sender bound to one project. Failing all of those, the **global Supervisor
+conversation** — which is the first-run path and a perfectly good answer.
+
+**C — Only then, the model** — and only on content that has passed the
+confidentiality check (`looksConfidential`). A body that looks like code, a
+patch, a stack trace or a key does not go to a model to find out where it belongs;
+it lands in the global conversation and asks.
+
+Most messages route deterministically, which makes this cheaper as well as safer.
+The model is for the genuinely ambiguous ones, and those are the minority.
+
 ### 3a — Intent classification
 
 Every inbound item is one of: **capture** (remember this), **question** (answer
@@ -755,6 +783,8 @@ and restarted — a mid-flight interruption loses the work already done.
 - Ambiguity produces **one** short question, never a guess and never silence.
 
 ### Test
+- **A `#project-slug` message never reaches a model.** Spy on the completion call and assert zero — the same assert-the-absence technique VIII.0 records, applied to the cheapest and most common case.
+- **A body that looks like code routes to the global conversation without a model call**, even when a project name appears in it.
 - **The five-minute memo.** One voice note naming three projects → three destinations, correct projects, one source artifact, provenance on all three. This is the headline test for this step.
 - A memo naming a project that does not exist → asks, does not invent a project.
 - "Remember X" → memory, no task. "Fix X" → task. "Always do X" → config task. "What is X?" → answer.
@@ -1300,6 +1330,13 @@ recorded on the task.
 `resource.cpu`, `dependency.unavailable`, `agent.repeat` are in the taxonomy and
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
+
+**The deterministic router** *(ADR 005 Stage B; S3 shipped without it).* The
+router calls a model on every raw body, so an LLM is currently the first reader
+of everything including confidential content. Implement rules B1–B7 ahead of the
+model call, and gate the model on `looksConfidential`. **This is the highest-
+priority item in this step** — it is a security property, not a refinement, and
+it is live.
 
 **SSH hardening and the Tailscale cutover** *(V.1 claimed an end state the box
 does not have).* Set `PasswordAuthentication no` and `PermitRootLogin no` — the
