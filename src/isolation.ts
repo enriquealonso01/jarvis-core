@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { requireUser } from "./auth.js";
 import { raiseIssue } from "./notify.js";
+import { meteredRefusal } from "./quota.js";
 import { audit } from "./audit.js";
 
 const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
@@ -14,7 +15,10 @@ function originOk(req: FastifyRequest): boolean {
 
 export type Denial = {
   allowed: false;
-  code: "security.isolation" | "security.broker_deny";
+  // `budget.ceiling` is a refusal, not an isolation breach (S25). It is kept in
+  // this union so every caller already handling a denial handles it too, and
+  // separate from the other two so the audit row says which kind it was.
+  code: "security.isolation" | "security.broker_deny" | "budget.ceiling";
   reason: string;
 };
 
@@ -106,6 +110,23 @@ export async function checkConnectionAccess(
       projectId: args.projectId,
     });
     if (!profile.allowed) return profile;
+  }
+
+  /*
+   * The hard spend ceiling, enforced here as well as in routing (S25).
+   *
+   * Routing dropping metered routes is the ordinary path; this is the one that
+   * holds when something asks the broker for a metered credential directly.
+   * Without it the ceiling is advisory — anything that skips `routesForRole`
+   * spends past it, which is precisely the bypass the step asks to be closed.
+   *
+   * It is deliberately the LAST check: an isolation denial must not be reported
+   * as a budget denial, because the two send whoever reads it to different
+   * places. Nothing about the isolation decisions above changes here.
+   */
+  if (c.auth_profile_id) {
+    const over = await meteredRefusal(pool, c.auth_profile_id);
+    if (over) return { allowed: false, code: "budget.ceiling", reason: over };
   }
 
   return { allowed: true, connectionId: c.id, authProfileId: c.auth_profile_id };

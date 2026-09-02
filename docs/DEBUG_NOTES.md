@@ -990,6 +990,28 @@ tail of the log. A build that partially fails is worse than one that fails.
 
 ---
 
+### Three hours of work was committed to `main` because a heredoc had an apostrophe
+**Symptom:** `git push -u origin step/s25-model-routing` answered `src refspec
+step/s25-model-routing does not match any`. The branch did not exist. `git
+branch --show-current` said `main`, and S25's entire commit was sitting on it.
+**Cause:** the branch was created in the same compound command that wrote the
+migration with a quoted heredoc, and that command never ran a single statement:
+it died at parse time with ``unexpected EOF while looking for matching `'``. The
+Bash tool wraps the whole command in single quotes, so an apostrophe inside the
+heredoc body -- "the plan's own note" -- closes the wrapper. `<<'SQL'` protects
+the content from the SHELL, not from the wrapper around it. The checkout was the
+first statement in that command, so it never happened, and every later command
+ran on `main`.
+**Fix:** `git checkout -b <branch>` at the existing commit, then `git branch -f
+main <the merge commit it should have stayed at>`. No reset, nothing discarded,
+and nothing had reached the remote -- the push failing is what surfaced it.
+**Lesson:** two of them. Write files with the editor rather than heredocs when
+the prose contains apostrophes; and after `git checkout -b`, check
+`git branch --show-current` before working, not at push time. A branch that was
+never created looks exactly like a branch you are already on.
+
+---
+
 ## Process
 
 ### Thirty-one overnight ticks produced no progress on the thing that mattered

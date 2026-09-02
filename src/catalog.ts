@@ -2,6 +2,7 @@ import type pg from "pg";
 import { readJsonCredential } from "./credentials.js";
 import { raiseIssue } from "./notify.js";
 import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
+import { meteredAllowed } from "./quota.js";
 
 /**
  * Plan §35 roles. Order inside each list is the failover order.
@@ -63,7 +64,7 @@ type Candidate = {
  * Bootstrap routes from docs/INITIAL_MODEL_ROUTING.md, expressed as
  * provider-scoped candidates. Ids are still checked against the live catalog.
  */
-const CANDIDATES: Candidate[] = [
+export const CANDIDATES: Candidate[] = [
   // Supervisor: Groq primary, then Google, then NVIDIA.
   // Paid, MIT-weighted, and first in the chain. CANDIDATES is re-applied by every
   // catalog verification, so a route added only in SQL would be silently reverted
@@ -72,25 +73,44 @@ const CANDIDATES: Candidate[] = [
   // the same model, so "route the phone at utility for speed" would have changed
   // nothing — INITIAL_MODEL_ROUTING puts gpt-oss-20b at the head of utility.
   { provider: "fireworks", wanted: ["accounts/fireworks/models/deepseek-v4-flash"], contains: ["deepseek-v4-flash"], roles: ["supervisor"], route_order: 0,
-    open_weights: true, license: "MIT", input_cost_per_mtok: 0.14, output_cost_per_mtok: 0.28 },
-  { provider: "groq", wanted: ["openai/gpt-oss-120b"], contains: ["gpt-oss-120"], roles: ["supervisor"], route_order: 20 },
-  { provider: "groq", wanted: ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"], contains: ["qwen3"], roles: ["supervisor", "utility"], route_order: 30 },
+    open_weights: true, license: "MIT", input_cost_per_mtok: 0.22, output_cost_per_mtok: 0.66 },
+  { provider: "groq", wanted: ["openai/gpt-oss-120b"], contains: ["gpt-oss-120"], roles: ["supervisor"], route_order: 20,
+    open_weights: true, license: "Apache-2.0" },
+  // Utility only from S25. Supervisor keeps a primary and ONE fallback; this was
+  // the third and served 1 call in the life of the table.
+  { provider: "groq", wanted: ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"], contains: ["qwen3"], roles: ["utility"], route_order: 30,
+    open_weights: true, license: "Apache-2.0" },
   { provider: "google", wanted: ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash"], contains: ["flash"], roles: ["vision"], route_order: 60 },
-  { provider: "nvidia", wanted: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3-ultra-550b-a55b"], contains: ["nemotron-3-super"], roles: ["supervisor", "reviewer"], route_order: 10 },
+  // Reviewer only, for the same reason. It served 2 calls, always as a fallback.
+  { provider: "nvidia", wanted: ["nvidia/nemotron-3-super-120b-a12b", "nvidia/nemotron-3-ultra-550b-a55b"], contains: ["nemotron-3-super"], roles: ["reviewer"], route_order: 10 },
 
   // Utility / fast triage.
-  { provider: "groq", wanted: ["openai/gpt-oss-20b"], contains: ["gpt-oss-20"], roles: ["utility"], route_order: 10 },
-  { provider: "nvidia", wanted: ["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-nano-3-30b-a3b"], contains: ["lightning"], roles: ["utility"], route_order: 30 },
-  { provider: "google", wanted: ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"], contains: ["flash-lite"], roles: ["utility"], route_order: 40 },
+  { provider: "groq", wanted: ["openai/gpt-oss-20b"], contains: ["gpt-oss-20"], roles: ["utility"], route_order: 10,
+    open_weights: true, license: "Apache-2.0" },
 
-  // Engineering + review on the free-tier API providers. Host subscriptions are seeded separately.
-  { provider: "nvidia", wanted: ["moonshotai/kimi-k3", "moonshotai/kimi-k2.6"], contains: ["kimi"], roles: ["senior_engineer"], route_order: 30 },
-  { provider: "nvidia", wanted: ["deepseek-ai/deepseek-v4-pro-0813", "deepseek-ai/deepseek-v4-flash-0731"], contains: ["deepseek-v4"], roles: ["senior_engineer", "reviewer"], route_order: 35 },
-  { provider: "google", wanted: ["gemini-3.1-pro-preview", "gemini-pro-latest", "gemini-2.5-pro"], contains: ["pro-latest"], roles: ["reviewer", "senior_engineer"], route_order: 40 },
+  /*
+   * Engineering and review on the hosted open-weights provider (S25).
+   *
+   * What used to be here was three free-tier candidates — NVIDIA Kimi, NVIDIA
+   * DeepSeek-Pro, Gemini Pro — all `degraded`, none of which had ever served a
+   * call. That is the "dead free-tier chain" the step is told to delete, and it
+   * had to be deleted HERE as well as in SQL: this list is re-applied by every
+   * catalog verification, so a row removed only by migration comes back within
+   * the hour. The plan's own Debug note predicted exactly that.
+   *
+   * The two that replace them are chosen, priced and justified in
+   * migrations/028_quota_routing.sql. Kimi K2.7 Code is the named engineering
+   * fallback; GLM-5.3 is a reviewer from a different family than the Claude
+   * implementer, which is what VI.3 is actually asking for.
+   */
+  { provider: "fireworks", wanted: ["accounts/fireworks/models/kimi-k2p7-code"], contains: ["kimi-k2p7-code"], roles: ["senior_engineer"], route_order: 40,
+    open_weights: true, license: "Modified MIT", input_cost_per_mtok: 0.95, output_cost_per_mtok: 4.0 },
+  { provider: "fireworks", wanted: ["accounts/fireworks/models/glm-5p3"], contains: ["glm-5p3"], roles: ["reviewer"], route_order: 4,
+    open_weights: true, license: "MIT", input_cost_per_mtok: 1.4, output_cost_per_mtok: 4.4 },
 ];
 
 /** Non-chat roles: listed, not chat-probed. */
-const NON_CHAT: Candidate[] = [
+export const NON_CHAT: Candidate[] = [
   { provider: "groq", wanted: ["whisper-large-v3-turbo", "whisper-large-v3"], contains: ["whisper"], roles: ["stt"], route_order: 10 },
   { provider: "nvidia", wanted: ["nvidia/nemotron-3-embed-1b", "nvidia/llama-3.2-nv-embedqa-1b-v1"], contains: ["embed"], roles: ["embeddings"], route_order: 30 },
 ];
@@ -464,8 +484,8 @@ export async function projectOwnedProfileIds(pool: pg.Pool): Promise<string[]> {
 
 /** Ordered, live-verified routes for a role. Empty means the role has no usable model. */
 export async function routesForRole(pool: pg.Pool, role: ModelRole): Promise<Route[]> {
-  const r = await pool.query<Route>(
-    `SELECT provider, model_id, endpoint_url, auth_profile_id
+  const r = await pool.query<Route & { input_cost_per_mtok: string | null }>(
+    `SELECT provider, model_id, endpoint_url, auth_profile_id, input_cost_per_mtok::text
      FROM model_registry
      WHERE approval_state = 'approved'
        AND endpoint_url IS NOT NULL
@@ -475,6 +495,33 @@ export async function routesForRole(pool: pg.Pool, role: ModelRole): Promise<Rou
      ORDER BY route_order, provider, model_id`,
     [role],
   );
+
+  /*
+   * The hard ceiling drops metered routes and nothing else (S25).
+   *
+   * Every route reached through this function is an HTTP call to a priced
+   * provider, so past the ceiling the list empties — and that is the intended
+   * behaviour for the Supervisor, which is metered. What must NOT stop is
+   * coding work, and it does not, because the engineer ladder runs on
+   * subscription logins that never come through here.
+   *
+   * Unpriced routes are treated as metered. `input_cost_per_mtok IS NULL` means
+   * unknown, never free — the same rule `/api/models` reports under
+   * `unpriced_routes`.
+   */
+  if (!(await meteredAllowed(pool))) {
+    for (const route of r.rows) {
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, metadata)
+         VALUES ('system', 'budget.ceiling_block', $1, $2)`,
+        [
+          `${route.provider}/${route.model_id}`,
+          JSON.stringify({ role, reason: "month-to-date spend is at the hard ceiling" }),
+        ],
+      ).catch(() => undefined);
+    }
+    return [];
+  }
   if (role !== "supervisor" && role !== "utility") return r.rows;
 
   const owned = new Set(await projectOwnedProfileIds(pool));

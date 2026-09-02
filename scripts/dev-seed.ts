@@ -174,6 +174,20 @@ async function main(): Promise<void> {
      ON CONFLICT (slug) DO UPDATE SET archived_at = NULL`,
   );
 
+  /*
+   * The heavy lane also asks the broker whether the profile may run the project
+   * (S25), and the broker fails closed. Without these rows every fixture project
+   * parks with "not allowlisted" and eighteen assertions in S11 fail for a
+   * reason that has nothing to do with what S11 tests.
+   */
+  await pool.query(
+    `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+     SELECT a.id, p.id, ARRAY['senior_engineer']
+       FROM auth_profiles a CROSS JOIN projects p
+      WHERE a.auth_type = 'subscription_login'
+     ON CONFLICT DO NOTHING`,
+  );
+
   // The heavy lane refuses to run without a completed host login. In dev there
   // is no subscription to log into, so point the profile at an empty config dir:
   // the fake harness ignores it, and the check that a profile must be *chosen*

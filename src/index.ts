@@ -18,6 +18,7 @@ import { registerSearchRoutes } from "./search.js";
 import { registerIsolationRoutes } from "./isolation.js";
 import { registerServiceRoutes } from "./services.js";
 import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } from "./blockers.js";
+import { ceilings, readQuota } from "./quota.js";
 import type { RawRequest } from "./hmac.js";
 
 const pool = createPool();
@@ -405,11 +406,29 @@ async function main() {
       "vision",
       "embeddings",
     ];
+    /*
+     * `routable` is the honest half of this list (S25).
+     *
+     * A `discovered` row is a candidate that has never passed a probe, and
+     * showing it in the failover order beside approved routes is how a chain
+     * comes to look three deep when it is one deep. The flag mirrors exactly
+     * what `routesForRole` will accept, so the console cannot disagree with the
+     * router about what would actually serve.
+     */
+    const routable = (m: { approval_state: string; health: string; endpoint_url: string | null; auth_profile_id: string | null }) =>
+      m.approval_state === "approved"
+      && ["healthy", "degraded"].includes(m.health)
+      && (m.endpoint_url != null || m.auth_profile_id != null);
+
     const byRole = roles.map((role) => ({
       role,
       routes: r.rows
         .filter((m) => (m.role_assignments ?? []).includes(role))
-        .sort((a, b) => a.route_order - b.route_order),
+        .sort((a, b) => a.route_order - b.route_order)
+        .map((m) => ({ ...m, routable: routable(m) })),
+      routable_count: r.rows.filter(
+        (m) => (m.role_assignments ?? []).includes(role) && routable(m),
+      ).length,
     }));
     // Spend and policy, so the console and the Supervisor read the same numbers.
     const totals = await pool.query<{
@@ -427,13 +446,42 @@ async function main() {
     );
     const t = totals.rows[0];
 
+    /*
+     * Quota, per profile, with its provenance (S25).
+     *
+     * `estimated` travels with every figure. A console that showed "cursor:
+     * exhausted until 19:40" without saying that both halves were inferred from
+     * one 429 would be presenting a guess as a reading.
+     */
+    const profiles = await pool.query<{
+      id: string; auth_type: string; harness_auth_dir: string | null; quota_json: Record<string, unknown> | null;
+    }>(
+      `SELECT id, auth_type, harness_auth_dir, quota_json FROM auth_profiles
+       WHERE auth_type = 'subscription_login' OR id IN (SELECT DISTINCT auth_profile_id FROM model_registry WHERE auth_profile_id IS NOT NULL)
+       ORDER BY id`,
+    );
+    const quota = await Promise.all(
+      profiles.rows.map(async (p) => ({
+        profile_id: p.id,
+        auth_type: p.auth_type,
+        logged_in: p.auth_type !== "subscription_login" ? null : Boolean(p.harness_auth_dir),
+        ...(await readQuota(pool, p.id)),
+      })),
+    );
+    const ceil = await ceilings(pool);
+
     return {
       models: r.rows,
       roles: byRole,
+      quota,
       spend: {
         month_to_date_usd: Number(t?.spend ?? 0),
         calls: Number(t?.calls ?? 0),
         ceiling_usd: t?.ceiling == null ? null : Number(t.ceiling),
+        soft_ceiling_usd: ceil.softUsd,
+        over_soft_ceiling: ceil.overSoft,
+        // Past this, metered routes drop out and subscription work carries on.
+        over_hard_ceiling: ceil.overHard,
         // Unpriced routes are reported, never assumed free.
         unpriced_routes: r.rows.filter(
           (m) => m.approval_state === "approved" && m.input_cost_per_mtok == null,

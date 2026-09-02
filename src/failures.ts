@@ -46,6 +46,17 @@ export type FailureVerdict = {
   maxRetries: number;
   /** What to tell him, in one line. */
   summary: string;
+  /**
+   * This engine is spent, as opposed to broken (S25).
+   *
+   * Both readings of `provider.cred_expired` park the task today, and they want
+   * opposite handling: a subscription that hit its limit comes back on its own
+   * and the work should move to the next engine now, while a credential that is
+   * invalid or logged out comes back only when Enrique does something. Marking
+   * the second as a quota would auto-heal it after the assumed window and fail
+   * again, forever, quietly.
+   */
+  quota?: boolean;
 };
 
 /**
@@ -53,11 +64,24 @@ export type FailureVerdict = {
  * "request failed", so whichever pattern is checked first wins — and the
  * specific one has to.
  */
-const PATTERNS: { cls: FailureClass; re: RegExp; summary: string }[] = [
+const PATTERNS: { cls: FailureClass; re: RegExp; summary: string; quota?: boolean }[] = [
+  /*
+   * First, and it has to be. "quota exceeded on disk" contains "quota
+   * exceeded", so with the subscription pattern above it a full disk was
+   * classified as a spent subscription — and once a spent subscription started
+   * marking the profile exhausted (S25), that misreading would have taken a
+   * working engine out of the ladder for five hours because a volume filled up.
+   */
+  {
+    cls: "resource.disk",
+    re: /ENOSPC|no space left|disk (is )?full|quota exceeded on disk/i,
+    summary: "the disk is full",
+  },
   {
     cls: "provider.cred_expired",
     re: /usage limit|quota exceeded|subscription.{0,20}(limit|expired)|plan limit|credit balance|insufficient_quota|billing/i,
     summary: "the model subscription hit its limit",
+    quota: true,
   },
   {
     cls: "provider.cred_expired",
@@ -68,11 +92,7 @@ const PATTERNS: { cls: FailureClass; re: RegExp; summary: string }[] = [
     cls: "model.rate_limit",
     re: /\b429\b|rate[ _]limit|too many requests|retry-after/i,
     summary: "the provider rate-limited the run",
-  },
-  {
-    cls: "resource.disk",
-    re: /ENOSPC|no space left|disk (is )?full|quota exceeded on disk/i,
-    summary: "the disk is full",
+    quota: true,
   },
   {
     /*
@@ -161,7 +181,7 @@ export function classifyHarnessFailure(args: {
   const haystack = [args.subtype ?? "", args.result ?? "", args.stderr ?? ""].join("\n");
   for (const p of PATTERNS) {
     if (p.re.test(haystack)) {
-      return { errorClass: p.cls, ...POLICY[p.cls], summary: p.summary };
+      return { errorClass: p.cls, ...POLICY[p.cls], summary: p.summary, quota: p.quota === true };
     }
   }
   return {
