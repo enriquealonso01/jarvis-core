@@ -48,6 +48,7 @@ is two or three entries, and it is where the time is actually saved.
 - [There are two `/opt/jarvis` trees and only one of them is the build context](#there-are-two-optjarvis-trees-and-only-one-of-them-is-the-build-context)
 - [The console has been reporting a build state from a file nobody updates](#the-console-has-been-reporting-a-build-state-from-a-file-nobody-updates)
 - [The em-dashes were never mis-encoded; the header was missing](#the-em-dashes-were-never-mis-encoded-the-header-was-missing)
+- [GitHub acknowledged the commit and then served the old file](#github-acknowledged-the-commit-and-then-served-the-old-file)
 - [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
 - [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
@@ -1189,6 +1190,30 @@ bytes of an em-dash as exactly `â€"`.
 the mojibake sequence in the actual file takes ten seconds and would have pointed
 at the transport immediately; "something in the write path" was a plausible story
 about a file that was never wrong.
+
+---
+
+### GitHub acknowledged the commit and then served the old file
+**Symptom:** the S26 live test passed 11/11, and the very next run failed three
+assertions — with the PREVIOUS run's `AGENTS.md` printed as the actual value. The
+run after that passed again.
+**Cause:** not the code. `PUT /repos/.../contents/AGENTS.md` returned 200 with a
+commit sha, and a `GET` of the same path microseconds later returned the blob
+that was there before. The Contents API is eventually consistent on read-back;
+the first run had no prior file to serve, which is why creating passed and
+replacing flaked.
+**Fix:** the test reads back until it matches the canonical row, bounded at eight
+attempts with 750ms between, and prints how many reads it took. Converging after
+three is information; never converging is a real failure.
+**How it was confirmed rather than assumed:** the sabotage round. With
+`githubPutFile` returning a fake success without writing, the failure was
+**exactly** the same three assertions with exactly the same actual value — which
+is what proved the flake had been a stale read of a write that did happen, and
+not a write that silently did not.
+**Lesson:** a read-after-write against someone else's API is not a read of your
+own database. If a test asserts on a remote resource it just changed, it has to
+converge on the expected value or say it could not — reading once and re-running
+on failure is how a real regression gets classified as a flake.
 
 ---
 
