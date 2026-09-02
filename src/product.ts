@@ -1121,12 +1121,28 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
   app.get("/api/artifacts", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;
+    /*
+     * Paginated (S17: "fifty artifacts on one project -> the page paginates
+     * rather than dying"). It used to return the newest 200 with no way to ask
+     * for the next page, so an artifact older than the two hundredth was
+     * unreachable through the console at all.
+     */
+    const q = req.query as { limit?: string; offset?: string; project_id?: string };
+    const limit = Math.min(Math.max(Number(q.limit ?? 50) || 50, 1), 200);
+    const offset = Math.max(Number(q.offset ?? 0) || 0, 0);
+    const projectFilter = q.project_id ?? null;
     const r = await pool.query(
       `SELECT a.id, a.project_id, a.path, a.mime, a.bytes, a.source, a.quarantine_state,
               a.retention_class, a.retain_until, a.permanent, a.sha256, a.created_at,
+              a.artifact_type, a.state, a.version, a.supersedes_id, a.reviewer_notes,
+              a.reviewed_at, a.delivered_at, a.external_url, a.task_id,
+              a.created_by_agent, a.created_by_model, a.created_by_harness,
+              a.created_by_auth_profile,
               p.slug AS project_slug, p.name AS project_name
        FROM artifacts a LEFT JOIN projects p ON p.id = a.project_id
-       ORDER BY a.created_at DESC LIMIT 200`,
+       WHERE ($1::uuid IS NULL OR a.project_id = $1)
+       ORDER BY a.created_at DESC LIMIT $2 OFFSET $3`,
+      [projectFilter, limit, offset],
     );
     const t = await pool.query<{
       all: string; quarantined: string; due_soon: string; bytes: string;
