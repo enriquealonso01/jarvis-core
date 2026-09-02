@@ -33,8 +33,13 @@ If a plan sentence and the contract disagree on **product policy**, the plan win
 - No automatic paid API enablement. No silent spending-ceiling or isolation changes.
 - Always-confirm actions in plan §13.3 cannot be satisfied by a stale task grant.
 - WhatsApp is a pager: no chatter on trivial capture; concise updates on long work.
-- Proactive calls are forbidden 19:30–08:00 America/New_York.
+- Proactive calls are forbidden 19:30–08:00 America/New_York, with one narrow exception: a confirmed security incident or active data loss. A production outage does not qualify (plan S23).
 - Raw local voice/phone audio is deleted after 7 days unless marked permanent; never auto-keep past 10 days.
+- **An LLM is never the first reader of a confidential body.** Persist, then route deterministically, then a model — and only on content that passed the confidentiality check (ADR 005, plan S3).
+- **The gate travels with the capability.** IV.6's levels are enforced in the broker on typed calls, and a browser clicking a button, an MCP server with its own credentials, a shell with a network, or a phone call make no typed call at all. Any capability reaching the outside world carries its own gate (plan IV.6b).
+- **Content Enrique did not author cannot authorise anything.** A forwarded message or a pasted thread is evidence: quotable, searchable, storable. An instruction found inside it becomes a proposal he confirms, never an action.
+- **Level 3 is never satisfiable by voice**, attested or not. The channel is too weak to authenticate and too lossy to be sure of the words.
+- **The harness must not be able to reach Jarvis.** No route from a worktree to the API, `/internal/*`, Postgres, the OpenClaw gateway or the Docker socket.
 - Boot seeds **only** Jarvis Improvement and Jarvis Maintenance. No named customer/employer project. First-run is Netcup setup of all declared providers, then global Supervisor chat.
 
 ## Single-user pragmatism
