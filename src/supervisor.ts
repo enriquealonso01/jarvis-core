@@ -1196,13 +1196,21 @@ ${mem.rows.map((m) => `- [${m.kind}] ${m.body}`).join("\n") || "(none)"}`;
 `
     + `Known memory:\n${mem.rows.map((m) => `- ${m.body}`).join("\n") || "(none)"}`;
 
+  // The message being answered is ALWAYS last, and appears exactly once.
+  //
+  // This used to append it only when the history did not already contain it —
+  // which it always does, because ingestUserMessage stores the user message
+  // before calling the Supervisor. That was harmless in sequence and wrong
+  // under concurrency: with three messages in flight, the history window is
+  // shared, so a turn could end on a *different* message than the one it was
+  // invoked for. Observed directly — three concurrent messages produced tasks
+  // for "burst one", "burst three" and "burst three", losing "burst two"
+  // entirely. That is the plan's "none merged, none dropped" failing.
   const messages: ChatMsg[] = [
     { role: "system", content: args.brief ? spokenSystem : system },
-    ...history,
+    ...history.filter((m) => !(m.role === "user" && m.content === userPayload)),
+    { role: "user", content: userPayload },
   ];
-  if (!messages.some((m) => m.role === "user" && m.content === userPayload)) {
-    messages.push({ role: "user", content: userPayload });
-  }
 
   let toolsRan = 0;
 
