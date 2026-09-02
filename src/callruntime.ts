@@ -291,8 +291,14 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
 
   // ------------------------------------------------------------ the answer
   const modelMs = Date.now() - deskAt;
-  const answer = outcome.answer
+  let answer = outcome.answer
     ?? "I could not get to the bottom of that on the line, sir. It is saved and I will follow up.";
+
+  // Say where it came from, when it came from somewhere.
+  const source = await citeSources(pool, ctx.inboxId).catch(() => null);
+  if (source && !answer.toLowerCase().includes(source.toLowerCase())) {
+    answer = `${answer.replace(/\s+$/, "").replace(/\.$/, "")} — that is from ${source}.`;
+  }
   const ttsAt = Date.now();
   const said = await saySafely(t, ctx, answer, "answer");
   await finishTurn(pool, turnId, {
@@ -334,6 +340,41 @@ async function deferred(
   const line = `${lead}${result.answer}`;
   await recordSpeech(pool, { ccid: ctx.ccid, turnId: args.turnId, kind: "answer", text: line });
   await ctx.speak(line, "answer").catch(() => false);
+}
+
+/**
+ * Where a spoken answer came from.
+ *
+ * The plan's test is "the answer is correct and cites what it came from". The
+ * citation is read from `audit_events` — the row the Supervisor writes when a
+ * tool ACTUALLY RUNS — rather than asked of the model, because a model asked to
+ * name its sources will happily name one it did not use. If no tool ran, nothing
+ * is appended: an answer from the model's own head must not be dressed up as a
+ * lookup.
+ */
+const SOURCE_NAMES: Record<string, string> = {
+  task_create: "the queue",
+  memory_search: "your memory",
+  memory_upsert: "your memory",
+  project_list: "your projects",
+  connection_list: "your connections",
+  issue_create: "the open issues",
+  models_list: "the model registry",
+  conversation_create: "your threads",
+};
+
+export async function citeSources(pool: pg.Pool, inboxId: string): Promise<string | null> {
+  const r = await pool.query<{ target: string }>(
+    `SELECT DISTINCT target FROM audit_events
+     WHERE actor = 'supervisor' AND action = 'supervisor.tool'
+       AND metadata->>'inbox_id' = $1
+     ORDER BY target`,
+    [inboxId],
+  );
+  const named = [...new Set(r.rows.map((x) => SOURCE_NAMES[x.target]).filter(Boolean))];
+  if (!named.length) return null;
+  if (named.length === 1) return named[0];
+  return `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
 }
 
 /** Per-leg timings for a call, for the console and for "it felt slow". */
