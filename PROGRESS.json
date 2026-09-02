@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "e5e5b7d75a41d011621f2702c75ca442a907cd2d",
   "total_steps": 40,
-  "updated_at": "2026-09-02T15:48:24.693Z",
-  "current_step": "S24",
+  "updated_at": "2026-09-02T15:58:51.376Z",
+  "current_step": "S25",
   "steps": [
     {
       "id": "S1",
@@ -210,14 +210,15 @@
       "id": "S23",
       "title": "Jarvis calls Enrique",
       "stage": 4,
-      "state": "not_started"
+      "state": "blocked",
+      "evidence": "Built and merged (PR #123): six reasons, quiet hours, the WhatsApp fallback, 54/54 in the fake. NOT done — the Done-when is 'a genuinely blocked task rings the phone during the day', and no real dial has happened: telnyx.connection_id is not pinned in site.yaml, so the outbound sweep correctly reports it as unable to dial. Blocked on Enrique."
     },
     {
       "id": "S24",
       "title": "Voice memory and review",
       "stage": 4,
-      "state": "in_progress",
-      "evidence": "34/34: summary, transcript, tasks and recording on one page; recall across calls; retention holds at the day boundary. PR open"
+      "state": "done",
+      "evidence": "34/34: both turns with timings, a summary naming what was asked, tasks with their project, the memory item found by an Alpha search, the console list; a 23:59 recording kept a full seven days, gone at day seven with its file while the transcript with an equally expired clock survives; a call whose audio expired still reviews. Two sabotage rounds (4 red, then 6 red). PR #125 + console PR #11 merged and deployed."
     },
     {
       "id": "S25",
@@ -295,7 +296,8 @@
       "id": "S37",
       "title": "WhatsApp",
       "stage": 7,
-      "state": "not_started"
+      "state": "not_started",
+      "evidence": "Enrique registered the WhatsApp number (consumer multi-device, so Baileys QR pairing works). openclaw was never configured: jarvis-openclaw-1 crash-loops exit 78, '[gateway] Missing config', /var/lib/jarvis/openclaw holds only an empty state/. Container stopped, not looping. First task is gateway mode + channel config + the jarvis-bridge plugin loading from /plugins/jarvis-bridge. BEFORE PAIRING: the untrusted-content rule has zero implementation — no untrusted flag, no is_forward, nothing in src/ or migrations — and this step calls that the injection vector for the whole system. Build it before the session is live. Verify by pairing and asserting a sent message lands as an inbox_event on the right conversation; the phone saying 'connected' proves nothing."
     }
   ],
   "gates": {
