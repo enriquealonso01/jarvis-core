@@ -63,6 +63,20 @@ code, since belt and braces is right here.
 against the property, not against one line of code. A sabotage that a redundant
 guard absorbs proves the guard, not the test.
 
+### A suite left live Level 3 approvals, and the next suite clicked one
+**Symptom:** S15's journeys failed on "the approval really changed state" the
+moment the re-auth work landed. The endpoint worked when called directly, and
+`deploy_staging` is not an always-confirm action, so the 403 made no sense.
+**Cause:** the new re-auth suite seeds `secrets.export`, `db.destructive` and
+`repo.delete` approvals and left some pending. S15's journey finds its row by
+searching every element for text and clicking the first Approve button beneath
+it — which was now one of those, and the server correctly demanded a password no
+browser test was going to type.
+**Fix:** the re-auth suite deletes its own always-confirm approvals at the end.
+**Lesson:** a suite that leaves live rows behind is a suite that breaks the next
+one, and the breakage lands somewhere unrelated. The browser test's crude
+row-finder made it worse, but the leftover data is what changed.
+
 ### The scrubber redacted the search term, and the test reported a leak
 **Symptom:** the canary test found the canary in `audit_events`, `messages` and
 `notifications_outbox` — and the rows it printed plainly read

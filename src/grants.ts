@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { requireUser } from "./auth.js";
 import { isAlwaysConfirm } from "./policy.js";
+import { bindingSha } from "./reauth.js";
 import { sseBroadcast } from "./sse.js";
 
 const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
@@ -86,9 +87,26 @@ export function registerGrantRoutes(app: FastifyInstance, pool: pg.Pool) {
       task_id?: string;
     };
     if (!b.action_type) return reply.code(400).send({ error: "action_type required" });
+    /*
+     * The approval is bound to exactly what it approves (Part V).
+     *
+     * The hash covers the action, its target, the environment and the state
+     * version it was computed against. If any of them is rewritten before the
+     * click lands, the recomputed hash differs and the decision is refused —
+     * rather than applied to whatever is current now, with a complete audit
+     * trail saying it was authorised.
+     */
+    const binding = bindingSha({
+      actionType: b.action_type,
+      target: b.target ?? null,
+      environment: b.environment ?? null,
+      resourceVersion: b.resource_version ?? null,
+      projectId: b.project_id ?? null,
+    });
     const r = await pool.query(
-      `INSERT INTO approvals (action_type, project_id, target, environment, resource_version, task_id, state, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending', now() + interval '24 hours') RETURNING *`,
+      `INSERT INTO approvals (action_type, project_id, target, environment, resource_version, task_id,
+                              state, expires_at, binding_sha, requires_reauth)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending', now() + interval '24 hours', $7, $8) RETURNING *`,
       [
         b.action_type,
         b.project_id ?? null,
@@ -96,6 +114,8 @@ export function registerGrantRoutes(app: FastifyInstance, pool: pg.Pool) {
         b.environment ?? null,
         b.resource_version ?? null,
         b.task_id ?? null,
+        binding,
+        isAlwaysConfirm(b.action_type),
       ],
     );
     sseBroadcast("approval.updated", { id: r.rows[0].id });
