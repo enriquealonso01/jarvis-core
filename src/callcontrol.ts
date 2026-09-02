@@ -260,7 +260,15 @@ export function callerVerdict(payload: Record<string, unknown>): {
   return { allow: true, reason: attestation === "A" ? "owner, attested A" : "owner", from };
 }
 
-async function transcribe(pool: pg.Pool, filePath: string): Promise<string | null> {
+/**
+ * Exported so the voice-note path uses THIS transcriber and not a second one.
+ *
+ * It already carries the parts that are easy to leave out of a copy: the STT
+ * route is chosen from `model_registry` by role rather than hard-coded, the key
+ * is read through the credential store, and the request is budgeted so a call
+ * that never returns cannot hold its caller open forever.
+ */
+export async function transcribe(pool: pg.Pool, filePath: string): Promise<string | null> {
   if (phoneFailing("stt")) return null;
   const route = await pool.query<{ model_id: string; auth_profile_id: string }>(
     `SELECT model_id, auth_profile_id FROM model_registry
