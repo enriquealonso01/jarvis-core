@@ -118,10 +118,12 @@ export async function testConnection(pool: pg.Pool, slugOrId: string): Promise<C
        * still works — and persists the rotation while it is there, because
        * netcup issues a new refresh token every time.
        */
-      const { netcupAccessToken } = await import("./deviceflow.js");
-      const token = await netcupAccessToken(pool);
-      ok = token.ok;
-      detail = token.ok ? "netcup issued an access token" : token.detail;
+      const { netcupAccount } = await import("./deviceflow.js");
+      const account = await netcupAccount(pool);
+      ok = account.ok;
+      detail = account.ok
+        ? `netcup answered for customer ${account.username}`
+        : account.detail;
     } else if (c.slug === "backup_b2") {
       ok = true;
       detail = "restic verifies the repository on its own schedule";

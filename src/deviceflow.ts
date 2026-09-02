@@ -284,7 +284,15 @@ export async function exerciseRefreshToken(
   if (!id) return { ok: false, detail: "not connected" };
 
   const payload = await readJsonCredential(pool, id).catch(() => null);
-  const refresh = payload?.refresh_token;
+  /*
+   * `api_key` as well as `refresh_token`, because the token that is actually
+   * stored today was pasted through the API-key form before this flow existed.
+   * It IS a refresh token — an offline one, typ "Offline", no expiry — whatever
+   * field it was filed under, and refusing to read it would mean asking for it
+   * again for no reason. The first successful refresh rewrites it in the right
+   * shape.
+   */
+  const refresh = payload?.refresh_token ?? payload?.api_key;
   if (!refresh) return { ok: false, detail: "no refresh token stored" };
 
   if (FAKE) return { ok: true, detail: "exercised (fake)" };
@@ -312,7 +320,15 @@ export async function netcupAccessToken(
   const id = cred.rows[0]?.credential_id;
   if (!id) return { ok: false, detail: "netcup is not connected" };
   const payload = await readJsonCredential(pool, id).catch(() => null);
-  const refresh = payload?.refresh_token;
+  /*
+   * `api_key` as well as `refresh_token`, because the token that is actually
+   * stored today was pasted through the API-key form before this flow existed.
+   * It IS a refresh token — an offline one, typ "Offline", no expiry — whatever
+   * field it was filed under, and refusing to read it would mean asking for it
+   * again for no reason. The first successful refresh rewrites it in the right
+   * shape.
+   */
+  const refresh = payload?.refresh_token ?? payload?.api_key;
   if (!refresh) return { ok: false, detail: "no refresh token stored" };
 
   if (FAKE) return { ok: true, accessToken: "fake-access-token" };
@@ -356,6 +372,35 @@ export async function netcupAccessToken(
     .query("UPDATE auth_profiles SET health = 'healthy' WHERE id = 'netcup_scp'")
     .catch(() => undefined);
   return { ok: true, accessToken: String(answer.json.access_token) };
+}
+
+/**
+ * Read something back, with the token, as proof it is a live credential.
+ *
+ * Netcup's OAuth token is scoped `offline_access profile email` with audience
+ * `account` — it authenticates against the SCP realm's ACCOUNT service, not
+ * against a server-management API. Probing for a server list with it returns
+ * nginx 404s at every path tried; the server list lives behind the SCP UI's own
+ * backend, or the older SOAP `WSEndUser` API with a webservice password, which
+ * is a different credential entirely.
+ *
+ * So the liveness check is the account read: it is an authenticated request that
+ * only a working token can make, and it comes back with the customer number.
+ * That is the honest proof available, and it is worth much more than the
+ * `ok = true` this connection used to report.
+ */
+export async function netcupAccount(
+  pool: pg.Pool,
+): Promise<{ ok: true; username: string; email: string } | { ok: false; detail: string }> {
+  const token = await netcupAccessToken(pool);
+  if (!token.ok) return { ok: false, detail: token.detail };
+  if (FAKE) return { ok: true, username: "fake", email: "fake@example.invalid" };
+  const res = await fetch("https://www.servercontrolpanel.de/realms/scp/account", {
+    headers: { Authorization: `Bearer ${token.accessToken}`, Accept: "application/json" },
+  }).catch(() => null);
+  if (!res || !res.ok) return { ok: false, detail: `netcup answered ${res?.status ?? "nothing"}` };
+  const json = (await res.json().catch(() => ({}))) as { username?: string; email?: string };
+  return { ok: true, username: String(json.username ?? ""), email: String(json.email ?? "") };
 }
 
 export function registerDeviceFlowRoutes(app: FastifyInstance, pool: pg.Pool): void {
