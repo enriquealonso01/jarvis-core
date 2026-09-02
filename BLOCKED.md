@@ -328,6 +328,28 @@ unblocked, finish it before starting anything new.
   above the layer the test touches.
 - **Raised:** 2026-09-02 17:55Z
 
+## S27's Done-when needs a spoken sentence too
+
+- **Step:** S27
+- **Blocked on:** You saying something to Jarvis. Same shape as S26's blocker.
+- **The Done-when:** "a sentence changes a different project's behaviour, is
+  auditable a week later, and can be rolled back."
+- **Where it stands:** all three are built and proved through the dispatcher a
+  model turn drives — 85 assertions. A change lands on the project he NAMED
+  while the conversation is scoped to another one; the immutable list refuses and
+  raises an approval; an ambiguous instruction returns one question and writes
+  nothing at all; rollback restores a previous value exactly by writing a new
+  version, so history is never rewritten. There is exactly one writer, asserted
+  by reading `src/`.
+- **What I need you to do:** tell Jarvis to change something about a project you
+  are not talking about — "from now on nobody deploys Alpha without asking me" —
+  and then, later, ask it what changed and to put it back.
+- **The honest gap besides the voice:** "auditable a week later" is proved by
+  backdating a row and asking for the last seven days. That tests the query, not
+  the passage of time. Only time tests the passage of time; the first real
+  question you ask a week from now is the real assertion.
+- **Raised:** 2026-09-02 18:40Z
+
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
 
 - **Step:** S37
