@@ -201,6 +201,40 @@ unblocked, finish it before starting anything new.
   assertions, including that the only thing that rings at 20:00 is a security
   event).
 - **Raised:** 2026-09-02 17:15Z
+- **Resolved:** 2026-09-02 18:21Z — Enrique saved the number and turned on
+  Emergency Bypass, and the next call rang. One call placed (not two — through
+  `placeCall` directly rather than the sweep, which walks every reason and
+  dialled twice last time). The trail, from `call_transitions`:
+  `call.answered` at 18:21:22 entering from state **`ringing`**, greeting
+  played, `call.playback.ended`, `call.transcription` at 18:21:38 — he said
+  "This is just a test. Thank you." — Jarvis answered (ack 899ms, model 822ms,
+  total 2793ms), then `call.hangup` at 18:21:46. One row in `calls`, and the
+  `security_event` row stayed `failed` and untouched.
+  **S23 is still not done: two of its three halves are observed.** Placing and
+  ringing are real; "stays silent at 21:00" is so far only proved in the fake.
+  See the next entry.
+
+## S23's third half: nothing has been observed staying silent
+
+- **Step:** S23
+- **Blocked on:** A decision from you, or one call attempt after 19:30.
+- **The Done-when is a conjunction:** "a genuinely blocked task rings the phone
+  during the day **and** stays silent at 21:00." The first half is now observed
+  in the world. The second is proved only in the fake — 54 of the 61 assertions,
+  including the one that matters most, that the *only* thing which rings at 20:00
+  is a security event, and that a blocked task at 20:00 becomes a WhatsApp plus
+  an Issue plus an 08:00 retry.
+- **Two ways to close it, both yours:**
+  1. After 19:30, tell me and I will put a blocked task on the retry path. The
+     phone should stay silent, a WhatsApp should arrive instead, and an Issue
+     should open with a retry time. That is the Done-when observed.
+  2. Say the fake's proof is enough for the quiet-hours half, and I will mark
+     S23 done recording exactly which half was observed where.
+- **Why I am not choosing:** the whole reason S23 sat blocked for a day was that
+  a phone which had never rung had not been observed ringing. The same sentence
+  applies to a phone that has never been observed staying quiet, and I would
+  rather ask once than quietly weaken the standard I was held to yesterday.
+- **Raised:** 2026-09-02 18:35Z
 
 ## IN FLIGHT — S23 outbound dial sends a blank `from`
 

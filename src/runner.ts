@@ -1067,6 +1067,30 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
      * rather than running on an engine nobody asked for.
      */
     const wantedRuntime = task.runtime ?? project?.default_runtime ?? null;
+
+    /*
+     * A name nobody recognises is a typo in every mode, so this is checked
+     * before the fake-harness short-circuit rather than after it. The first
+     * version of this had the order the other way round, which meant that under
+     * the fake harness — the mode every offline suite runs in — a task could ask
+     * for "codex-that-is-not-here" and quietly run on the fake. The selection
+     * logic was unreachable by exactly the tests written to exercise it.
+     */
+    if (wantedRuntime && !runtimeFor(wantedRuntime)) {
+      await park(pool, task.id, "waiting_for_user",
+        `no runtime called ${wantedRuntime}`,
+        {
+          category: "config.invalid",
+          title: `[runtime] ${wantedRuntime} is not a runtime Jarvis knows`,
+          dedupeKey: `runtime.unknown.${wantedRuntime}`,
+          requiredAction:
+            `This task asks to run on "${wantedRuntime}", which is not a runtime. Known: `
+            + `${Object.keys(RUNTIMES).join(", ")}. Fix the task or the project default.`,
+        },
+        task.project_id);
+      return;
+    }
+
     const fromProfile = runtimeForHarness(profile.harness);
     const runtime = FAKE_HARNESS
       ? RUNTIMES.fake
