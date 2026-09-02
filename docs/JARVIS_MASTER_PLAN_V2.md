@@ -1935,6 +1935,42 @@ So: `knowledge_chunks` with a `tsvector` column, GIN index, chunked with overlap
 ranked with `ts_rank_cd`, scoped by `project_id` with a global tier for
 Supervisor memory. Every answer cites the chunk and the artifact it came from.
 
+### Chunking, which decides whether any of this works
+
+The plan said "chunked with overlap" and left it there, while its own Debug
+section says to check the chunking before the ranking. That is the whole
+difficulty in one line: **retrieval quality is mostly a chunking problem, and
+uniform chunking is the commonest cause of bad answers.**
+
+A fixed 800-token window does badly on all of these in different ways, so the
+chunker branches on what it is reading:
+
+| Content | Chunk by | Why |
+|---|---|---|
+| Prose documents, PDFs | section or heading, with overlap | a heading is the unit the author already chose |
+| Chat and forwarded threads | message, plus the two around it | one message is rarely answerable alone |
+| Call and voice transcripts | speaker turn, grouped to a few hundred tokens | a turn split mid-sentence loses who said it |
+| Source code | symbol — function, class, block | a function split in half retrieves as neither |
+| Spreadsheets and datasets | header row plus a bounded row window | rows without their header mean nothing |
+| Short notes | not at all | a chunked three-line note is three worse notes |
+
+Every chunk keeps a pointer to its source artifact **and its position inside it**,
+so a citation can say *"page 4"* rather than *"somewhere in this PDF"* — and so a
+wrong answer can be traced to the chunk that caused it rather than re-read whole.
+
+**Never chunk across a document boundary.** Two documents joined in one chunk
+produce an answer that is true of neither, and it is invisible in testing because
+the text reads fluently.
+
+### Which tier answers
+
+When a question could be served by more than one tier, prefer the one whose
+answer can be **cited most precisely**: activity history over knowledge when the
+question is about a decision, because the decision has a date and a task; the
+document over memory when the question is about a fact, because the document can
+be quoted. Memory answers what Jarvis was *told*, and that is the weakest
+evidence of the three.
+
 **Add embeddings when, and only when, a measured recall failure demands it.**
 Keep a file of queries that returned the wrong thing; when lexical search is
 demonstrably the cause of several, that is the evidence for ADR 017b and a local
@@ -1956,6 +1992,8 @@ embedding model on the system lane. Not before.
 - A question answerable from two tiers → both offered, each labelled, rather than one silently winning.
 - Ask something genuinely not in the corpus → it says it does not know. **A confident answer from nothing is the worst possible failure here**, and it is the one this design is most exposed to.
 - Ingest the same document twice → no duplicate chunks, no doubled ranking.
+- **One document of each type**, then ask a question only answerable from the middle of each. A PDF, a chat export, a call transcript, a source file, a spreadsheet and a three-line note. The note must come back whole.
+- Ask something answerable from two tiers → the more precisely citable one answers, and the other is offered rather than hidden.
 - A 200-page PDF and a 3-word note both ingest without special-casing.
 
 ### Debug
