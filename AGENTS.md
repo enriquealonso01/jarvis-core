@@ -4,23 +4,42 @@ You are implementing Jarvis, a single-user personal AI operating system for Enri
 
 ## Source of truth
 
+**Current — read these:**
+
 | Document | Role |
 |---|---|
-| `docs/JARVIS_V1_MASTER_PLAN_v1.2.md` | Current product, security, and preference decisions |
-| `docs/IMPLEMENTATION_CONTRACT.md` | How each plan section is implemented; fills every gap |
+| `docs/JARVIS_MASTER_PLAN_V2.md` | **The plan.** Product, security, preferences, and the numbered steps to build |
+| `PROGRESS.json` | Where the build actually is. Step state, with a merged PR behind anything marked done |
+| `BLOCKED.md` | What is waiting on Enrique |
 | `docs/adr/` | Architecture decisions. Do not silently reverse them |
-| `docs/DATA_MODEL.md` | Postgres entities, columns, indexes |
+| `docs/DEBUG_NOTES.md` | Bugs already paid for. Read the section for whatever you are about to touch |
+| `docs/DATA_MODEL.md` | Postgres entities. Documents the *starting* schema; add an entry in the same commit as a new table |
 | `docs/STATE_MACHINES.md` | Legal transitions |
-| `docs/FULL_LOOPS.md` | End-to-end flows that must work |
 | `docs/ERROR_TAXONOMY.md` | Failure class → retry / Issue / notify |
+| `docs/FULL_LOOPS.md` | End-to-end flows that must work |
 | `docs/SERVER_LAYOUT.md` | Host paths, Compose, RAM, network |
-| `docs/PHASE_CHECKLIST.md` | What ships in which phase, exit criteria |
-| `docs/PLAN_COVERAGE.md` | Every plan section mapped to a spec |
-| `docs/FIRST_SLICE.md` | First slice on Netcup |
 | `docs/SUPERVISOR.md` | Supervisor loop and tools |
-| `docs/INITIAL_MODEL_ROUTING.md` | Bootstrap model routes from plan §35 |
+| `docs/TEMPLATES.md` | `AGENTS.md` template and onboarding questions |
 
-If a plan sentence and the contract disagree on **product policy**, the plan wins. If they disagree on **wiring or mechanics**, the contract and ADRs win. If something is still missing, write an ADR; do not improvise a new subsystem.
+**Superseded — historical record, do not build from:**
+
+| Document | Why it is kept |
+|---|---|
+| `docs/JARVIS_V1_MASTER_PLAN_v1.2.md` | The frozen v1 product plan. **Superseded by the v2 plan**, which inverted its weighting |
+| `docs/FIRST_SLICE.md` | Its deferral of the executor is *why* v1 failed. `docs/GAP_ANALYSIS.md` explains |
+| `docs/PHASE_CHECKLIST.md`, `docs/PLAN_COVERAGE.md` | Map v1.2's section numbers, which no longer exist |
+| `docs/BUILD_ORDER.md` | Where the six decisions were made. Its Step 0–6 numbering is superseded by S1–S37 |
+| `docs/IMPLEMENTATION_CONTRACT.md` | Written against v1.2. **Still useful for wiring and defaults** where the v2 plan does not contradict it — never for product or sequencing |
+| `docs/INITIAL_MODEL_ROUTING.md` | Its free-tier routes are dead (v2 plan VI.0). The *shape* — one profile per provider — still holds |
+
+**Precedence, in order:** the v2 plan wins on product, policy and sequencing.
+ADRs win on architecture and mechanics. `IMPLEMENTATION_CONTRACT.md` fills wiring
+gaps neither has covered. If something is still missing, write an ADR — do not
+improvise a new subsystem.
+
+**If a superseded document and the v2 plan disagree, the plan wins and the older
+document is wrong.** It is kept because knowing *why* a decision was made is
+worth more than a tidy directory, not because it is still in force.
 
 ## Non-negotiables
 
