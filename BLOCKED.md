@@ -74,7 +74,14 @@ unblocked, finish it before starting anything new.
 - **Also blocks:** S7's first test ("a real PR on a real private repo"). The
   pull-request code is written and its three refusal paths are tested (21/21);
   only the live PR is missing. One run finishes it once the token works.
-- **Raised:** 2026-09-02 00:33   Resolved:
+- **Raised:** 2026-09-02 00:33   **Resolved:** 2026-09-02 02:55 — Enrique widened
+  the existing fine-grained token in place (All repositories; Administration,
+  Contents and Pull requests all read/write). Same token string, so the stored
+  credential and its fingerprint were unchanged and nothing was re-entered.
+  Verified through the broker before relying on it: `GET /user` 200 as
+  enriquealonso01, `GET /repos/enriquealonso01/jarvis-core` 200 with
+  `permissions.admin: true`. `POST /user/repos` proved by L6 creating two real
+  private repos. S5 21/21, S7 13/13, S8's N1.5 green.
 
 ## Intermittent: burst of three messages sometimes yields two tasks
 

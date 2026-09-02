@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "f0163cc9359532ca0a71a31031c003359fdfac6f",
+  "plan_sha": "aba7d7cb46528b4d825b219d0bc5abd763be6c22",
   "total_steps": 37,
-  "updated_at": "2026-09-02T00:00:56.882Z",
-  "current_step": "S5",
+  "updated_at": "2026-09-02T00:15:49.401Z",
+  "current_step": "S10",
   "steps": [
     {
       "id": "S1",
@@ -41,9 +41,9 @@
       "id": "S5",
       "title": "Project checkouts and deploy keys",
       "stage": 1,
-      "state": "partial",
-      "evidence": "deploy-key isolation proved against a real sshd (20/20); GitHub half blocked on PAT permissions",
-      "blocker": "BLOCKED.md#github-pat-cannot-create-repositories"
+      "state": "done",
+      "evidence": "L6 21/21 against real GitHub: two private repos, two deploy keys, alpha refused beta by GitHub itself",
+      "pr": 23
     },
     {
       "id": "S6",
@@ -56,24 +56,24 @@
       "id": "S7",
       "title": "The pull request",
       "stage": 1,
-      "state": "partial",
-      "evidence": "PR code + all three refusal paths tested (21/21); the real PR is blocked on the GitHub PAT",
-      "blocker": "BLOCKED.md#github-pat-cannot-create-repositories"
+      "state": "done",
+      "evidence": "a real PR on a real private repo, confirmed by the GitHub API; 13/13 live plus 21/21 refusal paths",
+      "pr": 29
     },
     {
       "id": "S8",
       "title": "The acceptance test that matters",
       "stage": 1,
-      "state": "partial",
-      "evidence": "N1 in acceptance-runner.py: 4/5 — seeded test really goes red->green on the branch, asserted on the diff; N1.5 (the PR) blocked on the GitHub PAT",
-      "blocker": "BLOCKED.md#github-pat-cannot-create-repositories"
+      "state": "done",
+      "evidence": "N1 green end to end: seeded test red, PR opened, test green on the PR's branch",
+      "pr": 30
     },
     {
       "id": "S9",
       "title": "Independent review",
       "stage": 2,
       "state": "done",
-      "pr": 31,
+      "pr": 32,
       "evidence": "independent review: planted off-by-one caught and sent back, clean change passes with ZERO findings, empty diff is an error; 18/18"
     },
     {
@@ -246,7 +246,7 @@
     }
   ],
   "gates": {
-    "1": "pending",
+    "1": "green",
     "2": "pending",
     "3": "pending",
     "4": "pending",
