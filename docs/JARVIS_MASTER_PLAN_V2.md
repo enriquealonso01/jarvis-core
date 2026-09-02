@@ -3531,7 +3531,10 @@ inventing them at the keyboard.
 
 ## Appendix — requirements traceability
 
-Every requirement from the planning transcript, and where it lives.
+Every requirement from the planning transcript, and where it lives. **Rows are
+added in the same change that adds the requirement** — this table went a dozen
+requirements out of date within a night, which made it worse than no table,
+because it reads as a completeness claim.
 
 | Requirement (transcript msg) | Where |
 |---|---|
@@ -3579,3 +3582,16 @@ Every requirement from the planning transcript, and where it lives.
 | Maintenance project that heals the system (17) | S34 |
 | Dump anything, ask about it later (01) | S30, N2 |
 | Never mix connections between projects (01, 20) | S5, S12, S31 |
+| Two browser modes: agent vs scraping engine (01) | S32 |
+| Three permission levels: safe / reversible / production (01) | IV.6 |
+| One input, several projects — the five-minute memo (15) | S3 |
+| Feedback typed while a task is running (15) | S3 |
+| Quota as a routable resource, not a failure (08, 24) | S25 |
+| The ten-rung recovery ladder (16) | II.3, S18b |
+| Artifacts as first-class objects with a lifecycle (18) | S17 |
+| Forwarded content is evidence, not instruction (01, 15) | S37 |
+| Deterministic routing before any model (ADR 005) | S3, S12b |
+| An LLM never reads a confidential body first (ADR 005) | S3, S12b |
+| The harness is disposable (01, turn 01) | II.2b, S28 |
+| Jarvis Improvement and Maintenance as system projects (17) | II.5, S34 |
+| Nothing developed on the laptop (ADR 014) | S1 |
