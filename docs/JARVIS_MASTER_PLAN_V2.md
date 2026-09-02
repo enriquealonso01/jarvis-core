@@ -721,7 +721,8 @@ integration mistakes than three agents coordinating through a document.
 5. **Commit per step,** with the test evidence in the commit body. One PR per step or per tight pair. A branch spanning five steps cannot be reviewed or reverted.
 6. **When something breaks twice for the same reason, write it down** in `docs/DEBUG_NOTES.md`. The call agent's self-transcription bug and its runaway-recording loop were each found the expensive way; both are now one-line comments in `callcontrol.ts`. Repeat that pattern.
 7. **Do not start the next step until the current one is observed working.** Half-finished steps compound.
-8. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
+8. **Every requirement gets an owner in the same change that writes it.** A rule stated in Parts I–VII with no step implementing it does not get implemented — it gets quoted approvingly and ignored. Before finishing any plan edit, ask which step builds this, and if the honest answer is "none", either put it in a step or put it in S18b. **This has already produced the visual direction, System Health, the status bar, the composer, the path guard, harness egress, the audit keys and the console hardening as orphans — six of them found only by going back and looking.** The check takes ten seconds; finding one later takes a tick.
+9. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
 
 ---
 
@@ -1472,6 +1473,21 @@ done in ten minutes; it is here because nothing else owns it.
 nothing enforced it).* Build the filter and the canary, and run the canary before
 this step is called done — the claim has been in the plan since the beginning
 with nothing behind it.
+
+**The extended path guard** *(II.5's table; S12 shipped covering less).* S12 fixed
+`browsers/` and other tasks' `worktrees/`. The table added `openclaw/` — which
+holds the paired WhatsApp session — and other projects' `artifacts/`. Neither is
+guarded, and the second is where transcripts and dumped documents live.
+
+**Harness network egress** *(II.5; written after S6 shipped).* Deny the worktree's
+namespace reach to `127.0.0.1`, the host addresses and the Docker network, so a
+run cannot POST to `/internal/*` or open a Postgres connection. Log the hosts
+each run contacts.
+
+**Audit metadata keys and console session hardening** *(IV.9 and Part V; neither
+had a step).* The canonical `metadata` keys with `outcome` required on every row;
+re-authentication for Level 3 approvals; approvals bound to the exact action and
+state they were computed against; the per-hour ceiling.
 
 **Internal HMAC idempotency** *(IV.7 named it; no step owned it).* Dedupe
 internal posts on their request id. It is the smallest of the five sources and
