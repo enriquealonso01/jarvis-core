@@ -26,6 +26,73 @@ unblocked, finish it before starting anything new.
   ownership fixed, `runner.env` written, `dist/` built, migrations 010+011
   applied to the live DB, unit installed and enabled.
 
+## The WhatsApp QR is ready for you to scan
+
+- **Step:** S37 item 3
+- **What I need you to do:** run this yourself, in your own terminal, and scan
+  the QR with WhatsApp on your phone (Settings > Linked devices > Link a device):
+
+      ssh jarvis-netcup
+      sudo docker exec -it jarvis-openclaw-1 openclaw channels login --channel whatsapp
+
+  It has to be your terminal because the QR refreshes every few seconds - one I
+  generated here would expire long before you saw it. I am deliberately not
+  pairing on your behalf.
+- **What is ready:** the channel is installed, enabled and configured
+  (`WhatsApp default (Enrique): installed, enabled, not linked`). I verified the
+  login command renders a live QR, then let it expire without scanning.
+- **What I had to change to get there:** the WhatsApp plugin requires OpenClaw
+  plugin API >= 2026.8.2 and the runtime was 2026.8.1, so I upgraded OpenClaw
+  and re-verified the bridge afterwards - it registers both hooks, and the send
+  route still authenticates, validates and reaches the CLI.
+- **Two things I set before handing you the QR:**
+  - `session.dmScope` is now `per-account-channel-peer`. It was unset, and the
+    default is `main` - one shared session for every DM, which is exactly the
+    memory role OpenClaw is not supposed to have.
+  - OpenClaw still has no usable model credential (`openai/gpt-5.6-sol`,
+    `Auth: no`), so it cannot compose a reply even if a hook failed open.
+    Adding any credential silently removes that guarantee.
+- **What I could not prove without you:** that `before_agent_run` actually
+  blocks on the WhatsApp inbound path. It needs a real inbound message. The
+  hook is registered on every gateway start (logged), but registered is not
+  fired, and I will not claim it until a message arrives and OpenClaw stays
+  silent. Send me any message after pairing and I will check.
+- **Raised:** 2026-09-02 22:20
+- **Since then:** the channel being *configured but not linked* changed the
+  failure text from `Channel is unavailable: whatsapp` to `OutboundDeliveryError:
+  No active WhatsApp Web listener`, which the deferral did not recognise - nine
+  queued notifications burned their whole retry budget in one sweep before I
+  caught it. Both strings now defer, the decision is a named function with the
+  real strings under test, and all 19 are back at `attempts = 0`.
+- **Voice notes are ready too:** audio is stored as a `raw_audio` artifact on the
+  same 7-day clock as call audio, transcribed with Groq Whisper, and the
+  transcript is routed exactly like typed text - including the untrusted rule, so
+  a FORWARDED voice note is filed as somebody else's words and obeys nothing.
+  Proven live by posting payloads at `/internal/inbox/ingest`. What the bridge
+  cannot know until you pair is which field carries the audio; it handles the
+  three the plugin uses and logs the shape of the first real one.
+
+## WhatsApp is not paired, and 19 notifications are waiting on it
+
+- **Step:** S37 item 4
+- **Blocked on:** Scanning a QR code with your phone. Only you can do that.
+- **What is ready:** The whole path, proven as far as it can be proven without a
+  phone. The bridge exposes an HMAC-authenticated send route inside OpenClaw,
+  the worker calls it, and 19 queued notifications sit at `attempts = 0` with
+  `channel not paired yet; deferred without spending an attempt`.
+- **Why they are deferred rather than retried:** Wiring a real transport turned
+  a channel that never sent anything into one that tries and is refused. Left
+  alone, the retry curve would have spent all seven attempts before you scanned
+  anything, marked the queue `failed`, revived it, and looped. Deferring keeps
+  all 19 intact so that on pairing each arrives exactly once - not zero.
+- **What I need you to do:** Nothing yet. The channel is not configured in
+  OpenClaw at all (`openclaw channels list` reports none), so there is no QR to
+  scan yet. I am doing that next; you will get the QR when there is one.
+- **What I could not test:** Delivery itself. Even `--dry-run` needs a live
+  channel, so the live path ends at `Channel is unavailable: whatsapp`. That
+  the 19 arrive exactly once can only be observed after you pair.
+- **Raised:** 2026-09-02 22:05
+
 ## Postgres password was not URL-safe
 
 - **Step:** S4
@@ -383,6 +450,110 @@ unblocked, finish it before starting anything new.
   the passage of time. Only time tests the passage of time; the first real
   question you ask a week from now is the real assertion.
 - **Raised:** 2026-09-02 18:40Z
+
+## IN FLIGHT — the bridge plugin targets an OpenClaw API that does not exist
+
+- **Step:** S37 item 3
+- **Blocked on:** Nothing of Enrique's. Recorded because it changes the shape of
+  the step and must not be forgotten.
+- **What is true now:** OpenClaw is configured and healthy for the first time
+  (`gateway.mode=local`, a gateway token in `/etc/jarvis/compose.env`, 13 stock
+  plugins, `[gateway] ready`). `channel_allowlist` has the commanding identity
+  and the outbox revived 18 notifications.
+- **What is wrong:** `packages/openclaw-jarvis-bridge/index.js` exports
+  `{ onInbound }` and returns `{ skipDefaultAgent: true }`. **Neither exists in
+  OpenClaw 2026.8.1.** The real hook surface is `onAgentRunStart`, `onSend`,
+  `onDeliveryStatus`, `onStartup` and friends, and the mechanism for taking a
+  conversation away from the default agent is called a **runtime takeover**
+  (`docs.openclaw.ai/plugins/sdk-channel-inbound`, "Building channel plugins").
+  The bridge was written against an assumed API and has never once been loaded,
+  so nothing ever contradicted it.
+- **How it surfaced:** `openclaw plugins install` refused it — first for a
+  missing `openclaw.extensions` key, then for a missing `openclaw.plugin.json`
+  manifest. Fixing those two would have made it *install*, and its hook would
+  simply never have fired: an inbound DM would have gone to OpenClaw's own
+  agent, which is precisely what the bridge exists to prevent.
+- **Why the plugin is NOT being installed yet:** a plugin that loads and does
+  nothing is worse than one that refuses to load. The refusal is currently the
+  only thing telling the truth.
+- **The real contract, read out of the docs rather than assumed:**
+  - `message_received` — the inbound hook. This is where Jarvis is told, and it
+    must persist BEFORE anything else happens (ADR 001/002).
+  - `before_agent_run` → `{ outcome: "block", reason, message? }` — the
+    documented way to stop OpenClaw's own agent. This is the real
+    `skipDefaultAgent`.
+  - `before_agent_reply` for a synthetic reply; `reply_dispatch` is the advanced
+    takeover seam. Neither is needed if the run is simply blocked.
+  - Caveat from the same page: `before_agent_run` is implemented by the embedded
+    and CLI runners and is NOT a gate on Codex or Copilot runtimes. WhatsApp DMs
+    go through the embedded runner, so it applies here — but that is a fact to
+    re-check, not a general guarantee.
+- **Config cannot do this instead.** `channels.<x>.dm.autoReply` exists for some
+  channels; the WhatsApp block has `dmPolicy`, `allowFrom`, `dmHistoryLimit` and
+  `dms`, and no `autoReply`. So silencing the default agent on WhatsApp needs the
+  hook — checked before writing code rather than after.
+- **Where it got to, 20:40Z.** The bridge is rewritten and LOADS:
+  `14 plugins: … jarvis-bridge …`, no register errors, and
+  `plugins.entries.jarvis-bridge.hooks.allowConversationAccess=true` cleared the
+  one thing `plugins doctor` complained about. Four wrong shapes were tried and
+  each was caught by OpenClaw rather than by me — `onInbound`/`skipDefaultAgent`
+  (does not exist), a bare default export and a `register` export (both called
+  with `undefined`), and `api.registerHook` for a typed hook, which the loader
+  warns is "not invoked".
+- **What is NOT proven, and it is the only thing that matters:** that
+  `before_agent_run` actually blocks. `openclaw agent -m "say OK"` ran through
+  the gateway and reached OpenAI (401, no credential) — it was not blocked. Two
+  readings and I cannot yet separate them:
+  1. that path does not dispatch `before_agent_run` at all. The docs say it is
+     implemented by "the embedded and CLI runners", and this went through the
+     gateway; or
+  2. the hook is still not registered. `openclaw hooks list` shows five bundled
+     hooks and none of ours — though that command manages "internal agent
+     hooks", which may be a different subsystem from plugin typed hooks.
+- **Why this is not a QR yet.** The only path that matters is an inbound
+  WhatsApp DM, and testing it needs pairing — while pairing before the block is
+  proven means Enrique's DMs get answered by OpenClaw's own agent, with its own
+  model and memory. That is the deadlock, stated plainly rather than resolved by
+  optimism.
+- **Settled 20:50Z, by instrumenting the hook rather than reasoning about it.**
+  The bridge logs on registration and on every fire. On restart the gateway logs
+  `[jarvis-bridge] registering message_received and before_agent_run` — so the
+  plugin IS registered and `api.on` is the right API. An `openclaw agent -m` turn
+  then reached OpenAI without a single "fired" line: **registered, but not
+  dispatched on that path.** That matches the documented caveat that
+  `before_agent_run` is implemented by "the embedded and CLI runners". Whether it
+  is dispatched on the WhatsApp INBOUND path is still unknown and still needs a
+  real message.
+- **What makes pairing safe anyway — checked, not assumed.** `openclaw models
+  list` reports exactly one model, `openai/gpt-5.6-sol`, `Auth: no`, `Local: no`.
+  OpenClaw has no usable model credential and cannot generate a reply at all;
+  that is why the agent turn 401'd rather than answering. So the risk that
+  pairing lets OpenClaw answer Enrique's DMs with its own agent is not merely
+  mitigated by the hook — it is currently impossible for a second, independent
+  reason. **That property must be re-checked before relying on it again**, since
+  adding any provider credential to OpenClaw would silently remove it.
+- **Therefore the order stands, but for a better reason:** pair only after the
+  outbox is wired (item 4), so the 19 queued notifications deliver exactly once
+  — not because pairing is dangerous, but because pairing is the moment they go
+  out.
+- **Item 4's send path, 20:55Z.** The worker cannot run the OpenClaw CLI (wrong
+  container) so it needs an HTTP route. What was ruled out and why:
+  - `POST /api/v1/admin/rpc` (the stock `admin-http-rpc` plugin) IS reachable
+    from the api container with the gateway token — `health` returns ok. But its
+    method list is `health`, `status`, `agents.create|delete|list|update`. There
+    is no send. It was enabled to find that out and has been **disabled again**:
+    it is a full operator surface, it is not needed, and leaving a speculative
+    widening of the attack surface in production because it was convenient to
+    test with is exactly the kind of thing nobody remembers to undo.
+  - The gateway's own protocol is WebSocket; a WS client in the worker is
+    possible but is the most code for the least support.
+  - **The chosen path:** the bridge already runs inside OpenClaw, and the plugin
+    api includes `registerHttpRoute`. The bridge exposes one internal send
+    endpoint, the worker POSTs to it, and the plugin performs the send with
+    OpenClaw's own helpers. It makes the bridge bidirectional, which it needs to
+    be anyway, and keeps the outbox's state machine untouched — the only change
+    in `worker.ts` is replacing the "transport not paired" stub with a call.
+- **Raised:** 2026-09-02 20:40Z
 
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
 

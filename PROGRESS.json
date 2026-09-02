@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S13b — publishing the build state so a code deploy cannot revert it, and separating awaiting-you from blocked on the bar."
+  "working_on": "S37 item 5 — voice notes: audio kept as raw_audio, transcribed by Groq, routed exactly like typed text."
 }

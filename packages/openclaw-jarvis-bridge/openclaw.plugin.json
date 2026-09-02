@@ -1,0 +1,14 @@
+{
+  "id": "jarvis-bridge",
+  "name": "Jarvis Bridge",
+  "description": "Hand every inbound message to Jarvis, and stop OpenClaw answering for it.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "activation": {
+    "onStartup": true
+  }
+}

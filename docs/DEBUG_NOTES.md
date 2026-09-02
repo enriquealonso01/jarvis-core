@@ -16,6 +16,12 @@ This file is long enough that "read it before you write" is not an instruction
 anyone follows. **Read the section for the area you are about to touch** — that
 is two or three entries, and it is where the time is actually saved.
 
+**Backups and deploys**
+- [A code deploy silently reverted files that were not code](#a-code-deploy-silently-reverted-files-that-were-not-code)
+- [`plugins install` reported success while installing nothing](#plugins-install-reported-success-while-installing-nothing)
+- [An OpenClaw plugin http handler must write its own response](#an-openclaw-plugin-http-handler-must-write-its-own-response)
+- [Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval](#configuring-the-whatsapp-channel-needs-a-newer-runtime-and-a-non-interactive-approval)
+
 **Phone**
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
 - [One utterance produced several replies, and the call ran away](#one-utterance-produced-several-replies-and-the-call-ran-away)
@@ -332,6 +338,65 @@ write on "something changed" leaves the first pass correct and the second wrong.
 ---
 
 ## Backups and deploys
+
+### A code deploy silently reverted files that were not code
+**Symptom:** the build bar read "S28 of 40" while main said 51 steps. Separately,
+and for two hours, a fixed OpenClaw plugin handler behaved exactly like the
+broken one no matter how many times it was reinstalled.
+**Cause:** one mechanism, two victims. Deploying is `git archive HEAD | tar -x`
+into `/opt/jarvis/core`, so a deploy from any branch writes that branch's copy of
+**every** file it touches. `PROGRESS.json` was served from that tree, so
+deploying a feature branch reverted the plan state. The plugin's `package.json`
+lived there too, and a deploy replaced it with main's copy, which lacks
+`openclaw.extensions` - after which every `openclaw plugins install` failed with
+`package.json missing openclaw.extensions` and left the previous build running.
+**Fix:** state is served from `/var/lib/jarvis/state`, which no deploy writes;
+`scripts/publish-progress.sh` publishes it from a ref.
+**Lesson:** the deploy target is not a good home for anything that changes on a
+different clock than the code. And the install output said exactly what was
+wrong, both times, into a `>/dev/null` - suppressing the output of a step whose
+success you are assuming is how two hours disappear.
+
+### Configuring the WhatsApp channel needs a newer runtime and a non-interactive approval
+**Symptom:** `channels add --channel whatsapp` failed with `requires plugin API
+>=2026.8.2, but this OpenClaw runtime exposes 2026.8.1`; after upgrading it then
+printed a capability box and stopped at `Setup cancelled.`
+**Cause:** two separate gates. The channel plugin has a runtime floor, and its
+capability approval is an interactive prompt that `channels add` has no flag for,
+so it always answers No when stdin is not a terminal.
+**Fix:** upgrade the image (`docker pull`, then `compose up -d openclaw`), then
+`openclaw plugins install clawhub:@openclaw/whatsapp --accept-capabilities`
+FIRST, and only then `channels add --channel whatsapp`, which now skips both.
+**Also:** `session.dmScope` defaults to `main` when unset - one shared session
+across every DM. Set it explicitly (`per-account-channel-peer`) before pairing,
+or OpenClaw becomes the memory it is not supposed to be.
+**Lesson:** an interactive prompt in a non-interactive context does not hang
+here, it silently chooses the safe answer and reports success-shaped output.
+
+### An OpenClaw plugin http handler must write its own response
+**Symptom:** every request to the plugin route hung until the client timed out.
+No error, no log line, and the handler was never entered.
+**Cause:** the handler was written Fastify-style, returning `{ status, body }`.
+The gateway calls `route.handler(req, res)` with raw Node objects and only
+checks whether the result is `false`, meaning "not handled, try the next route".
+Any other return value - including a perfectly formed response object - means
+"handled", so the gateway stops and nothing is written to the socket. `req.body`
+does not exist either; the body must be read off the stream, and it must be read
+raw, before parsing, or an HMAC over re-serialised JSON will not match.
+**Also:** `registerHttpRoute` requires `auth: "gateway" | "plugin"`. Omitting it
+is a registration ERROR, logged once at startup and easy to miss.
+**Lesson:** this was the fifth wrong plugin shape in this integration. Read the
+signature out of the shipped bundle before writing against it - `grep` for the
+call site, not the docs.
+
+### `plugins install` reported success while installing nothing
+**Symptom:** `plugins inspect` showed `Installed at:` an hour in the past after
+three `--force` installs, so the gateway kept running old code.
+**Fix:** never trust the install; compare the installed file with the source
+(`grep -c` for a string only the new version has) before concluding anything
+about behaviour.
+**Lesson:** verify the artefact, not the command.
+
 
 ### The backups did not contain the database
 **Symptom:** found during a restore drill. Everything restored except the only

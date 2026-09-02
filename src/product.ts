@@ -4,6 +4,8 @@ import type pg from "pg";
 import { ARTIFACTS_DIR, BROWSERS_DIR, WORKTREES_DIR } from "./paths.js";
 import { requireUser } from "./auth.js";
 import { ingestUserMessage } from "./inbox.js";
+import { splitAuthorship } from "./untrusted.js";
+import { voiceNoteToText, untranscribableNotice, type VoiceNote } from "./voicenote.js";
 import { checksum } from "./supervisor.js";
 import { sseAdd, sseBroadcast, sseHeartbeat } from "./sse.js";
 import { internalIdempotency, requestRawBody, verifyInternalHmac } from "./hmac.js";
@@ -1672,24 +1674,83 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
       external_id?: string;
       sender?: string;
       text?: string;
+      /**
+       * S37. Content he did not author, and the flag WhatsApp itself sets.
+       *
+       * The rule was implemented in `ingestUserMessage` and this route did not
+       * pass it through — so a forwarded message would have arrived as `text`,
+       * indistinguishable from something he typed, and the whole untrusted
+       * rule would have been bypassed by the one channel it was built for.
+       */
+      forwarded_text?: string;
+      is_forward?: boolean;
+      /**
+       * S37 item 5. A voice note, base64, with its mime type.
+       *
+       * Transcribed here and then treated as if it had been typed - the same
+       * router, the same untrusted-content rule, the same conversation. Speech
+       * is an input format, not a second kind of message, and giving it its own
+       * path is how the two drift apart.
+       */
+      audio_base64?: string;
+      audio_mime?: string;
     };
     const conv = await pool.query<{ id: string }>(
       `SELECT id FROM conversations WHERE project_id IS NULL ORDER BY created_at LIMIT 1`,
     );
     const conversationId = conv.rows[0]?.id;
     if (!conversationId) return reply.code(500).send({ error: "no global conversation" });
-    const text = b.text ?? "";
+    /*
+     * Whose words are these, decided here rather than downstream. A message
+     * flagged as forwarded with no separate field is somebody else's ENTIRELY,
+     * which is what the WhatsApp flag means when the adapter has nothing more
+     * to give.
+     */
+    /*
+     * Audio first, because the words have to exist before authorship can be
+     * decided about them. A transcript that fails leaves a notice in its place
+     * so the message is never silently dropped - the audio is already stored.
+     */
+    let spoken: VoiceNote | null = null;
+    if (b.audio_base64) {
+      spoken = await voiceNoteToText(pool, {
+        bytes: Buffer.from(b.audio_base64, "base64"),
+        mime: b.audio_mime ?? "audio/ogg",
+        source: b.channel ?? "whatsapp",
+      });
+    }
+    /*
+     * A forwarded voice note is somebody else's words just as much as forwarded
+     * text is, so the transcript enters `splitAuthorship` on the same footing.
+     * Transcribing does not launder authorship.
+     */
+    const spokenText = spoken?.transcript ?? null;
+    const authored = splitAuthorship({
+      text: b.is_forward ? b.text : (b.text || spokenText || undefined),
+      forwardedText: b.is_forward && spokenText ? spokenText : b.forwarded_text,
+      isForward: b.is_forward,
+    });
+    const text = authored.owner
+      || (spoken && !spokenText && !b.is_forward ? untranscribableNotice(spoken.artifactId) : authored.owner);
     const inbox = await pool.query<{ id: string }>(
-      `INSERT INTO inbox_events (external_id, channel, sender, raw_text, checksum, capture_state, processing_state, conversation_id)
-       VALUES ($1,$2,$3,$4,$5,'persisted','pending',$6)
+      `INSERT INTO inbox_events (external_id, channel, sender, raw_text, forwarded_text, checksum, capture_state, processing_state, conversation_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'persisted','pending',$7)
        ON CONFLICT DO NOTHING
        RETURNING id`,
-      [b.external_id ?? null, b.channel ?? "whatsapp", b.sender ?? "", text, checksum(text), conversationId],
+      [b.external_id ?? null, b.channel ?? "whatsapp", b.sender ?? "", text,
+       authored.forwarded || null, checksum(text || authored.forwarded), conversationId],
     );
     if (!inbox.rows[0]) return { ok: true, deduped: true };
+    // The recording belongs to the message it became, so the transcript can
+    // always be checked against what was actually said.
+    if (spoken) {
+      await pool.query(`UPDATE artifacts SET inbox_event_id = $1 WHERE id = $2`,
+        [inbox.rows[0].id, spoken.artifactId]);
+    }
     const result = await ingestUserMessage(pool, {
       conversationId,
       body: text,
+      forwardedText: authored.forwarded,
       inboxId: inbox.rows[0].id,
     });
     return { ok: true, inbox_id: result.inboxId };
