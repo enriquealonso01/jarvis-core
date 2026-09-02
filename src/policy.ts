@@ -130,6 +130,30 @@ export const ONBOARDING_FIELDS = [
   "migration_policy",
 ] as const;
 
+/**
+ * Questions "just use the defaults" may answer, and questions it may not.
+ *
+ * S26 says Jarvis asks and does not guess, and that stands. But rendering
+ * `AGENTS.md` needs twenty answers while the plan's must-ask list is eight, and
+ * the difference showed up the first time Enrique tried to create a project by
+ * voice: he said "For now, just select the defaults" and there was no way to
+ * accept it. Twenty questions read down a phone is not onboarding, it is an
+ * interrogation.
+ *
+ * So "use the defaults" is treated as what it is — an answer he gave — and it
+ * covers only the fields that describe how a project is BUILT. The ones that
+ * describe what a project IS, and who may see it, are never defaulted: those
+ * are the plan's must-ask list, and guessing at them is how a professional
+ * project ends up on a free consumer account.
+ */
+export const NEVER_DEFAULTED = new Set([
+  "name", "slug", "project_type",
+  "confidentiality", "production_status", "customer_facing",
+  "metered_spend_allowed", "spend_ceiling_cents",
+  "allowed_auth_profiles", "github_owner", "github_repo",
+  "deploy_policy",
+]);
+
 export function isBooleanish(value: string): boolean {
   return ["true", "false", "yes", "no"].includes(value.trim().toLowerCase());
 }

@@ -9,6 +9,7 @@ import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
 import { FAKE_MODEL, fakeCompletion, fakeThinkingTime } from "./fakemodel.js";
 import { enforceSoftCeiling } from "./quota.js";
 import {
+  NEVER_DEFAULTED,
   NON_MODEL_PROFILES,
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
@@ -126,6 +127,20 @@ const TOOLS = [
         },
         required: ["field", "value"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "project_onboarding_defaults",
+      description:
+        "He said to use the defaults, or that he does not mind. Answers every remaining "
+        + "BUILD question at once - commands, branch, gates, queue priority - and records that he "
+        + "chose it. It will NOT answer what the project is or who may see it: type, "
+        + "confidentiality, repository, auth profiles and deploy policy stay his. Use this the "
+        + "moment he says anything like 'just use the defaults' - do not read him a list of "
+        + "twenty questions.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -378,6 +393,7 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   project_list: "project.list",
   project_onboarding_start: "project.onboarding_start",
   project_onboarding_set: "project.onboarding_set",
+  project_onboarding_defaults: "project.onboarding_defaults",
   project_onboarding_finalize: "project.onboarding_finalize",
   config_change: "config.change",
   config_history: "config.history",
@@ -548,6 +564,44 @@ export async function runTool(
       [sess.rows[0].id, field, value],
     );
     return "ok";
+  }
+  if (name === "project.onboarding_defaults") {
+    const sess = await pool.query<{ id: string; answers: Record<string, string> }>(
+      `SELECT id, answers FROM onboarding_sessions WHERE conversation_id = $1 AND status = 'in_progress'
+       ORDER BY created_at DESC LIMIT 1`,
+      [conversationId],
+    );
+    if (!sess.rows[0]) return "no in-progress onboarding; call project.onboarding_start";
+    const a = sess.rows[0].answers ?? {};
+
+    /*
+     * "Use the defaults" is an answer, not a guess - but only about how the
+     * project is built. What it IS, and who may see it, stays his: those are the
+     * plan's must-ask questions, and defaulting them is how a professional
+     * project ends up on a free consumer account.
+     */
+    const filled: string[] = [];
+    const patch: Record<string, string> = {};
+    for (const field of ONBOARDING_FIELDS) {
+      if (NEVER_DEFAULTED.has(field)) continue;
+      if (a[field] && a[field].trim()) continue;
+      patch[field] = field === "default_branch" ? "main"
+        : field === "default_queue_priority" ? "normal"
+        : "none";
+      filled.push(field);
+    }
+    if (!filled.length) return "nothing left to default; every build question is already answered";
+
+    await pool.query(
+      `UPDATE onboarding_sessions SET answers = answers || $2::jsonb, updated_at = now() WHERE id = $1`,
+      [sess.rows[0].id, JSON.stringify(patch)],
+    );
+    const stillNeeded = [...NEVER_DEFAULTED].filter(
+      (f) => (ONBOARDING_FIELDS as readonly string[]).includes(f) && !a[f]);
+    return `defaulted ${filled.length} build questions at his request (${filled.join(", ")}). `
+      + (stillNeeded.length
+        ? `Still his to answer: ${stillNeeded.join(", ")}.`
+        : "Nothing else is outstanding.");
   }
   if (name === "project.onboarding_finalize") {
     const sess = await pool.query<{ id: string; answers: Record<string, string> }>(
