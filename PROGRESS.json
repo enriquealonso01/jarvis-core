@@ -378,5 +378,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "A ladder refusal now names the right remedy."
+  "working_on": "Fixtures now clean up after themselves; the queue is down from 7 waiting to 2."
 }

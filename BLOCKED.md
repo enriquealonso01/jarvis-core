@@ -26,6 +26,27 @@ unblocked, finish it before starting anything new.
   ownership fixed, `runner.env` written, `dist/` built, migrations 010+011
   applied to the live DB, unit installed and enabled.
 
+## 21 leaked fixture projects, and 6 GitHub repos, await your go-ahead
+
+- **Step:** housekeeping
+- **What happened:** several suites create a real private repo and a project row
+  and never tear either down. The S28 parity suite is the clearest case - it
+  printed the repository URL and exited. Every run left a project, its
+  credentials, and review Issues in your queue asking you to read a report about
+  a repository you have never seen.
+- **Fixed going forward:** a passing run now cleans up after itself
+  (`scripts/lib/fixture.ts`). A FAILED run is left standing on purpose, because
+  the rows are the evidence, and `KEEP=1` does the same for a passing one.
+- **What I need you to say:** whether to delete what has already accumulated.
+  120 project rows exist and 21 of them are fixtures (`s6-`, `s7-`, `s22-`,
+  `s28-`, `l6-`, `n1-` and friends), plus 6 private GitHub repositories on your
+  account. I have not deleted any of them: dropping rows and repositories is
+  irreversible and is your call, not mine.
+- **Already done, because it is reversible:** the three `[review]` tickets those
+  fixtures left in your queue are resolved with the reason recorded. Your queue
+  is down from 7 to 2.
+- **Raised:** 2026-09-02 23:30
+
 ## May a confidential project use telnyx, elevenlabs and composio?
 
 - **Step:** S37 / isolation
