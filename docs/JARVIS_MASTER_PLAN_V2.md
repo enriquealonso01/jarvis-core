@@ -2882,6 +2882,32 @@ This is the general ability, not a list. Adding a messaging channel, generating
 images, reaching a new service — those are illustrations. The requirement is that
 a missing capability becomes a piece of work rather than a refusal.
 
+### Extending itself is not modifying itself, and the difference is where the code lands
+
+This step and the handover section collide unless the boundary is drawn
+explicitly. S44 says Jarvis builds a capability and **then uses it.** The
+handover says Jarvis **may never merge or deploy to itself autonomously.** If a
+new tool is a change to `jarvis-core`, those two rules cannot both hold — using
+the tool requires shipping the control plane, which is precisely the thing that
+always needs Enrique.
+
+**So a capability Jarvis builds for itself does not land in core.** It lands as
+something *attachable*: an MCP server, an adapter, a configured connection, a
+script the runner can invoke — plugged in at runtime, not compiled into the thing
+doing the plugging.
+
+That resolution is not a workaround; it is the better architecture anyway:
+
+- **It keeps the handover rule intact.** Core is still only changed through review and approval, because nothing here changes core.
+- **It puts the new tool under S31's gate**, which already exists and is the right one: blast radius classified at attach time, by a person, before it is callable. A tool Jarvis wrote gets exactly the scrutiny a stranger's MCP server gets — **which is the correct amount, because nobody has run either of them before.**
+- **It stays disposable** (II.2b). A capability that turned out to be a bad idea is detached, not refactored out of a control plane it was welded into.
+
+**If a capability genuinely cannot be built as an attachable thing** — it needs a
+schema change, a new lane, a change to the broker — then it is not a tool. It is
+a change to Jarvis, and it goes through the handover's route: a proposal, a
+review, an approval, a deploy Enrique authorises. Say so plainly rather than
+finding a way to express it as a plugin.
+
 ### The boundaries it does not cross
 
 Everything in VI.1 and IV.6b applies unchanged. A new tool goes through the same
@@ -2897,6 +2923,8 @@ never self-service.
 - Ask for something plainly out of reach → it proposes an approach and an estimate rather than refusing or pretending.
 - Approve one → it builds, tests, classifies and uses it, and the PR is reviewable by a human.
 - The new tool respects isolation: usable in the project it was built for, denied elsewhere.
+- **Nothing it builds requires a core deploy to use.** Assert this directly: the capability works without `jarvis-core` being rebuilt. If it does not, the step built a change to Jarvis while calling it a tool.
+- A request that genuinely needs a core change → **it says so and proposes**, rather than finding a plugin-shaped way to express it.
 - Ask for something needing a new paid provider → **recommendation, not a signup.**
 - Ask for something genuinely unreasonable → says so plainly. **"I could build that but it would take a week and here is the cheaper alternative" is the right answer far more often than either extreme.**
 
