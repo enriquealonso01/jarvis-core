@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "f866a15f612f21dc474d3237b69e9f2ab1006abf",
+  "plan_sha": "713b7dcc1253bfaa78e61c3fc374bca9a32f6e6b",
   "total_steps": 37,
-  "updated_at": "2026-09-02T04:49:28.005Z",
-  "current_step": "S15",
+  "updated_at": "2026-09-02T06:05:06.183Z",
+  "current_step": "S12",
   "steps": [
     {
       "id": "S1",
@@ -122,9 +122,9 @@
       "id": "S15",
       "title": "Repair the degraded console",
       "stage": 3,
-      "state": "in_progress",
-      "pr": 58,
-      "evidence": "L17's six journeys pass on a 375px phone AND keyboard-only (36 assertions, each ending in a database check); console installable as a PWA; audit green on all 16 routes (99) plus forced states (10) = 145. PARTIAL: the twelve states are on /queue only — the other screens still fall through to a plain 'Loading…' for offline, expired session and server error."
+      "state": "done",
+      "pr": 62,
+      "evidence": "All four Done-when clauses observed. 170 assertions: audit 115 across 16 routes (overflow, accessible names, touch targets, colour-alone, AA contrast, reduced motion, focus at every keyboard stop, build-bar patterns for all 5 states), states 19 (each forced: empty, offline and permission-denied on ALL 15 routes, stale after a real minute offline, counts read from the database not the page's array), journeys 36 (six on a 375px phone and again keyboard-only, each ending in a DB check) + PWA installable."
     },
     {
       "id": "S16",
