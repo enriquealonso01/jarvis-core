@@ -170,4 +170,80 @@ unblocked, finish it before starting anything new.
   genuinely blocked task rings the phone during the day and stays silent at
   21:00", and a phone that has never rung has not been observed ringing.
 - **Raised:** 2026-09-02 18:05
+- **Resolved:** 2026-09-02 16:30Z — `telnyx.connection_id = 3039460355509061310`
+  (the "JARVIS" call-control application, the same connection inbound arrives
+  through) is pinned in `/etc/jarvis/site.yaml` on the box. A backup of the old
+  file is beside it as `site.yaml.bak-*`. **S23 is still not done** — the first
+  real dial after pinning it found a second defect; see the next entry.
 
+## IN FLIGHT — S23 outbound dial sends a blank `from`
+
+- **Step:** S23
+- **Blocked on:** Nothing of Enrique's. This is unfinished work, recorded here so
+  it is not lost.
+- **State:** `telnyx.connection_id` is pinned and read correctly — the refusal is
+  no longer "no connection_id pinned". A real `POST /v2/calls` now returns
+  `422 10004 Missing required parameter /from`.
+- **Cause, already found:** `placeCall` in `src/outbound.ts` (~line 183) reads
+  `whatsapp.owner_e164` and `whatsapp.jarvis_e164` for a **voice** call. The
+  phone pair is `telnyx.from_e164` (`+13057866217`) and `telnyx.to_e164`
+  (`+13055052646`); `whatsapp.jarvis_e164` is blank, so `from` went out empty.
+  Both are in `SiteConfig` already (`src/siteconfig.ts`).
+- **The fix:** read the telnyx pair for the dial, falling back to the WhatsApp
+  owner number for `to` only. Then place a real call and observe the phone ring.
+  No fake-mode test can catch this: `placeCall` returns before `telnyxDial` when
+  `JARVIS_TELNYX=fake`, so the live call IS the test.
+- **Two traps on the retry** (also in DEBUG_NOTES): `placeCall` refuses when
+  `attempts > 0`, and `reasonsToCall` skips any task that already has an
+  `outbound_calls` row. Reset the row first:
+  `UPDATE outbound_calls SET state='wanted', blocked_reason=NULL, attempts=0 WHERE id = ...`
+- **Current rows:** two `blocked_task` calls for the two `waiting_for_user`
+  tasks, both `state='failed'`, `attempts=1`. Placing both back to back would
+  ring Enrique twice in a minute, which the pager rule (§17) is against — place
+  one, confirm, then decide about the second.
+- **Raised:** 2026-09-02 16:50Z
+
+## Publishing `PROGRESS.json` is a habit, not a mechanism
+
+- **Step:** S13b (the build bar), surfaced 2026-09-02
+- **Blocked on:** Nothing of Enrique's — this is a design choice inside the
+  console deploy, and it is mine to make. Recorded because it is not done.
+- **What is wrong:** the bar fetches `/PROGRESS.json`, served from
+  `/opt/jarvis/control-center/PROGRESS.json` — a copy published by
+  `scripts/progress-publish.sh`, which is run by hand. It was published once at
+  00:41 and went 21 hours stale, reporting S5 / 37 steps against a repo on
+  S25 / 40. `deploy-control-center.sh` rsyncs `--delete`, so a console deploy
+  also removes the copy unless it is re-published afterwards.
+- **What Enrique asked for:** fix it structurally — one source, or publish on
+  every state change — and verify by advancing a step and watching the live URL
+  move with nobody running a script.
+- **Interim:** run `scripts/progress-publish.sh` after every
+  `progress-sync.mjs` **and** after every console deploy.
+- **Raised:** 2026-09-02 16:55Z
+
+## Deployed files are owned by a Windows uid that does not exist on the box
+
+- **Step:** operational, surfaced by Enrique 2026-09-02
+- **Blocked on:** Nothing. Recorded so it is fixed before it bites.
+- **What is wrong:** `/opt/jarvis` and `/opt/jarvis/core` hold files owned by
+  `197609:197609` — the uid `tar` preserved from the Windows side. Harmless at
+  0644, and it will bite the moment permissions tighten the way ADR 016 tightened
+  them. Related: `dist/` had 28 root-owned files that made `pnpm build` as
+  `jarvis` half-fail for days (DEBUG_NOTES).
+- **The fix:** `tar --no-same-owner` on extraction, or `chown -R` after, and a
+  one-off `chown` of the two trees.
+- **Raised:** 2026-09-02 17:00Z
+
+## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
+
+- **Step:** S37
+- **Blocked on:** A decision only Enrique makes. Not urgent; the build continues
+  in order unless he says otherwise.
+- **The question:** the WhatsApp number is registered and pairs by QR, and he
+  reported openclaw was never configured (`exit 78`, missing gateway config,
+  empty state dir; container stopped, not looping). The untrusted-content rule
+  has **no implementation anywhere** — no flag, no `is_forward`, nothing in
+  `src/` or the migrations — and S37 calls that the injection vector for the
+  whole system. It is recorded as S37's first build item, before any pairing.
+  If he wants WhatsApp sooner, S37 moves ahead of S26–S36; otherwise it waits.
+- **Raised:** 2026-09-02 17:05Z
