@@ -1301,6 +1301,12 @@ recorded on the task.
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
 
+**SSH hardening and the Tailscale cutover** *(V.1 claimed an end state the box
+does not have).* Set `PasswordAuthentication no` and `PermitRootLogin no` — the
+bootstrap script sets neither, and they matter more than the port being open.
+Then run the four-step cutover in V.1. This one is not a code change and can be
+done in ten minutes; it is here because nothing else owns it.
+
 **The output scrubber and its canary test** *(Part V asserted "never logged" and
 nothing enforced it).* Build the filter and the canary, and run the canary before
 this step is called done — the claim has been in the plan since the beginning
@@ -2325,9 +2331,31 @@ diagnosis and safety.
 ## V.1 Host hardening
 
 Debian 13 (or Ubuntu LTS). Unix user `jarvis`; per-project users created at
-project-create time, none at boot. UFW default deny. Fail2ban. No password SSH
-and no public SSH at all — admin access is Tailscale only. Automatic security
-updates. Docker and Compose pinned. Caddy terminates TLS and is the only thing
+project-create time, none at boot. UFW default deny. Fail2ban. Automatic security
+updates.
+
+### Getting to Tailscale-only SSH without locking yourself out
+
+The plan asserted "no public SSH at all — admin access is Tailscale only" as if
+it were a boot-time setting. It is not: Tailscale has to be installed, logged in
+and *proven* first, and the bootstrap script correctly leaves `ufw allow OpenSSH`
+in place rather than stranding the operator on a VPS. The end state was right and
+the path was missing, so the box today has public SSH open and the plan claims it
+does not.
+
+The order, and it is not negotiable:
+
+1. **Bootstrap with public SSH open** — key-only. `PasswordAuthentication no` and `PermitRootLogin no` in `sshd_config` from the start. These two matter more than the port being reachable, and neither is set by the current script.
+2. **Bring Tailscale up and log in.** `tailscale up --ssh --hostname jarvis-netcup`.
+3. **Prove it.** Open a *second* session over Tailscale, from a different terminal, while the first is still connected. Run something that needs sudo.
+4. **Only then** `ufw delete allow OpenSSH`, still from the session you know works.
+
+**Never close your only working path in the same operation that opens the new
+one, and never from the session you would lose.** A locked-out VPS is a support
+ticket and an outage, and it is the single most avoidable way to lose a box.
+
+Until step 4 has actually been done, this section describes an intention. The
+plan should say which it is, so record the date it was completed here. Docker and Compose pinned. Caddy terminates TLS and is the only thing
 listening publicly; Postgres, the API, and the OpenClaw gateway bind to
 `127.0.0.1`. `/internal` is HMAC-only and Caddy deliberately does not proxy it.
 
