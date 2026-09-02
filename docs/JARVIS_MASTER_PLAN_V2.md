@@ -1158,7 +1158,33 @@ whole history is auditable and a state change is a diff with a timestamp.
 }
 ```
 
-States: `not_started` · `in_progress` · `partial` · `blocked` · `done`.
+States: `not_started` · `in_progress` · `partial` · `awaiting_verification` ·
+`blocked` · `done`.
+
+**`awaiting_verification` is not `blocked`, and conflating them is why the bar
+stopped being trusted.** Three steps sat in `blocked` while their own evidence
+read *"built and tested"* — they were finished, waiting only for Enrique to say a
+sentence into a phone so the Done-when could be observed. That is a completely
+different situation from a task that cannot proceed, and it needs Enrique's
+attention in a completely different way:
+
+- **`blocked`** — Jarvis cannot continue. Something only Enrique can do stands in the way, and it is in `BLOCKED.md`.
+- **`awaiting_verification`** — the work is done and tested. What is missing is the observation the Done-when requires, and that observation needs a human. Jarvis has moved on to the next step; nothing is stalled.
+
+A bar showing three blockers when nothing is blocked trains Enrique to ignore
+the blocked count, and then the real one goes unread with it.
+
+### `working_on` — what is actually happening
+
+`current_step` is derived: the lowest-numbered step that is not done. That is
+correct and it is not the same question as **what is being worked on right now**,
+which is what Enrique actually wants from the Command Center.
+
+So `working_on` is a free-text line, written by whoever is working: *"S28 —
+extracting the harness interface, Codex adapter next"*. One sentence, updated when
+it changes, cleared when nothing is in flight. Without it the bar can say
+`current_step: S23` while the real work is three steps away, which is how the
+console ends up technically accurate and useless.
 
 ### The integrity rules — the entire point
 
@@ -1196,6 +1222,7 @@ presenting stale numbers as live.
 - Stale file → the staleness notice appears; back-date `updated_at` to force it.
 - A step marked `done` whose PR is not merged → the console flags the inconsistency rather than trusting the file. **The bar is a claim, and the console is allowed to check it.**
 - Malformed or missing `PROGRESS.json` → the bar is absent with a plain explanation, never a half-drawn bar or a crash.
+- **`awaiting_verification` renders distinctly from `blocked`** — different colour, different word, and it does **not** count toward the blocked total. Assert the counts separately.
 
 ### Debug
 
