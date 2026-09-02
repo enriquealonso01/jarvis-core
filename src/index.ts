@@ -1,13 +1,13 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
-import { createPool, migrate } from "./db.js";
+import { connectClient, createPool, migrate } from "./db.js";
 import { ensureBootstrapUser, registerAuthRoutes, requireUser } from "./auth.js";
 import { ingestResticEnv } from "./ingest-restic.js";
 import { registerSetupRoutes } from "./setup.js";
 import { verifyCatalogs } from "./catalog.js";
 import { ingestUserMessage } from "./inbox.js";
-import { sseBroadcast } from "./sse.js";
+import { sseBroadcast, startSseBridge } from "./sse.js";
 import { registerProductRoutes } from "./product.js";
 import { registerGrantRoutes } from "./grants.js";
 import { registerOperationsRoutes } from "./operations.js";
@@ -470,6 +470,13 @@ async function main() {
        ORDER BY scope, slug`,
     );
     return { connections: r.rows };
+  });
+
+  // The browsers connect here, so this is the process that listens. Started
+  // before the server accepts connections, or the first console to load could
+  // subscribe to a relay that is not running yet.
+  await startSseBridge(connectClient, { listen: true }).catch((err) => {
+    console.error("sse bridge failed to start:", err instanceof Error ? err.message : err);
   });
 
   const host = process.env.HOST ?? "0.0.0.0";

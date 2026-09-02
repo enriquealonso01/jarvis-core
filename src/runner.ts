@@ -4,10 +4,10 @@ import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import path from "node:path";
 import type pg from "pg";
-import { createPool } from "./db.js";
+import { connectClient, createPool } from "./db.js";
 import { claimTask, transitionTask, writeCheckpoint } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
-import { sseBroadcast } from "./sse.js";
+import { sseBroadcast, startSseBridge } from "./sse.js";
 import { ARTIFACTS_DIR, BROWSERS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
 import {
@@ -285,6 +285,46 @@ async function cleanupWorkspace(project: Project | null, dir: string, isRepo: bo
  * rather than silently succeeding.
  */
 const PATH_INPUT_KEYS = ["file_path", "path", "notebook_path", "target_file", "edit_file_path"];
+
+/** How long a tool line may be before it stops being a line and starts being a wall. */
+const TOOL_DETAIL_LIMIT = 160;
+/** Tool events recorded per attempt before the timeline says so and stops. */
+export const MAX_TOOL_EVENTS = 300;
+
+/**
+ * What a harness event says the harness is doing, in one line per tool call.
+ *
+ * The interesting argument differs per tool — a path for Read and Write, the
+ * command for Bash, the pattern for Grep — and showing the whole input object
+ * would put file contents and diffs into the timeline. So this takes the one
+ * argument that identifies the call and truncates it.
+ *
+ * Deliberately no attempt at redaction beyond that: what is here is a filename
+ * or a command line, and if a secret is in a command line then it is already in
+ * the transcript, the shell history and the process table. The place to fix that
+ * is the command, not the display.
+ */
+export function toolCalls(event: Record<string, unknown>): { name: string; detail: string }[] {
+  const message = event.message as { content?: unknown } | undefined;
+  const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+  const out: { name: string; detail: string }[] = [];
+  for (const block of content) {
+    const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+    if (b.type !== "tool_use" || typeof b.name !== "string") continue;
+    const input = b.input ?? {};
+    let detail = "";
+    for (const key of ["command", ...PATH_INPUT_KEYS, "pattern", "url", "query", "description"]) {
+      const v = input[key];
+      if (typeof v === "string" && v.trim()) {
+        detail = v.trim().replace(/\s+/g, " ");
+        break;
+      }
+    }
+    if (detail.length > TOOL_DETAIL_LIMIT) detail = `${detail.slice(0, TOOL_DETAIL_LIMIT)}…`;
+    out.push({ name: b.name, detail });
+  }
+  return out;
+}
 
 export function escapedPath(
   cwd: string,
@@ -769,6 +809,14 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     });
     const phasesSeen = new Set<string>(done);
 
+    // A cap rather than a throttle. Throttling drops the calls that happen while
+    // the run is busiest, which is when you most want to know what it did; a cap
+    // keeps the first three hundred in order and then says out loud that it
+    // stopped, with the transcript still holding the rest.
+    let toolsRecorded = 0;
+    let toolCalls_total = 0;
+    let lastTool: string | null = null;
+
     const outcome = await runHarness({
       cwd: workspace.dir,
       configDir: profile.dir,
@@ -778,13 +826,61 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
       allowedPaths: project ? [path.join(PROJECTS, project.slug)] : [],
       onEvent: (event) => {
         lastEventAt = Date.now();
+
+        // S14: what the harness is DOING, not merely that it is doing something.
+        //
+        // Before this the runner broadcast a bare `task.updated` every five
+        // seconds and recorded nothing, so the console could say a task was
+        // running and could not say what it had touched. A run was only legible
+        // afterwards, by reading the transcript on the box — which is exactly the
+        // terminal access S14 is meant to remove the need for.
+        //
+        // Written as it happens rather than at the end: a run that crashes at
+        // minute thirty must still leave thirty minutes of visible work behind.
+        for (const call of toolCalls(event)) {
+          if (toolsRecorded >= MAX_TOOL_EVENTS) {
+            if (toolsRecorded === MAX_TOOL_EVENTS) {
+              toolsRecorded += 1;
+              void pool
+                .query(
+                  `INSERT INTO task_events (task_id, type, name, summary)
+                   VALUES ($1, 'tool', 'truncated', $2)`,
+                  [taskId, `past ${MAX_TOOL_EVENTS} tool calls; the rest are in the transcript`],
+                )
+                .catch(() => undefined);
+            }
+            break;
+          }
+          toolsRecorded += 1;
+          toolCalls_total += 1;
+          void pool
+            .query(
+              `INSERT INTO task_events (task_id, type, name, summary)
+               VALUES ($1, 'tool', $2, $3)`,
+              [taskId, call.name.slice(0, 80), call.detail.slice(0, 300)],
+            )
+            .catch(() => undefined);
+          lastTool = `${call.name}: ${call.detail}`.slice(0, 200);
+        }
+
         // Reuse `task.updated` rather than adding an event type: the Work view
         // already listens for it, and a harness step *is* a task update. Throttle
-        // it — a busy run emits events far faster than any UI needs redrawing.
+        // the broadcast — a busy run emits events far faster than any UI needs
+        // redrawing — but never throttle the ROWS above, or the timeline would
+        // have holes exactly where the run was busiest.
         if (event.type !== "assistant" && event.type !== "result") return;
-        if (Date.now() - lastProgressAt < 5000) return;
+        if (Date.now() - lastProgressAt < 1500) return;
         lastProgressAt = Date.now();
-        sseBroadcast("task.updated", { id: taskId, state: "running" });
+        if (lastTool) {
+          void pool
+            .query(`UPDATE tasks SET last_tool = $2, progress_note = $3 WHERE id = $1`, [
+              taskId,
+              lastTool.slice(0, 200),
+              `${toolCalls_total} tool call${toolCalls_total === 1 ? "" : "s"} so far`,
+            ])
+            .catch(() => undefined);
+        }
+        sseBroadcast("task.updated", { id: taskId, state: "running", tool: lastTool });
       },
     });
 
@@ -1213,6 +1309,9 @@ async function ensureDirs(): Promise<void> {
 async function main(): Promise<void> {
   const pool = createPool();
   await ensureDirs();
+  // Forward only: nothing connects a browser to the runner, and everything it
+  // broadcast before this went into an empty set of clients and was lost.
+  await startSseBridge(connectClient, { listen: false }).catch(() => undefined);
   console.log(`runner ${RUNNER_ID} starting (heavy lane)`);
 
   let stopping = false;

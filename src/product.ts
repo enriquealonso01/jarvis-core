@@ -287,7 +287,8 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     );
     if (!r.rows[0]) return reply.code(404).send({ error: "not found" });
 
-    const [transitions, checkpoints, events, attempts, grants, issues, approvals] = await Promise.all([
+    const [transitions, checkpoints, events, attempts, grants, issues, approvals, artifacts, origin] =
+      await Promise.all([
       pool.query(
         `SELECT from_state, to_state, cause, actor, at
          FROM task_transitions WHERE task_id = $1 ORDER BY at`,
@@ -317,6 +318,27 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
          FROM approvals WHERE task_id = $1 ORDER BY COALESCE(decided_at, expires_at) DESC NULLS LAST`,
         [id],
       ),
+      // S14: the files the run produced. `artifacts` has no task_id — it is
+      // keyed by project and inbox event — so the link is the artifact_id the
+      // worker put on its own event, which is the only record of which run made
+      // which file.
+      pool.query(
+        `SELECT a.id, a.path, a.mime, a.bytes, a.created_at, a.quarantine_state
+         FROM artifacts a
+         JOIN task_events e ON e.artifact_id = a.id
+         WHERE e.task_id = $1
+         GROUP BY a.id
+         ORDER BY a.created_at DESC`,
+        [id],
+      ),
+      // Where the work came from. A task with no visible origin is one nobody
+      // can audit: "why is Jarvis doing this" has to be answerable from the task.
+      pool.query(
+        `SELECT i.id, i.channel, i.sender, i.raw_text, i.received_at, i.route_category
+         FROM inbox_events i JOIN tasks t ON t.origin_inbox_id = i.id
+         WHERE t.id = $1`,
+        [id],
+      ),
     ]);
 
     return {
@@ -330,6 +352,8 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
       grants: grants.rows,
       issues: issues.rows,
       approvals: approvals.rows,
+      artifacts: artifacts.rows,
+      origin: origin.rows[0] ?? null,
     };
   });
 
@@ -1733,4 +1757,8 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
   });
 }
 
-setInterval(() => sseHeartbeat(), 15_000).unref();
+// S14 asks for "Live updates paused" after five seconds of SSE silence, so the
+// keep-alive has to be comfortably faster than the thing watching for silence.
+// At fifteen seconds every healthy connection looked dead two thirds of the
+// time. It is forty bytes.
+setInterval(() => sseHeartbeat(), 2_000).unref();

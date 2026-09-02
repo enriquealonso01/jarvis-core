@@ -566,6 +566,57 @@ landmine with a delay fuse. It passes when written, and months later reports a
 product failure that never happened — which is worse than failing, because
 somebody will go looking for the bug.
 
+### Every live update the runner sent went into an empty room
+**Symptom:** S14's first run: the console showed nothing at all while a real S6
+run was executing. The database ended with 11 phase events and 11 tool events;
+the page, never reloaded, showed zero. The paused banner never appeared either.
+**Cause:** `sseBroadcast` writes to a `Set` of connected replies held **in the
+calling process**. The browsers connect to the API. The runner and the worker are
+different processes — different containers in dev, a systemd unit beside a
+container in production — so every broadcast either of them made was written into
+an empty set and dropped. This had been true since S1. It looked like it worked
+because opening the page fetches current state, and current state is usually
+recent, so the only thing that was ever actually live was what the API itself did
+to a task.
+**Fix:** broadcasts leave the process over Postgres `LISTEN`/`NOTIFY`
+(`startSseBridge`). The API listens and relays to its own clients; the runner and
+worker forward and never listen, so a notification cannot loop. A dedicated
+client, not a pooled connection — `LISTEN` belongs to a session, and a pooled
+connection is handed back the moment the query returns, taking the subscription
+with it.
+**Lesson:** an in-process pub/sub in a multi-process system is a no-op with a
+convincing API. Nothing errors, nothing warns, and the feature is only missing
+when someone watches for a change they did not cause themselves.
+
+### One open connection stopped every one-shot runner from exiting
+**Symptom:** the sweep produced no output for twenty-five minutes. `docker ps`
+showed twelve `jarvis-dev-runner-run-*` containers still up, the oldest
+thirty-five minutes old, all of them one-shot runners that had finished their
+task. Every suite that waits for `docker compose run` to return was hanging on
+the first one.
+**Cause:** the SSE bridge opens a `pg.Client`, and a live client's socket is an
+active libuv handle. `RUNNER_ONCE` claimed its task, ran it, returned from
+`main()` — and then the process had nothing left to do and no reason to exit.
+The work all succeeded, which is why nothing looked wrong except the clock.
+**Fix:** `unref()` the bridge sockets. The connection stays usable; it just stops
+being a reason for the process to live.
+**Lesson:** adding a long-lived connection to a process that is supposed to end
+changes when it ends. The symptom is not an error — it is a process that has
+finished and stays.
+
+### The offline switch does not apply to localhost
+**Symptom:** S14 has to kill the connection mid-run and see "Live updates
+paused". `context.setOffline(true)` produced no banner for fifteen seconds, so
+the test reported the banner as missing — a feature that was working.
+**Cause:** Chromium's network emulation does not cover loopback, and the whole
+dev stack is on 127.0.0.1. The EventSource stayed happily connected.
+**Fix:** kill the static server the page is talking to, and restart it. The API
+and the runner are untouched, so the run keeps going and the events produced
+during the outage are exactly the ones the catch-up has to recover.
+**Lesson:** when a test says a feature is missing, check that the test's way of
+provoking it actually provokes it. This one would have had me delete working code
+and write it again.
+
 ### A test left one row behind, and the seed died half-done
 **Symptom:** every suite that talks to the console failed at once with an empty
 conversation id and a 500 from the API. The stack looked broken.
