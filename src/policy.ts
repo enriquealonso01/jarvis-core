@@ -56,6 +56,42 @@ export function validEnum(field: keyof typeof PROJECT_ENUMS, value: string): boo
   return (PROJECT_ENUMS[field] as readonly string[]).includes(value);
 }
 
+/**
+ * What kind of account a profile is, derived from what is recorded about it
+ * rather than from a list of names.
+ *
+ * S26: "Create a professional project → paid/subscription profiles only, and a
+ * free consumer endpoint is refused for its source code." That needs a rule for
+ * which is which, and the two facts already stored are enough:
+ *
+ * - `subscription_login` means Enrique is signed in to something he pays for —
+ *   Claude Code, Codex, Cursor. A subscription.
+ * - `metered_spend_allowed` means a billed API key with a ceiling behind it.
+ * - Anything else is an API key on a free consumer tier. That is the default,
+ *   and it is the safe default: a free tier is exactly the kind of endpoint
+ *   whose terms permit training on what you send it.
+ *
+ * Deriving this rather than hardcoding provider names matters because the same
+ * provider sells both — a free Gemini key and a paid one differ in the billing,
+ * not in the hostname.
+ */
+export type ProfileTier = "subscription" | "metered" | "free_consumer";
+
+export function profileTier(p: { auth_type: string; metered_spend_allowed: boolean }): ProfileTier {
+  if (p.auth_type === "subscription_login") return "subscription";
+  if (p.metered_spend_allowed) return "metered";
+  return "free_consumer";
+}
+
+/**
+ * Profiles that are not credentials for doing work: storage, telephony, speech,
+ * the deploy broker. A professional project naming one of these is not asking
+ * for a free model, so the tier rule does not apply to them.
+ */
+export const NON_MODEL_PROFILES = new Set([
+  "backup_b2", "telnyx", "elevenlabs", "netcup_scp", "github_personal_admin", "composio",
+]);
+
 /** TEMPLATES.md: a professional project must answer these before it is created. */
 export const PROFESSIONAL_REQUIRED = [
   "confidentiality",

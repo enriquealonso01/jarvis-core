@@ -47,7 +47,10 @@ const COMPLETE: Record<string, string> = {
   github_owner: "enriquealonso01",
   github_repo: `acme-${STAMP}`,
   default_branch: "main",
-  allowed_auth_profiles: "acme-github-deploy, acme-openai",
+  // This project's own deploy key, which does not exist yet because the project
+  // does not. Allowed by name because it is this project's; any OTHER name has
+  // to be a profile that actually exists.
+  allowed_auth_profiles: `acme-${STAMP}-deploy-key`,
   approved_data_processors: "none",
   setup_command: "pnpm install",
   test_command: "pnpm test",
@@ -212,6 +215,82 @@ async function main(): Promise<void> {
     truthy("his migration rule", body.includes(COMPLETE.migration_policy));
     truthy("and the classification he chose",
       body.includes("production_status: production") && body.includes("customer_facing: yes"));
+  }
+
+  console.log("\n########## a professional project may not use a free consumer account ##########\n");
+  {
+    /*
+     * S26: "Create a professional project → paid/subscription profiles only,
+     * and a free consumer endpoint is refused for its source code."
+     *
+     * The tier is derived, not listed by name: a subscription login is
+     * something he pays for, a metered key is billed, and an API key with
+     * neither is a free tier — the kind whose terms permit training on what it
+     * is sent. Same provider, different billing, different answer.
+     */
+    const cases: { profiles: string; refused: boolean; because: string }[] = [
+      { profiles: "groq", refused: true, because: "a free consumer API key" },
+      { profiles: "anthropic_personal", refused: false, because: "a subscription he pays for" },
+      { profiles: "anthropic_personal, google_ai", refused: true, because: "one free account among good ones" },
+      { profiles: "definitely_not_a_profile", refused: true, because: "a name that is not a profile at all" },
+      { profiles: "telnyx", refused: false, because: "telephony is not a model account" },
+    ];
+
+    for (const c of cases) {
+      const cid = await newConversation();
+      await runTool(pool, cid, "", "project.onboarding_start", {}, "");
+      const slug = `prof-${STAMP}-${cases.indexOf(c)}`;
+      const set = {
+        ...COMPLETE, slug, github_owner: "none", github_repo: "none",
+        allowed_auth_profiles: c.profiles,
+      };
+      for (const [field, value] of Object.entries(set)) {
+        await runTool(pool, cid, "", "project.onboarding_set", { field, value }, "");
+      }
+      const r = await runTool(pool, cid, "", "project.onboarding_finalize", {}, "");
+      const wasRefused = !r.includes("project_id");
+      check(`${c.because} -> ${c.refused ? "refused" : "allowed"}`, c.refused, wasRefused);
+      if (c.refused) {
+        // The refusal has to name the account, or he cannot act on it.
+        const named = c.profiles.split(",").map((s) => s.trim())
+          .some((p) => r.includes(p));
+        truthy("...naming which one", named);
+        const made = await pool.query("SELECT id FROM projects WHERE slug = $1", [slug]);
+        check("...and creating nothing", 0, made.rowCount);
+      }
+      // Foreign-key order: everything that points at the project, then the
+      // project. A finalized session points at the one it created.
+      for (const sql of [
+        "DELETE FROM audit_events WHERE project_id IN (SELECT id FROM projects WHERE slug = $1)",
+        `DELETE FROM project_instructions_versions WHERE project_id IN
+           (SELECT id FROM projects WHERE slug = $1)`,
+        "DELETE FROM onboarding_sessions WHERE project_id IN (SELECT id FROM projects WHERE slug = $1)",
+        "DELETE FROM projects WHERE slug = $1",
+      ]) await pool.query(sql, [slug]);
+    }
+  }
+
+  console.log("\n########## and the broker refuses it again at use ##########\n");
+  {
+    /*
+     * Onboarding is not the only gate, and must not be the only gate: a project
+     * created before this rule existed, or one whose profile is downgraded
+     * later, still has to be refused when the credential is actually asked for.
+     */
+    const { checkProfileAccess } = await import("../src/isolation.js");
+    const made = await pool.query<{ id: string }>(
+      `INSERT INTO projects (slug, name, is_system, project_type, confidentiality)
+       VALUES ($1, $2, false, 'professional', 'confidential') RETURNING id`,
+      [`broker-${STAMP}`, `Broker check ${STAMP}`]);
+    const pid = made.rows[0].id;
+
+    const denied = await checkProfileAccess(pool, { authProfileId: "groq", projectId: pid });
+    check("a confidential project is refused a free consumer account", false, denied.allowed);
+    truthy("with the reason naming the project's confidentiality",
+      !denied.allowed && String(denied.reason).includes("confidential"));
+
+    await pool.query("DELETE FROM audit_events WHERE project_id = $1", [pid]);
+    await pool.query("DELETE FROM projects WHERE id = $1", [pid]);
   }
 
   await clean();

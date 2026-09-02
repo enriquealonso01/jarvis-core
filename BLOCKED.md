@@ -280,6 +280,54 @@ unblocked, finish it before starting anything new.
   one-off `chown` of the two trees.
 - **Raised:** 2026-09-02 17:00Z
 
+## Every auth profile is eligible for `normal` only, so a confidential project can use nothing
+
+- **Step:** S26 (surfaced), S12/§80.1 (the mechanism)
+- **Blocked on:** A decision about which accounts may see confidential work.
+  That is a trust boundary, so it is yours.
+- **What I found:** `auth_profiles.confidentiality_eligibility` exists, is
+  enforced by `checkProfileAccess`, and every one of the 13 rows on the box is
+  seeded `{normal}`. `anthropic_personal`, `openai_codex_personal` and
+  `cursor_personal` included. So a project with `confidentiality = confidential`
+  is refused **every** credential in the system — correctly, fail-closed, and
+  uselessly: it can be created and can then do nothing at all.
+- **What I need you to do:** say which profiles may serve `confidential` work,
+  and which may serve `restricted`. My reading is that the three subscription
+  logins qualify for `confidential` (you pay for them, and a subscription is not
+  a training-data tier) and that nothing currently qualifies for `restricted`,
+  but I am not widening an isolation rule on my own reading. Give me the list and
+  it is one UPDATE.
+- **What I did instead:** built the half that narrows rather than widens.
+  Onboarding now refuses to give a professional project a free consumer account,
+  deriving the tier from what is recorded (`subscription_login` = subscription,
+  `metered_spend_allowed` = billed, an API key with neither = free tier) rather
+  than from a list of provider names. The broker refuses the same thing again at
+  use. 52/52, six seen red.
+- **Raised:** 2026-09-02 17:55Z
+
+## S26's Done-when needs you to talk to Jarvis
+
+- **Step:** S26
+- **Blocked on:** One phone call. Only you can make it.
+- **The Done-when:** "a project created by **voice** ends with a correct
+  committed `AGENTS.md`."
+- **Where it stands:** everything up to the voice is done and proved. Onboarding
+  renders the file or refuses and names what is missing; the canonical row is
+  written; the file is committed into a real private repository, and the live
+  test asserts the committed bytes equal the canonical row exactly (11/11 against
+  `enriquealonso01/jarvis-s26-fixture`). The live test drives the same dispatcher
+  a model turn drives, on a conversation whose channel is `voice` — but nothing
+  has yet been said out loud to create a project.
+- **What I need you to do:** call Jarvis and create a project by talking to it.
+  Give it a name, a slug, and answer the questions it asks. It should end with a
+  repository containing an `AGENTS.md` that says what you said.
+- **Why I am not claiming it without that:** the same reason S23 is not done. A
+  test that drives the tool layer proves the tool layer. The step says voice, and
+  the interesting failures — a slug misheard, a question skipped because the
+  model decided it knew, an answer recorded that you did not give — all live
+  above the layer the test touches.
+- **Raised:** 2026-09-02 17:55Z
+
 ## Ordering question for Enrique: S37 (WhatsApp) versus S25–S36
 
 - **Step:** S37
