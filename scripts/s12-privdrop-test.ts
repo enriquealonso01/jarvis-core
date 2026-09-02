@@ -179,6 +179,78 @@ async function main(): Promise<void> {
     check("the runner can still read both, which is how it prepares checkouts", true, asRunner.ok);
   }
 
+  console.log("\n########## the broker gate fails closed ##########\n");
+  {
+    /*
+     * Enrique found this while the wall above was being built: the profile
+     * allowlist was only enforced when rows existed, and the table was empty —
+     * so every profile, telnyx included, was permitted to every project. Part
+     * IV.4 says these gates fail closed, and the connection half's own comment
+     * already claimed an empty allowlist meant "shared with no one" while its
+     * code said the opposite. Both halves agree now, and this is the assertion
+     * he asked for: a project with no allowlist row is DENIED telnyx, with the
+     * audit row.
+     */
+    const { createPool } = await import("../src/db.js");
+    const { checkProfileAccess, recordDenial } = await import("../src/isolation.js");
+    const pool = createPool();
+    try {
+      const project = await pool.query<{ id: string }>(
+        "SELECT id FROM projects WHERE is_system = false ORDER BY created_at LIMIT 1",
+      );
+      const pid = project.rows[0]?.id ?? null;
+      truthy("there is a project to ask on behalf of", pid);
+
+      const rows = await pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM auth_profile_allowlists WHERE auth_profile_id = 'telnyx'",
+      );
+      check("telnyx is allowlisted to nobody", "0", rows.rows[0].n);
+
+      const verdict = await checkProfileAccess(pool, { authProfileId: "telnyx", projectId: pid });
+      check("a project with no allowlist row is DENIED telnyx", false, verdict.allowed);
+      check(
+        "and denied as an isolation failure, not as a missing profile",
+        "security.isolation",
+        verdict.allowed ? "" : verdict.code,
+      );
+
+      if (!verdict.allowed) {
+        await recordDenial(pool, {
+          denial: verdict, capability: "voice.call", projectId: pid, connectionSlug: "telnyx",
+        });
+        const audit = await pool.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM audit_events
+           WHERE actor = 'broker' AND action = 'security.isolation' AND target = 'telnyx'
+             AND at > now() - interval '2 minutes'`,
+        );
+        truthy("with the audit row", Number(audit.rows[0].n) > 0);
+      }
+
+      // The same profile, asked for by Jarvis itself rather than on behalf of a
+      // project, is fine — that is where telnyx is legitimately used.
+      const systemWide = await checkProfileAccess(pool, { authProfileId: "telnyx", projectId: null });
+      check("Jarvis's own system-wide use of it is untouched", true, systemWide.allowed);
+
+      // And once it IS allowlisted, the project may have it.
+      if (pid) {
+        await pool.query(
+          `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+           VALUES ('telnyx', $1, ARRAY[]::text[]) ON CONFLICT DO NOTHING`,
+          [pid],
+        );
+        const now = await checkProfileAccess(pool, { authProfileId: "telnyx", projectId: pid });
+        check("allowlisted, the same project is permitted", true, now.allowed);
+        await pool.query(
+          "DELETE FROM auth_profile_allowlists WHERE auth_profile_id = 'telnyx' AND project_id = $1",
+          [pid],
+        );
+        ok("...so the gate is a gate, opened deliberately rather than by default");
+      }
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
+  }
+
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
 }
 

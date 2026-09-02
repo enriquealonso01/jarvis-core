@@ -75,25 +75,27 @@ export async function checkConnectionAccess(
     };
   }
 
-  // When an explicit allowlist exists for a shared connection, membership is
-  // required — an empty allowlist means "not shared with anyone yet", not "all".
-  if (c.scope === "shared") {
-    const list = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM connection_project_allowlist WHERE connection_id = $1`,
-      [c.id],
+  /*
+   * A shared connection is shared with the projects on its allowlist, and with
+   * no others — including when the allowlist is empty.
+   *
+   * The comment here already said "an empty allowlist means 'not shared with
+   * anyone yet', not 'all'", and the code underneath it said the opposite: it
+   * only enforced membership WHEN ROWS EXISTED, so a connection nobody had
+   * allowlisted was reachable from every project. That is a gate that fails
+   * open, and Part IV.4 is explicit that these fail closed.
+   */
+  if (c.scope === "shared" && args.projectId) {
+    const member = await pool.query(
+      `SELECT 1 FROM connection_project_allowlist WHERE connection_id = $1 AND project_id = $2`,
+      [c.id, args.projectId],
     );
-    if (Number(list.rows[0]?.n ?? 0) > 0) {
-      const member = await pool.query(
-        `SELECT 1 FROM connection_project_allowlist WHERE connection_id = $1 AND project_id = $2`,
-        [c.id, args.projectId],
-      );
-      if (!member.rowCount) {
-        return {
-          allowed: false,
-          code: "security.isolation",
-          reason: `project is not on the allowlist for ${c.slug}`,
-        };
-      }
+    if (!member.rowCount) {
+      return {
+        allowed: false,
+        code: "security.isolation",
+        reason: `project is not on the allowlist for ${c.slug}`,
+      };
     }
   }
 
@@ -142,32 +144,39 @@ export async function checkProfileAccess(
       };
     }
 
-    // If this profile has any project allowlist rows, it is restricted to them.
-    const scoped = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM auth_profile_allowlists WHERE auth_profile_id = $1`,
-      [p.id],
+    /*
+     * A profile is usable by the projects on its allowlist, and by no others.
+     *
+     * This used to enforce membership only when the profile HAD allowlist rows,
+     * and the table was empty — so every profile, telnyx and elevenlabs and the
+     * subscription logins included, was permitted to every project, and only
+     * `broker_only` held anything back. A gate whose default is "yes" is not a
+     * gate. Part IV.4: these fail closed.
+     *
+     * Requests with NO project are unaffected: Jarvis's own system-wide work —
+     * answering the phone, rendering speech, running a model — is not a project
+     * asking for someone else's credential, and it is where these profiles are
+     * legitimately used.
+     */
+    const row = await pool.query<{ allowed_roles: string[] }>(
+      `SELECT allowed_roles FROM auth_profile_allowlists
+       WHERE auth_profile_id = $1 AND project_id = $2`,
+      [p.id, args.projectId],
     );
-    if (Number(scoped.rows[0]?.n ?? 0) > 0) {
-      const row = await pool.query<{ allowed_roles: string[] }>(
-        `SELECT allowed_roles FROM auth_profile_allowlists
-         WHERE auth_profile_id = $1 AND project_id = $2`,
-        [p.id, args.projectId],
-      );
-      if (!row.rows[0]) {
-        return {
-          allowed: false,
-          code: "security.isolation",
-          reason: `${p.id} is not allowlisted for this project`,
-        };
-      }
-      const roles = row.rows[0].allowed_roles ?? [];
-      if (args.role && roles.length > 0 && !roles.includes(args.role)) {
-        return {
-          allowed: false,
-          code: "security.isolation",
-          reason: `${p.id} is not allowlisted for the ${args.role} role here`,
-        };
-      }
+    if (!row.rows[0]) {
+      return {
+        allowed: false,
+        code: "security.isolation",
+        reason: `${p.id} is not allowlisted for this project`,
+      };
+    }
+    const roles = row.rows[0].allowed_roles ?? [];
+    if (args.role && roles.length > 0 && !roles.includes(args.role)) {
+      return {
+        allowed: false,
+        code: "security.isolation",
+        reason: `${p.id} is not allowlisted for the ${args.role} role here`,
+      };
     }
   }
 
