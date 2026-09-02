@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -163,7 +163,8 @@
       "title": "Close the containment gaps",
       "stage": 3,
       "state": "in_progress",
-      "evidence": "item 1 (the deterministic router) done: 31/31, a #slug code body reaches zero model calls; item 2 (SSH) hardened except the Tailscale-only step"
+      "evidence": "item 1 (the deterministic router) done: 31/31, a #slug code body reaches zero model calls; item 2 (SSH) hardened except the Tailscale-only step",
+      "pr": 110
     },
     {
       "id": "S18b",
