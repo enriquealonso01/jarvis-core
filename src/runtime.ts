@@ -207,12 +207,16 @@ class CodexRuntime implements AgentRuntime {
          * show what a run touched, and an unrecognised item type is still
          * something that happened. Codex names these by item type.
          */
-        const detail =
-          typeof item.command === "string" ? item.command
-          : typeof item.path === "string" ? item.path
-          : typeof item.text === "string" ? item.text
-          : "";
-        out.push({ kind: "tool", calls: [{ name: itemType, detail: detail.slice(0, 500) }] });
+        let detail = "";
+        for (const key of ["command", ...PATH_INPUT_KEYS, "text"]) {
+          const v = item[key];
+          if (typeof v === "string" && v.trim()) {
+            detail = v.trim().replace(/\s+/g, " ");
+            break;
+          }
+        }
+        if (detail.length > TOOL_DETAIL_LIMIT) detail = `${detail.slice(0, TOOL_DETAIL_LIMIT)}…`;
+        out.push({ kind: "tool", calls: [{ name: itemType, detail }] });
       }
     }
     if (type === "turn.completed") {
@@ -231,25 +235,38 @@ class CodexRuntime implements AgentRuntime {
   }
 }
 
-/** Tool calls out of a Claude `assistant` message. */
-function claudeToolCalls(event: Record<string, unknown>): RuntimeToolCall[] {
-  if (event.type !== "assistant") return [];
-  const message = (event.message ?? {}) as Record<string, unknown>;
-  const content = Array.isArray(message.content) ? message.content : [];
-  const calls: RuntimeToolCall[] = [];
-  for (const part of content) {
-    const p = (part ?? {}) as Record<string, unknown>;
-    if (p.type !== "tool_use" || typeof p.name !== "string") continue;
-    const input = (p.input ?? {}) as Record<string, unknown>;
-    const detail =
-      typeof input.command === "string" ? input.command
-      : typeof input.file_path === "string" ? input.file_path
-      : typeof input.path === "string" ? input.path
-      : typeof input.pattern === "string" ? input.pattern
-      : "";
-    calls.push({ name: p.name, detail: detail.slice(0, 500) });
+/** Input keys that name a path, in the order they are worth reporting. */
+const PATH_INPUT_KEYS = ["file_path", "path", "notebook_path", "target_file", "edit_file_path"];
+/** How long a tool line may be before it stops being a line and starts being a wall. */
+const TOOL_DETAIL_LIMIT = 160;
+
+/**
+ * Tool calls out of a Claude `assistant` message.
+ *
+ * Moved here verbatim from `runner.ts` rather than reimplemented: the key order
+ * and the truncation are what the console has been rendering since S14, and a
+ * "tidier" version would silently change every tool line in the timeline.
+ */
+export function claudeToolCalls(event: Record<string, unknown>): RuntimeToolCall[] {
+  const message = event.message as { content?: unknown } | undefined;
+  const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+  const out: RuntimeToolCall[] = [];
+  for (const block of content) {
+    const b = block as { type?: string; name?: string; input?: Record<string, unknown> };
+    if (b.type !== "tool_use" || typeof b.name !== "string") continue;
+    const input = b.input ?? {};
+    let detail = "";
+    for (const key of ["command", ...PATH_INPUT_KEYS, "pattern", "url", "query", "description"]) {
+      const v = input[key];
+      if (typeof v === "string" && v.trim()) {
+        detail = v.trim().replace(/\s+/g, " ");
+        break;
+      }
+    }
+    if (detail.length > TOOL_DETAIL_LIMIT) detail = `${detail.slice(0, TOOL_DETAIL_LIMIT)}…`;
+    out.push({ name: b.name, detail });
   }
-  return calls;
+  return out;
 }
 
 function claudeText(event: Record<string, unknown>): string {

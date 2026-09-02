@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import { RUNTIMES, runtimeAvailable, runtimeFor, type AgentRuntime, type RuntimeEvent } from "./runtime.js";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import os from "node:os";
@@ -94,6 +95,12 @@ const RUN_LIMIT_MS = envMs("JARVIS_RUN_LIMIT_MS", 45 * 60_000);
 const HARNESS_SPEC = process.env.JARVIS_HARNESS ?? "claude";
 const FAKE_HARNESS = HARNESS_SPEC === "fake" || HARNESS_SPEC.startsWith("fake:");
 const FAKE_VARIANT = FAKE_HARNESS ? (HARNESS_SPEC.split(":")[1] ?? "ok") : null;
+/**
+ * S28: the host's default runtime, still selected by `JARVIS_HARNESS` so every
+ * existing suite keeps working unchanged. `fake:<variant>` maps to the fake
+ * runtime; anything else names a runtime directly.
+ */
+const DEFAULT_RUNTIME_ID = FAKE_HARNESS ? "fake" : HARNESS_SPEC;
 
 type Task = {
   id: string;
@@ -102,6 +109,8 @@ type Task = {
   project_id: string | null;
   auth_profile_id: string | null;
   conversation_id: string | null;
+  /** S28: which engine this task asked for. Null means the project's default. */
+  runtime: string | null;
 };
 
 type Project = {
@@ -113,6 +122,8 @@ type Project = {
   github_owner: string | null;
   github_repo: string | null;
   default_branch: string | null;
+  /** S28: what this project's work runs on unless a task says otherwise. */
+  default_runtime: string | null;
 };
 
 /**
@@ -500,7 +511,14 @@ async function runHarness(args: {
   configDir: string;
   prompt: string;
   transcriptPath: string;
-  onEvent: (event: Record<string, unknown>) => void;
+  /** S28: which engine, and therefore how to start it and how to read it. */
+  runtime: AgentRuntime;
+  /**
+   * The raw line is still passed, because the path tripwire reads vendor
+   * structure directly and must not be limited to what normalisation chose to
+   * keep. The normalised events are what everything else uses.
+   */
+  onEvent: (event: Record<string, unknown>, normalised: RuntimeEvent[]) => void;
   signal: AbortSignal;
   /** Besides the worktree — the project's own checkout. */
   allowedPaths?: string[];
@@ -521,32 +539,18 @@ async function runHarness(args: {
   await fs.mkdir(path.dirname(args.transcriptPath), { recursive: true });
   const sink = createWriteStream(args.transcriptPath, { flags: "a" });
 
-  const command = FAKE_HARNESS ? process.execPath : "claude";
-  const commandArgs = FAKE_HARNESS
-    ? [path.resolve(process.cwd(), "scripts/fake-harness.mjs"), args.prompt]
-    : [
-        "-p",
-        args.prompt,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        // The harness runs against a worktree it is meant to change, so it needs
-        // its own tools. What it must NOT get is a path out of the worktree or a
-        // credential the broker did not hand it; that is enforced by the unix
-        // user and the single config dir, not by this flag.
-        //
-        // `acceptEdits` was wrong, and the first real S6 run proved it: the
-        // harness reproduced the bug, found the cause, wrote the fix AND the
-        // test — then could not run `node --test`, because acceptEdits permits
-        // edits but not execution. A loop whose `checks` phase can never pass
-        // cannot honestly finish, and it correctly reported itself blocked.
-        //
-        // The containment that replaces it is `escapedPath`, which now reads
-        // Bash commands as well as path arguments and kills the run on anything
-        // reaching outside the worktree.
-        "--permission-mode",
-        "bypassPermissions",
-      ];
+  /*
+   * S28. What to spawn and how to read it is the runtime's business; everything
+   * below this line — the privilege drop, the network namespace, the scrubber,
+   * the path tripwire — is Jarvis's containment and applies to all of them.
+   */
+  const spec = args.runtime.spawnSpec({
+    prompt: args.prompt,
+    authDir: args.configDir,
+    cwd: args.cwd,
+  });
+  const command = spec.command;
+  const commandArgs = spec.args;
 
   /*
    * Drop to the project's own unix user (ADR 016).
@@ -581,7 +585,9 @@ async function runHarness(args: {
     cwd: args.cwd,
     env: {
       ...process.env,
-      CLAUDE_CONFIG_DIR: args.configDir,
+      // The config-dir variable is the runtime's — codex reads CODEX_HOME and
+      // ignores CLAUDE_CONFIG_DIR entirely, which presents as a 401.
+      ...spec.env,
       JARVIS_FAKE_VARIANT: FAKE_VARIANT ?? "",
       // Never let the harness inherit Jarvis's own database handle.
       DATABASE_URL: "",
@@ -636,16 +642,21 @@ async function runHarness(args: {
       } catch {
         continue;
       }
-      if (typeof event.session_id === "string") seen.sessionId = event.session_id;
-      if (event.type === "result") {
-        // Observed from a real `claude -p --output-format stream-json` run
-        // (S4 Debug, "capture one raw run and read it"): a failing result has
-        // `is_error: true`, a `subtype` naming the failure, and `result: ""`.
-        // The empty string is the trap — it is not nullish, so `??` never fired
-        // and a failed task was recorded with a blank summary.
-        if (typeof event.result === "string") seen.result = event.result;
-        if (typeof event.subtype === "string") seen.subtype = event.subtype;
-        if (typeof event.is_error === "boolean") seen.isError = event.is_error;
+      /*
+       * S28: the outcome is read through the runtime, so a codex `turn.failed`
+       * and a claude `result` with `is_error` arrive here as the same thing.
+       * The empty-string trap is handled inside the runtime now — a failing
+       * claude result carries `result: ""`, which normalises to a null summary
+       * so the fallback chain below can reach the subtype.
+       */
+      const normalised = args.runtime.normalise(event);
+      for (const ev of normalised) {
+        if (ev.kind === "session") seen.sessionId = ev.sessionId;
+        if (ev.kind === "result") {
+          seen.result = ev.summary;
+          seen.subtype = ev.subtype;
+          seen.isError = !ev.ok;
+        }
       }
       if (!escape) {
         const out = escapedPath(args.cwd, event, args.allowedPaths ?? []);
@@ -654,7 +665,7 @@ async function runHarness(args: {
           child.kill("SIGKILL");
         }
       }
-      args.onEvent(event);
+      args.onEvent(event, normalised);
     }
   });
 
@@ -813,9 +824,13 @@ async function park(
   });
 }
 
-async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
+/**
+ * Exported for the S28 suite, which points a task at a runtime that is not
+ * there and asserts it parks. Driving the queue instead would test the queue.
+ */
+export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
   const t = await pool.query<Task>(
-    `SELECT id, title, objective, project_id, auth_profile_id, conversation_id
+    `SELECT id, title, objective, project_id, auth_profile_id, conversation_id, runtime
      FROM tasks WHERE id = $1`,
     [taskId],
   );
@@ -824,7 +839,8 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
 
   const p = task.project_id
     ? await pool.query<Project>(
-        `SELECT id, slug, name, project_type, confidentiality, github_owner, github_repo, default_branch
+        `SELECT id, slug, name, project_type, confidentiality, github_owner, github_repo,
+                default_branch, default_runtime
          FROM projects WHERE id = $1`,
         [task.project_id],
       )
@@ -1014,15 +1030,64 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     // task was claimed, by `isolationRefusal`; this only names it.
     const asUser = project && needsOwnUser(project) ? projectUnixUser(project.slug) : null;
 
+    /*
+     * S28: which engine runs this.
+     *
+     * The task's own choice wins, then the project's default, then the host's.
+     * An id nobody recognises is refused rather than quietly replaced — the
+     * whole point of naming a runtime is that the answer to "which engine
+     * produced this?" is not a guess.
+     */
+    const wantedRuntime = task.runtime ?? project?.default_runtime ?? DEFAULT_RUNTIME_ID;
+    const runtime = runtimeFor(wantedRuntime);
+    if (!runtime) {
+      await park(pool, task.id, "waiting_for_user",
+        `no runtime called ${wantedRuntime}`,
+        {
+          category: "config.invalid",
+          title: `[runtime] ${wantedRuntime} is not a runtime Jarvis knows`,
+          dedupeKey: `runtime.unknown.${wantedRuntime}`,
+          requiredAction:
+            `This task asks to run on "${wantedRuntime}". Known runtimes: `
+            + `${Object.keys(RUNTIMES).join(", ")}. Set the task's or the project's runtime to one of those.`,
+        },
+        task.project_id);
+      return;
+    }
+    /*
+     * "Point a task at a runtime that is not installed → a clean
+     * `provider.cred_expired`-class park with a useful message, not a crash."
+     * Checked before the worktree is touched, so a missing binary costs nothing
+     * and the task can be requeued the moment it is installed.
+     */
+    const availability = await runtimeAvailable(runtime);
+    if (!availability.available) {
+      await park(pool, task.id, "waiting_for_user",
+        `${runtime.displayName}: ${availability.detail}`,
+        {
+          category: "provider.cred_expired",
+          title: `[runtime] ${runtime.displayName} is not installed on this host`,
+          dedupeKey: `runtime.missing.${runtime.id}`,
+          requiredAction:
+            `This task is pointed at ${runtime.displayName} and ${availability.detail}. `
+            + "Install it on the box, or point the task at a runtime that is there. "
+            + "Nothing was run and the task can be requeued as soon as it exists.",
+        },
+        task.project_id);
+      return;
+    }
+    await pool.query("UPDATE tasks SET ran_on_runtime = $2 WHERE id = $1", [task.id, runtime.id]);
+
     const outcome = await runHarness({
       cwd: workspace.dir,
       configDir: profile.dir,
       prompt: objective,
+      runtime,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
       allowedPaths: allowedPathsFor(project?.slug ?? null, task.id),
       asUser,
-      onEvent: (event) => {
+      onEvent: (event, normalised) => {
         lastEventAt = Date.now();
 
         // S14: what the harness is DOING, not merely that it is doing something.
@@ -1035,7 +1100,7 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
         //
         // Written as it happens rather than at the end: a run that crashes at
         // minute thirty must still leave thirty minutes of visible work behind.
-        for (const call of toolCalls(event)) {
+        for (const call of normalised.flatMap((e) => (e.kind === "tool" ? e.calls : []))) {
           if (toolsRecorded >= MAX_TOOL_EVENTS) {
             if (toolsRecorded === MAX_TOOL_EVENTS) {
               toolsRecorded += 1;
