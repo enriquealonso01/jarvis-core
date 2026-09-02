@@ -1428,6 +1428,11 @@ Results land in `benchmarks`. A model **earns** the `senior_engineer` role by
 winning the suite, and `route_order` follows from the scores rather than from
 someone's opinion.
 
+The suite also sets each role's **quality floor** (VI.2) — the score below which
+a model may not serve that role unattended. A floor is only meaningful once the
+suite has enough cases to separate a good model from a fluent one, so set it from
+observed scores rather than picking a round number first.
+
 **Test**
 - Run two harnesses through it and confirm the winner is what routing actually uses afterwards.
 - Feed it a deliberately bad model and confirm it scores badly rather than passing on fluency — a suite that everything passes measures nothing.
@@ -1937,6 +1942,46 @@ permission to search, not permission to sign up.
 This is the model-layer instance of the immutable list in §59, and it holds even
 under a broad authority grant: **a grant widens what Jarvis may do with what it
 has, never what it may go and acquire.**
+
+## VI.2 Quality floors, and when a degraded role is worth interrupting for
+
+A provider hiccup is not news. A role that can no longer do its job is.
+
+The transcript separates these cleanly, and the plan had collapsed them into
+"raise an issue on failover", which produces a ticket per hiccup and trains
+Enrique to ignore tickets.
+
+**Situation A — a fallback exists and works.** Primary fails, fallback serves the
+turn, work continues. Log the incident; say nothing. A thirty-second API wobble
+is not an event in Enrique's day.
+
+**Situation B — the role is degraded below its floor.** Every role carries a
+**quality floor**: a minimum score on the S29 evaluation suite that a model must
+meet to serve that role. When the remaining healthy pool for a role has nothing
+above its floor, that is worth interrupting for — because the consequence is not
+"slower", it is "worse work, silently".
+
+The message says three things and offers two choices:
+
+```
+My Senior Engineer pool is degraded.
+Model A is at quota, B is unavailable, C changed its API.
+The only model left scores below the coding floor we set.
+
+Continue with reduced capability, or add/replace a coding model?
+```
+
+State, consequence, choice. Not "an issue has been raised".
+
+**Continuing below the floor is allowed but never silent.** If Enrique says
+continue, every task run under a degraded role is marked as such on the task and
+in its PR, so a change made by an under-qualified model is identifiable
+afterwards rather than indistinguishable from the rest.
+
+Floors come from measurement, not opinion: they are set from S29 benchmark
+scores once the suite exists, and until then a role's floor is "a model that has
+passed a real tool-enabled call", which is the weakest honest bar rather than an
+invented number.
 
 **Roles**: supervisor, utility, senior_engineer, reviewer, **research/browser**,
 stt, voice_tts, vision, embeddings.
