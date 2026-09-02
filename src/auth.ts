@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import argon2 from "argon2";
+import { GRACE_MS, reauthFresh, recordReauth, sessionKey } from "./reauth.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import path from "node:path";
@@ -125,6 +126,54 @@ export async function requireUser(
 
 export function registerAuthRoutes(app: FastifyInstance, pool: pg.Pool) {
   app.post("/api/auth/login", (req, reply) => loginHandler(pool, req, reply));
+
+  /**
+   * The sudo moment: prove it is still you (Part V, S12b item 6).
+   *
+   * Deliberately not a second login — it issues no session and moves nothing.
+   * It records that THIS session proved the password just now, and an
+   * always-confirm approval inside the grace window is then allowed to proceed.
+   */
+  app.post("/api/auth/reauth", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const token = req.cookies[COOKIE];
+    if (!token) return reply.code(401).send({ error: "unauthenticated" });
+    const password = String((req.body as { password?: string })?.password ?? "");
+    if (!password) return reply.code(400).send({ error: "password required" });
+
+    const row = await pool.query<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE id = $1",
+      [user.id],
+    );
+    const okay = row.rows[0] && (await argon2.verify(row.rows[0].password_hash, password).catch(() => false));
+    if (!okay) {
+      // Audited: a wrong password on the sudo prompt is worth seeing, and the
+      // reason never carries what was typed.
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, metadata)
+         VALUES ('user', 'auth.reauth', $1, $2)`,
+        [user.email, JSON.stringify({ outcome: "denied", reason: "wrong password" })],
+      );
+      return reply.code(401).send({ error: "that is not the password" });
+    }
+    await recordReauth(pool, sessionKey(token));
+    await pool.query(
+      `INSERT INTO audit_events (actor, action, target, metadata)
+       VALUES ('user', 'auth.reauth', $1, $2)`,
+      [user.email, JSON.stringify({ outcome: "allowed", grace_ms: GRACE_MS })],
+    );
+    return { ok: true, grace_ms: GRACE_MS };
+  });
+
+  /** Whether this session would have to re-authenticate right now. */
+  app.get("/api/auth/reauth", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const token = req.cookies[COOKIE];
+    const fresh = token ? await reauthFresh(pool, sessionKey(token)) : false;
+    return { fresh, grace_ms: GRACE_MS };
+  });
   app.post("/api/auth/logout", (req, reply) => logoutHandler(pool, req, reply));
   app.get("/api/me", async (req, reply) => {
     const user = await requireUser(pool, req, reply);

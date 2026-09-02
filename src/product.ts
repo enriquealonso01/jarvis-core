@@ -22,6 +22,7 @@ import { transitionTask } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { cronNextRun } from "./cron.js";
 import { audioDir, handleCallEvent, renderSpeech, type TelnyxEvent } from "./callcontrol.js";
+import { bindingSha, level3ThisHour, LEVEL3_HOURLY_CEILING, reauthFresh, sessionKey } from "./reauth.js";
 import { delegateToDesk, triage } from "./callagent.js";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -945,7 +946,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     if (!user) return;
     const r = await pool.query(
       `SELECT a.id, a.action_type, a.target, a.environment, a.resource_version, a.state,
-              a.expires_at, a.decided_at, a.task_id,
+              a.expires_at, a.decided_at, a.task_id, a.binding_sha, a.requires_reauth,
               p.slug AS project_slug, p.name AS project_name,
               t.title AS task_title
        FROM approvals a
@@ -968,6 +969,109 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     // The console sends decision: "approve" | "reject"; keep the boolean form too.
     const approved =
       typeof b.approved === "boolean" ? b.approved : b.decision === "approve";
+
+    const pending = await pool.query<{
+      action_type: string; target: string | null; project_id: string | null;
+      environment: string | null; resource_version: string | null; binding_sha: string | null;
+    }>(
+      `SELECT action_type, target, project_id, environment, resource_version, binding_sha
+       FROM approvals WHERE id = $1 AND state = 'pending'`,
+      [id],
+    );
+    const ask = pending.rows[0];
+    if (!ask) return reply.code(409).send({ error: "not pending" });
+
+    const level3 = isAlwaysConfirm(ask.action_type);
+    const token = req.cookies["jarvis_session"] ?? "";
+    const session = token ? sessionKey(token) : "";
+
+    /*
+     * Level 3 asks for the password again (Part V).
+     *
+     * Rejecting never does: refusing something dangerous must never be the
+     * harder path, or the safe action is the one that gets skipped.
+     */
+    if (approved && level3) {
+      if (!session || !(await reauthFresh(pool, session))) {
+        await pool.query(
+          `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+           VALUES ('user', 'approval.approve', $1, $2, $3)`,
+          [ask.target ?? ask.action_type, ask.project_id,
+            JSON.stringify({
+              approval_id: id, action_type: ask.action_type, level: "3",
+              outcome: "denied", reason: "no recent re-authentication",
+            })],
+        );
+        return reply.code(403).send({
+          error: "reauth_required",
+          message: "This is an always-confirm action. Enter your password to approve it.",
+        });
+      }
+
+      const used = await level3ThisHour(pool, session);
+      if (used >= LEVEL3_HOURLY_CEILING) {
+        await pool.query(
+          `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+           VALUES ('user', 'approval.approve', $1, $2, $3)`,
+          [ask.target ?? ask.action_type, ask.project_id,
+            JSON.stringify({
+              approval_id: id, action_type: ask.action_type, level: "3",
+              outcome: "denied", reason: `hourly ceiling of ${LEVEL3_HOURLY_CEILING} reached`,
+            })],
+        );
+        return reply.code(429).send({
+          error: "ceiling_reached",
+          message: `That is ${LEVEL3_HOURLY_CEILING} always-confirm approvals in an hour. Nothing was applied.`,
+        });
+      }
+    }
+
+    /*
+     * And it binds to what it approved.
+     *
+     * "If the page has moved on, the click is refused and re-presented rather
+     * than applied to whatever is current now." The console sends back the hash
+     * it rendered; if the approval has been rewritten since, the two differ.
+     */
+    const expected = bindingSha({
+      actionType: ask.action_type,
+      target: ask.target,
+      environment: ask.environment,
+      resourceVersion: ask.resource_version,
+      projectId: ask.project_id,
+    });
+    const claimed = (b as { binding_sha?: string }).binding_sha;
+    if (approved && ask.binding_sha && ask.binding_sha !== expected) {
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+         VALUES ('user', 'approval.approve', $1, $2, $3)`,
+        [ask.target ?? ask.action_type, ask.project_id,
+          JSON.stringify({
+            approval_id: id, action_type: ask.action_type,
+            outcome: "denied", reason: "the request changed after it was presented",
+          })],
+      );
+      return reply.code(409).send({
+        error: "stale",
+        message: "This request changed after it was shown to you. Look at it again.",
+      });
+    }
+    if (approved && claimed && claimed !== expected) {
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+         VALUES ('user', 'approval.approve', $1, $2, $3)`,
+        [ask.target ?? ask.action_type, ask.project_id,
+          JSON.stringify({
+            approval_id: id, action_type: ask.action_type,
+            outcome: "denied", reason: "approved against a stale screen",
+          })],
+      );
+      return reply.code(409).send({
+        error: "stale",
+        message: "The screen you approved from is out of date. Look at it again.",
+      });
+    }
+
     const r = await pool.query<{ action_type: string; target: string | null; project_id: string | null }>(
       `UPDATE approvals SET state = $2, decided_at = now()
        WHERE id = $1 AND state = 'pending'
@@ -982,7 +1086,13 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
         approved ? "approval.approve" : "approval.reject",
         r.rows[0].target ?? r.rows[0].action_type,
         r.rows[0].project_id,
-        JSON.stringify({ approval_id: id, action_type: r.rows[0].action_type }),
+        JSON.stringify({
+          approval_id: id,
+          action_type: r.rows[0].action_type,
+          level: level3 ? "3" : "1",
+          session,
+          outcome: "allowed",
+        }),
       ],
     );
     sseBroadcast("approval.updated", { id });
