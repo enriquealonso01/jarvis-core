@@ -1144,7 +1144,7 @@ whole history is auditable and a state change is a diff with a timestamp.
 ```json
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "<sha of the plan when last read>",
+  "plan_sha": "<git blob sha of plan_file: git rev-parse HEAD:docs/JARVIS_MASTER_PLAN_V2.md>",
   "total_steps": 37,
   "updated_at": "<iso8601>",
   "current_step": "S5",
@@ -1226,6 +1226,7 @@ and neither Enrique nor the agent updating it noticed for a day.
 So the bar compares itself against something it cannot fake:
 
 - **`plan_sha`** — the file records the plan revision it describes. The API knows which plan is deployed alongside it. **Different sha → say so on the bar**, with the two values.
+- **The sha is the git blob sha of `plan_file`** — `git rev-parse HEAD:docs/JARVIS_MASTER_PLAN_V2.md`, the same value both sides can compute without agreeing on line endings, encoding or whether to hash the trailing newline. This is not a detail: for four consecutive commits the field sat frozen at one value while the plan changed underneath it, because *"sha of the plan"* named no procedure and so nobody recomputed it. **A divergence check with an underspecified input is a check that reports agreement forever.**
 - **`total_steps` against the deployed plan.** Counting `^## S\d+b? — ` costs nothing and catches exactly this case: a denominator that stopped growing.
 - **A `done` step whose PR is not merged** — already specified above, and the same principle: the bar is a claim, and the thing rendering it is allowed to check.
 
