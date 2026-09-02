@@ -1,0 +1,12 @@
+# The pinned settings the phone path reads, for the S19 suite only.
+#
+# callerVerdict refuses every call when no owner is pinned, which is correct in
+# production and makes the whole call path untestable offline. This file is the
+# dev stack's answer to that: one owner, one voice, no credentials.
+site:
+  public_url: "http://api:8080"
+whatsapp:
+  jarvis_e164: "+15550000000"
+  owner_e164: "+15551234567"
+elevenlabs:
+  voice_id: "s19-fake-voice"

@@ -1,0 +1,7 @@
+{
+  "supervisor": [
+    { "match": "how is the deploy going", "content": "The deploy finished twenty minutes ago, sir." },
+    { "match": "read me the queue", "content": "Two tasks are queued and one is running." },
+    { "match": "say something short", "content": "Right away, sir." }
+  ]
+}

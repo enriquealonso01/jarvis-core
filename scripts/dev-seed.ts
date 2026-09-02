@@ -79,7 +79,8 @@ async function main(): Promise<void> {
   await pool.query(`
     TRUNCATE task_checkpoints, task_transitions, task_attempts, task_grants, task_dependencies,
              issue_events, issues, notifications_outbox, audit_events, artifacts, messages,
-             inbox_events, tasks, user_action_requests, approvals, memory_items
+             inbox_events, tasks, user_action_requests, approvals, memory_items,
+             activity_events, resource_metrics, calls, call_transitions
     RESTART IDENTITY CASCADE
   `);
 
@@ -88,6 +89,12 @@ async function main(): Promise<void> {
   // truncate list above is all work tables, and the next run then had a project
   // in it that nobody had asked for. "Reset to a known state" has to mean the
   // projects too, or one test silently changes the world the next one runs in.
+  // `activity_events` (S17) and `calls` (S19) are on the truncate list above for
+  // the same reason: both hold a project or conversation FK with no ON DELETE
+  // rule, and `activity_events` on its own broke this DELETE exactly as
+  // `auth_profile_allowlists` had — the seed died after the truncate and left
+  // the stack with no console thread. Twice is a pattern: anything new that
+  // references a project belongs in the truncate list on the day it is written.
   // Rows that POINT at a project have to go first. `auth_profile_allowlists`
   // has a plain FK with no ON DELETE rule, so a suite that allowlisted a profile
   // to a temporary project (S12 does exactly that) left a row that made this

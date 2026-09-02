@@ -148,7 +148,10 @@ q "UPDATE tasks SET state='running', lease_owner='gone', lease_until=now()-inter
 before=$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")
 $COMPOSE restart api >/dev/null 2>&1
 JARVIS_STALL_SECONDS=5 $COMPOSE up -d --no-build worker >/dev/null 2>&1
-for _ in $(seq 1 40); do
+# The recovery ladder waits before it requeues (rung 1 is `wait`, 30s, twice),
+# so the budget covers the ladder's own backoffs. What is asserted is where the
+# orphan ends up, not how quickly.
+for _ in $(seq 1 150); do
   st=$(q "SELECT state FROM tasks WHERE id='$D';")
   [ "$st" = "queued" ] && break
   sleep 1
@@ -156,10 +159,15 @@ done
 $COMPOSE stop worker >/dev/null 2>&1
 check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")"
 check "the orphaned running task was recovered to the queue" "queued" "$st"
+# Scoped to THIS run's four ids. Matching on the title counted every earlier
+# run's L2 rows too — the DELETE above cannot remove them (issues hold a foreign
+# key to tasks), so a previous run's requeued orphan was the oldest queued row
+# and the ordering assertion read its title instead of this run's.
 check "and the three queued tasks are still queued" "3" \
-  "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %' AND title <> 'L2 running' AND state='queued';")"
+  "$(q "SELECT count(*) FROM tasks WHERE id IN ('$A','$B','$C') AND state='queued';")"
 check "order preserved: oldest first" "L2 first" \
-  "$(q "SELECT title FROM tasks WHERE title LIKE 'L2 %' AND state='queued' ORDER BY created_at LIMIT 1;")"
+  "$(q "SELECT title FROM tasks WHERE id IN ('$A','$B','$C','$D') AND state='queued'
+        ORDER BY created_at LIMIT 1;")"
 
 echo
 echo "==== $pass passed, $fail failed ===="

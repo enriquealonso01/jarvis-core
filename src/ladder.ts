@@ -55,6 +55,11 @@ export const RUNGS: Rung[] = [
   { n: 10, name: "ask_enrique", limit: 1, backoffSeconds: 0 },
 ];
 
+/** How long a rung asks for before the next one is tried. */
+export function backoffSecondsFor(name: string): number {
+  return RUNGS.find((r) => r.name === name)?.backoffSeconds ?? 30;
+}
+
 /** What has already been tried for this task, by rung name. */
 async function tried(pool: pg.Pool, taskId: string): Promise<Map<string, number>> {
   const r = await pool.query<{ name: string; n: string }>(

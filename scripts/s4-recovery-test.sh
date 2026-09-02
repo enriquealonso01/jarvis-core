@@ -102,7 +102,11 @@ check "it walked the documented states to get there" "running>stalled>recovering
   "$(q "SELECT string_agg(to_state,'>' ORDER BY at, id) FROM task_transitions
         WHERE task_id = '$TASK' AND to_state IN ('running','stalled','recovering','queued')
           AND at >= (SELECT min(at) FROM task_transitions WHERE task_id='$TASK' AND to_state='running');")"
-contains "and it says it requeued from the checkpoint" "checkpoint" \
+# S18b: the requeue now comes from a rung of the recovery ladder, and the cause
+# names which one. It used to read "requeued from the latest checkpoint" — the
+# checkpoint is still there and still resumed from (asserted just below, and by
+# the second runner finishing the work), but the sentence belongs to the ladder.
+contains "and it says which recovery rung requeued it" "recovery rung" \
   "$(q "SELECT cause FROM task_transitions WHERE task_id = '$TASK' AND to_state = 'queued'
         ORDER BY at DESC LIMIT 1;")"
 check "the dead runner's lease was released" "" \
@@ -129,7 +133,7 @@ echo
 echo "=== a fresh runner picks it up and finishes the work ==="
 $COMPOSE stop worker >/dev/null 2>&1
 $COMPOSE run --rm --no-deps -T \
-  -e RUNNER_ID=survivor-1 -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_ID=survivor-1 -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=40000 \
   -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s4-runner2.log 2>&1
 

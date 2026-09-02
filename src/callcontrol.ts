@@ -7,6 +7,11 @@ import { sitePin } from "./siteconfig.js";
 import { raiseIssue } from "./notify.js";
 import { runSupervisorTurn } from "./supervisor.js";
 import { ARTIFACTS_DIR } from "./paths.js";
+import {
+  BUDGET_MS, bumpSilence, endCall, ensureCall, holdingLine, move, openCall, overdueCalls,
+  stalledCalls, type CallState,
+} from "./callstate.js";
+import { recordArtifact } from "./artifacts.js";
 
 const ARTIFACTS = ARTIFACTS_DIR;
 const TELNYX_API = "https://api.telnyx.com/v2";
@@ -31,30 +36,39 @@ const STATE_ACK = Buffer.from("ack").toString("base64");
  */
 
 /**
- * Which calls are mid-answer.
+ * Which calls are mid-answer — now a row, not a Map (plan S19).
  *
- * `interim_results: false` does not mean one event per utterance — Telnyx emits
- * a final per segment, so a single spoken sentence can arrive as two, and each
- * one produced its own spoken reply. A call answers one thing at a time: this
- * gate holds from the moment a transcription is accepted until that reply has
- * finished playing.
+ * `interim_results: false` does not mean one event per utterance: Telnyx emits a
+ * final per segment, so one spoken sentence can arrive as two, and each one
+ * produced its own spoken reply. A call answers one thing at a time.
  *
- * In memory because it is per-live-call and worthless after the call ends; the
- * timestamp is the escape hatch, so a lost playback.ended cannot wedge a call
- * silent forever.
+ * That gate used to be a module-level Map. It worked, and it had a failure mode
+ * the plan calls out by name: an API restart erased it, so the next
+ * transcription for a live call looked like the first — making the runaway loop
+ * reachable again by a deploy. It is `calls.state` now, and the gate is the
+ * atomic move `listening -> thinking`: two transcriptions both attempt it and
+ * exactly one wins, because the UPDATE names the state it expects to find.
  */
-const answering = new Map<string, number>();
-const ANSWER_LOCK_MS = 30_000;
-
-function beginAnswer(ccid: string): boolean {
-  const since = answering.get(ccid);
-  if (since && Date.now() - since < ANSWER_LOCK_MS) return false;
-  answering.set(ccid, Date.now());
-  return true;
+async function beginAnswer(pool: pg.Pool, ccid: string): Promise<boolean> {
+  return move(pool, ccid, "thinking", {
+    // ONLY from `listening`. Allowing it from `speaking` too looked like
+    // politeness — let the caller interrupt — and it quietly reopened the
+    // runaway loop: three segments of one sentence each got their own reply,
+    // which is the exact bug this step exists to prevent. Barge-in is S20, and
+    // it needs the playback stopped, not the gate widened.
+    from: ["listening"],
+    cause: "a transcription arrived",
+    eventType: "call.transcription",
+    leg: "answer",
+  });
 }
 
-function endAnswer(ccid: string): void {
-  answering.delete(ccid);
+async function endAnswer(pool: pg.Pool, ccid: string): Promise<void> {
+  await move(pool, ccid, "listening", {
+    from: ["thinking", "speaking"],
+    cause: "the reply finished playing",
+    leg: "listening",
+  });
 }
 
 export type TelnyxEvent = {
@@ -77,12 +91,89 @@ async function telnyxKey(pool: pg.Pool): Promise<string | null> {
  * Issue one Call Control command. Telnyx addresses a live call by its
  * `call_control_id`, which only exists for the duration of that call.
  */
+/**
+ * Every command Jarvis would have sent, when the line is faked.
+ *
+ * `JARVIS_TELNYX=fake` records the action and its body instead of calling
+ * Telnyx. The whole call path — the state machine, the turn gate, the
+ * fallbacks — is then drivable offline against webhook events, which is the
+ * only way "one utterance produces exactly one reply" can be a permanent
+ * regression test rather than something checked by phoning up.
+ *
+ * `JARVIS_TELNYX_FAIL` makes a named action fail, so the spoken fallbacks are
+ * reachable without a real broken provider.
+ */
+const FAKE_TELNYX = process.env.JARVIS_TELNYX === "fake";
+
+/**
+ * Which provider is being forced to fail, for the plan's "force each provider to
+ * fail in turn" test. Set by nothing in production; the failure modes it stands
+ * in for (bad key, unroutable endpoint, 500) all arrive here as the same thing —
+ * no usable answer — and the point of the test is the spoken fallback, not the
+ * HTTP status that caused it.
+ */
+/**
+ * Run something with a wall-clock budget.
+ *
+ * "A hung call is almost always an awaited promise with no timeout." This is the
+ * one for promises that have no AbortController of their own — the Supervisor
+ * turn, mostly — and it resolves to the fallback rather than throwing, because
+ * on a phone line a slow answer and no answer need the same handling.
+ */
+export async function withDeadline<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export function phoneFailing(what: string): boolean {
+  return (process.env.JARVIS_PHONE_FAIL ?? "").split(",").includes(what);
+}
+
+/**
+ * `model` fails every attempt; `model_once` fails only the first, which is the
+ * case the retry exists for — the two produce different spoken endings and both
+ * need testing.
+ */
+let failEnvSeen: string | null = null;
+let modelFailuresLeft = 0;
+function modelForcedToFail(): boolean {
+  const env = process.env.JARVIS_PHONE_FAIL ?? "";
+  if (env !== failEnvSeen) {
+    failEnvSeen = env;
+    modelFailuresLeft = phoneFailing("model_once") ? 1 : 0;
+  }
+  if (phoneFailing("model")) return true;
+  if (modelFailuresLeft > 0) {
+    modelFailuresLeft -= 1;
+    return true;
+  }
+  return false;
+}
+export const sentCommands: { ccid: string; action: string; body: Record<string, unknown> }[] = [];
+export function clearSentCommands(): void {
+  sentCommands.length = 0;
+  spokenLines.length = 0;
+}
+
 async function command(
   pool: pg.Pool,
   callControlId: string,
   action: string,
   body: Record<string, unknown> = {},
 ): Promise<boolean> {
+  if (FAKE_TELNYX) {
+    const failing = (process.env.JARVIS_TELNYX_FAIL ?? "").split(",").filter(Boolean);
+    sentCommands.push({ ccid: callControlId, action, body });
+    if (failing.includes(action)) return false;
+    return true;
+  }
   const key = await telnyxKey(pool);
   if (!key) return false;
   const ac = new AbortController();
@@ -140,6 +231,7 @@ export function callerVerdict(payload: Record<string, unknown>): {
 }
 
 async function transcribe(pool: pg.Pool, filePath: string): Promise<string | null> {
+  if (phoneFailing("stt")) return null;
   const route = await pool.query<{ model_id: string; auth_profile_id: string }>(
     `SELECT model_id, auth_profile_id FROM model_registry
      WHERE 'stt' = ANY (role_assignments) AND approval_state = 'approved'
@@ -159,11 +251,22 @@ async function transcribe(pool: pg.Pool, filePath: string): Promise<string | nul
   const form = new FormData();
   form.append("file", new Blob([await fs.readFile(filePath)]), path.basename(filePath));
   form.append("model", r.model_id);
+  // Budgeted, like every other external call on this path: an STT request that
+  // never returns holds the recording handler open for as long as the socket
+  // lasts, and nothing downstream of it ever runs.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), BUDGET_MS.stt);
   const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}` },
     body: form,
+    signal: ac.signal,
+  }).catch((err) => {
+    console.error("transcription threw:", err instanceof Error ? err.message : err);
+    return null;
   });
+  clearTimeout(timer);
+  if (!res) return null;
   if (!res.ok) {
     console.error("transcription failed:", res.status, (await res.text()).slice(0, 200));
     return null;
@@ -268,8 +371,29 @@ async function greetingUrl(pool: pg.Pool): Promise<string | null> {
   return await renderSpeech(pool, greetingText());
 }
 
-/** Render any line of speech in the pinned voice and return a playable URL. */
+/**
+ * Render any line of speech in the pinned voice and return a playable URL.
+ *
+ * `JARVIS_TTS=fake` answers with a URL that is never fetched, so the phone path
+ * runs offline. `JARVIS_PHONE_FAIL=tts` makes it return null instead — which is
+ * exactly what a dead ElevenLabs looks like from here, and is how the spoken
+ * fallback gets tested without a real outage.
+ */
 export async function renderSpeech(pool: pg.Pool, text: string): Promise<string | null> {
+  try {
+    return await renderSpeechInner(pool, text);
+  } catch (err) {
+    console.error("elevenlabs render threw:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+async function renderSpeechInner(pool: pg.Pool, text: string): Promise<string | null> {
+  if (phoneFailing("tts")) return null;
+  if (process.env.JARVIS_TTS === "fake") {
+    const token = crypto.createHash("sha256").update(text).digest("hex").slice(0, 32);
+    return `http://fake.invalid/api/audio/${token}.wav`;
+  }
   const voiceId = sitePin((c) => c.elevenlabs?.voice_id);
   const base = sitePin((c) => c.site?.public_url) ?? "https://jarvis.enriquecodes.com";
   if (!voiceId) return null;
@@ -290,9 +414,12 @@ export async function renderSpeech(pool: pg.Pool, text: string): Promise<string 
   // output_format is a QUERY parameter. Passed in the JSON body it is silently
   // ignored — the response came back as MP3, got wrapped in a u-law WAV header,
   // and played as white noise. Silent ignores are worse than errors.
+  const ac = new AbortController();
+  const ttsTimer = setTimeout(() => ac.abort(), BUDGET_MS.tts);
   const res = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=ulaw_8000`,
     {
+    signal: ac.signal,
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
     // A 44.1 kHz MP3 has to be crushed to 8 kHz narrowband for the phone line,
@@ -306,6 +433,7 @@ export async function renderSpeech(pool: pg.Pool, text: string): Promise<string 
     }),
   },
   );
+  clearTimeout(ttsTimer);
   if (!res.ok) {
     console.error("elevenlabs reply render failed:", res.status);
     return null;
@@ -374,9 +502,158 @@ function transcriptFrom(payload: Record<string, unknown>): string | null {
   const text = String(d.transcript ?? d.text ?? "").trim();
   if (!text) {
     console.log("call.transcription shape:", JSON.stringify(payload).slice(0, 400));
-    return null;
+    // An empty FINAL is the caller having spoken and the engine having heard
+    // nothing usable. That deserves "I did not catch that" rather than silence,
+    // and it is a different thing from an interim event, which deserves nothing
+    // at all — hence the empty string rather than another null.
+    return isFinal === true ? "" : null;
   }
   return text;
+}
+
+/**
+ * The conversation thread for one call.
+ *
+ * Spoken turns used to land in the console's own project-less thread, mixed in
+ * with everything typed there. The plan wants a call to be "reviewable
+ * afterwards like any other channel", which means it needs its own thread with a
+ * beginning and an end — the same shape a WhatsApp conversation has.
+ */
+async function callConversation(pool: pg.Pool, ccid: string): Promise<string | null> {
+  const call = await pool.query<{ conversation_id: string | null; from_e164: string | null }>(
+    "SELECT conversation_id, from_e164 FROM calls WHERE call_control_id = $1",
+    [ccid],
+  );
+  const existing = call.rows[0]?.conversation_id;
+  if (existing) return existing;
+
+  if (!call.rowCount) {
+    // No call row: an event for a call that was never opened. Fall back to the
+    // console thread rather than dropping what was said on the floor.
+    const conv = await pool.query<{ id: string }>(
+      "SELECT id FROM conversations WHERE project_id IS NULL ORDER BY created_at LIMIT 1",
+    );
+    return conv.rows[0]?.id ?? null;
+  }
+
+  const made = await pool.query<{ id: string }>(
+    `INSERT INTO conversations (project_id, title, channel)
+     VALUES (NULL, $1, 'phone') RETURNING id`,
+    [`Call from ${call.rows[0].from_e164 ?? "an unknown number"}`],
+  );
+  const id = made.rows[0].id;
+  await pool.query("UPDATE calls SET conversation_id = $2 WHERE call_control_id = $1", [ccid, id]);
+  return id;
+}
+
+/**
+ * End a call: write its transcript down, then release the state.
+ *
+ * The transcript is an artifact rather than only a thread because "every call
+ * gets a stored transcript artifact" is the step's Done-when, and because the
+ * thread is a live object while the artifact is the record of what was actually
+ * said — one file, one checksum, one retention clock.
+ */
+export async function finalizeCall(pool: pg.Pool, ccid: string, reason: string): Promise<string | null> {
+  const call = await pool.query<{
+    conversation_id: string | null; from_e164: string | null;
+    started_at: string; turns: number; transcript_artifact_id: string | null;
+  }>(
+    `SELECT conversation_id, from_e164, started_at::text AS started_at, turns, transcript_artifact_id
+     FROM calls WHERE call_control_id = $1`,
+    [ccid],
+  );
+  const row = call.rows[0];
+  await endCall(pool, ccid, reason);
+  if (!row) return null;
+  // Written once. A second hangup event for the same call must not produce a
+  // second transcript that supersedes nothing.
+  if (row.transcript_artifact_id) return row.transcript_artifact_id;
+
+  const lines = row.conversation_id
+    ? (await pool.query<{ role: string; body: string; at: string }>(
+        `SELECT role, body, to_char(created_at, 'HH24:MI:SS') AS at FROM messages
+         WHERE conversation_id = $1 ORDER BY created_at, id`,
+        [row.conversation_id],
+      )).rows
+    : [];
+
+  const body = [
+    `# Call from ${row.from_e164 ?? "an unknown number"}`,
+    "",
+    `- started: ${row.started_at}`,
+    `- ended because: ${reason}`,
+    `- turns: ${row.turns}`,
+    "",
+    ...(lines.length
+      ? lines.map((l) => `**${l.role === "user" ? "Enrique" : "Jarvis"}** (${l.at}): ${l.body}`)
+      : ["_Nothing was said._"]),
+    "",
+  ].join("\n");
+
+  const dir = path.join(ARTIFACTS, "phone");
+  await fs.mkdir(dir, { recursive: true, mode: 0o750 });
+  const name = `transcript-${ccid.replace(/[^a-zA-Z0-9-]/g, "")}.md`;
+  await fs.writeFile(path.join(dir, name), body, { mode: 0o640 });
+
+  const artifact = await recordArtifact(pool, {
+    projectId: null,
+    path: path.join("phone", name),
+    type: "document",
+    mime: "text/markdown",
+    bytes: Buffer.byteLength(body),
+    sha256: crypto.createHash("sha256").update(body).digest("hex"),
+    source: "phone",
+    conversationId: row.conversation_id,
+  }).catch((err) => {
+    console.error("call transcript could not be recorded:", err instanceof Error ? err.message : err);
+    return null;
+  });
+  if (artifact) {
+    await pool.query(
+      "UPDATE calls SET transcript_artifact_id = $2 WHERE call_control_id = $1",
+      [ccid, artifact.id],
+    );
+  }
+  return artifact?.id ?? null;
+}
+
+/**
+ * Say something to the caller, whatever it takes.
+ *
+ * ElevenLabs first; if it cannot render, Telnyx's own voice, with an issue
+ * raised — a robot voice is a degradation worth knowing about, and silence is
+ * not an option the caller can distinguish from a dropped line.
+ */
+/**
+ * Every line Jarvis spoke, when the line is faked.
+ *
+ * A rendered line goes out as a URL, so `sentCommands` cannot show what was
+ * actually said — and "did it say it was still working, or did it say
+ * something else" is exactly what the tests need to know.
+ */
+export const spokenLines: { ccid: string; text: string; clientState: string }[] = [];
+
+async function say(
+  pool: pg.Pool, ccid: string, text: string, clientState: string,
+): Promise<boolean> {
+  if (FAKE_TELNYX) spokenLines.push({ ccid, text, clientState });
+  const url = await renderSpeech(pool, text).catch(() => null);
+  if (url) return await command(pool, ccid, "playback_start", { audio_url: url, client_state: clientState });
+
+  await raiseIssue(pool, {
+    category: "dependency.unavailable",
+    service: "elevenlabs",
+    title: "[elevenlabs] speech could not be rendered; fell back to the Telnyx voice",
+    // Keyed on the failure, not on the call: one ticket while it is down, not
+    // one per sentence spoken during the outage.
+    dedupeKey: "elevenlabs-render-failed",
+    evidence: { call_control_id: ccid, spoke_in: "the carrier voice" },
+  }).catch(() => undefined);
+
+  return await command(pool, ccid, "speak", {
+    payload: text, voice: "female", language: "en-US", client_state: clientState,
+  });
 }
 
 /** Run a Supervisor turn on what was said and play the answer back. */
@@ -384,10 +661,7 @@ async function answerAloud(pool: pg.Pool, ccid: string, said: string): Promise<s
   const startedAt = Date.now();
 
 
-  const conv = await pool.query<{ id: string }>(
-    `SELECT id FROM conversations WHERE project_id IS NULL ORDER BY created_at LIMIT 1`,
-  );
-  const conversationId = conv.rows[0]?.id;
+  const conversationId = await callConversation(pool, ccid);
   if (!conversationId) return "no conversation to answer in";
 
   const inbox = await pool.query<{ id: string }>(
@@ -401,7 +675,7 @@ async function answerAloud(pool: pg.Pool, ccid: string, said: string): Promise<s
   // §13.3: a phone call cannot authorise an always-confirm action. Caller ID is
   // spoofable and a voice can be cloned, so a spoken instruction is a request to
   // be confirmed elsewhere, never authority in itself.
-  const reply = await runSupervisorTurn(pool, {
+  const reply = modelForcedToFail() ? null : await withDeadline(runSupervisorTurn(pool, {
     conversationId,
     inboxId: inbox.rows[0].id,
     userText:
@@ -424,29 +698,121 @@ ${said}`,
   }).catch((err) => {
     console.error("phone supervisor turn failed:", err instanceof Error ? err.message : err);
     return null;
-  });
+  }), BUDGET_MS.model, null);
 
-  const spoken = reply ?? "Sorry sir, I could not reach a model just then. Your message is saved.";
+  /*
+   * The model failed. Say so out loud, then try once more.
+   *
+   * "model fails -> 'give me a moment' then retry once, then offer to follow up
+   * in writing." The filler carries STATE_ACK, which the playback handler
+   * deliberately does not treat as the end of the answer — without that marker
+   * the filler's own `playback.ended` would release the turn gate mid-thought
+   * and the retry's reply would arrive after the caller had started talking
+   * again.
+   */
+  let spoken = reply;
+  if (spoken === null) {
+    await say(pool, ccid, "Give me a moment, sir, I am still working on that.", STATE_ACK);
+    spoken = modelForcedToFail() ? null : await withDeadline(runSupervisorTurn(pool, {
+      conversationId, inboxId: inbox.rows[0].id, userText: said, brief: true,
+    }).catch(() => null), BUDGET_MS.model, null);
+    if (spoken === null) {
+      await raiseIssue(pool, {
+        category: "dependency.unavailable",
+        service: "model",
+        title: "[phone] a spoken turn could not reach a model, twice",
+        dedupeKey: "phone-model-unreachable",
+        evidence: { call_control_id: ccid, said: said.slice(0, 200) },
+      }).catch(() => undefined);
+      // The inbox event is already filed and still `pending`, so the follow-up
+      // this promises is a queued message rather than a good intention.
+      spoken = "I could not reach a model just then, sir. I have saved what you said "
+        + "and I will follow up in writing.";
+    }
+  }
   const afterModel = Date.now();
-  const url = await renderSpeech(pool, spoken);
+  const url = await renderSpeech(pool, spoken).catch(() => null);
   // Split the wait so the slow half is known rather than guessed at.
   console.log(
     `phone turn: model ${afterModel - startedAt}ms, tts ${Date.now() - afterModel}ms, `
     + `reply ${spoken.length} chars`,
   );
-  if (url) {
-    await command(pool, ccid, "playback_start", { audio_url: url, client_state: STATE_REPLY });
-  } else {
-    await command(pool, ccid, "speak", {
-      payload: spoken,
-      voice: "female",
-      language: "en-US",
-      client_state: STATE_REPLY,
-    });
+  await move(pool, ccid, "speaking", {
+    from: "thinking", cause: "playing the answer", leg: "tts",
+  });
+  if (FAKE_TELNYX) spokenLines.push({ ccid, text: spoken, clientState: STATE_REPLY });
+  const played = url
+    ? await command(pool, ccid, "playback_start", { audio_url: url, client_state: STATE_REPLY })
+    : await say(pool, ccid, spoken, STATE_REPLY);
+  if (!played) {
+    // Nothing was spoken and there will be no playback.ended to release the
+    // gate, so release it here or the call goes deaf for the rest of its life.
+    await endAnswer(pool, ccid);
+    return `could not speak ${spoken.length} chars`;
   }
   return `answered ${spoken.length} chars`;
 }
 
+
+/**
+ * How long a live call may sit with nothing happening before it is written off.
+ *
+ * Not a leg budget — a backstop for the events that never arrive at all.
+ */
+const STALL_MS = 10 * 60_000;
+
+/**
+ * Say something to a caller who has been waiting too long, and unstick the call.
+ *
+ * Run from the worker rather than from a timer inside the request that started
+ * the leg. "A hung call is almost always an awaited promise with no timeout" —
+ * and a timeout that lives in a promise dies with the process, which is the very
+ * failure this step exists to remove. In the row, swept from outside, it
+ * survives the restart.
+ */
+export async function sweepCallDeadlines(pool: pg.Pool): Promise<string[]> {
+  const done: string[] = [];
+
+  for (const call of await overdueCalls(pool)) {
+    const { call_control_id: ccid, state, deadline_leg: leg } = call;
+
+    if (state === "listening") {
+      // Nobody has said anything. Ask once; the second time, hang up rather
+      // than holding an open line at a per-minute rate.
+      const asked = await bumpSilence(pool, ccid);
+      if (asked >= 2) {
+        await say(pool, ccid, "I will let you go, sir. Call back any time.", STATE_ACK);
+        await command(pool, ccid, "hangup");
+        await finalizeCall(pool, ccid, "the caller went quiet");
+        done.push(`${ccid}: closed after silence`);
+        continue;
+      }
+      await say(pool, ccid, "Are you still there, sir?", STATE_ACK);
+      await move(pool, ccid, "listening", {
+        from: "listening", cause: "asked whether the caller is still there", leg: "listening",
+      });
+      done.push(`${ccid}: asked whether the caller is still there`);
+      continue;
+    }
+
+    // A leg blew its budget. Say something true about it, and hand the turn
+    // back to the caller — a gate that is never released is a deaf call.
+    await say(pool, ccid, holdingLine(leg), STATE_REPLY);
+    await move(pool, ccid, "listening", {
+      from: ["greeting", "thinking", "speaking", "ringing"],
+      cause: `the ${leg ?? "current"} leg blew its budget`,
+      leg: "listening",
+    });
+    done.push(`${ccid}: ${leg ?? "a leg"} overran, said so and went back to listening`);
+  }
+
+  for (const call of await stalledCalls(pool, STALL_MS)) {
+    await finalizeCall(pool, call.call_control_id, `stalled in ${call.state}`);
+    done.push(`${call.call_control_id}: written off, stalled in ${call.state}`);
+  }
+
+  return done;
+}
 
 /**
  * Render the fixed lines ahead of time.
@@ -480,6 +846,17 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
   const payload = (event.data?.payload ?? {}) as Record<string, unknown>;
   const ccid = String(payload.call_control_id ?? "");
 
+  // A dropped `call.initiated` must not cost the whole call. Without a row every
+  // gate refuses, and the caller hears a greeting followed by nothing.
+  if (ccid && type !== "call.initiated") {
+    const invented = await ensureCall(pool, {
+      ccid,
+      legId: String(payload.call_leg_id ?? "") || null,
+      from: String(payload.from ?? "") || null,
+    });
+    if (invented) console.error(`no call row for ${ccid}; ${type} arrived first, invented one`);
+  }
+
   if (type === "call.initiated" && ccid) {
     const verdict = callerVerdict(payload);
     if (!verdict.allow) {
@@ -497,6 +874,7 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
       }).catch(() => undefined);
       return `rejected: ${verdict.reason}`;
     }
+    await openCall(pool, { ccid, legId: String(payload.call_leg_id ?? "") || null, from: verdict.from });
     await command(pool, ccid, "answer");
     return `answered: ${verdict.reason}`;
   }
@@ -528,9 +906,18 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
       // A voice that Telnyx cannot resolve must not strand the caller on a
       // silent line that never records. Fall back to recording immediately.
       console.error("speak failed; recording without a greeting");
+      // Straight to listening: a greeting that cannot be spoken must not leave
+      // the caller on a silent line that never records.
+      await move(pool, ccid, "greeting", { from: "ringing", cause: "greeting failed", eventType: type });
+      await move(pool, ccid, "listening", {
+        from: "greeting", cause: "no greeting to wait for", leg: "listening",
+      });
       await startRecording(pool, ccid);
       return "speak failed, recording anyway";
     }
+    await move(pool, ccid, "greeting", {
+      from: "ringing", cause: "playing the greeting", eventType: type, leg: "tts",
+    });
     return "greeting";
   }
 
@@ -545,7 +932,7 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
     if (state === STATE_ACK) return "acknowledgement finished, still thinking";
     if (state !== STATE_GREETING) {
       // The answer has finished playing: the caller may speak again.
-      endAnswer(ccid);
+      await endAnswer(pool, ccid);
       return "reply finished, listening again";
     }
     // Two things, for two different jobs.
@@ -557,6 +944,9 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
     //
     // Transcription streams instead, and only the inbound track — so Jarvis
     // never transcribes its own voice back and answers itself.
+    await move(pool, ccid, "listening", {
+      from: "greeting", cause: "the greeting finished", eventType: type, leg: "listening",
+    });
     await startRecording(pool, ccid);
     await command(pool, ccid, "transcription_start", {
       transcription_engine: "Telnyx",
@@ -568,12 +958,21 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
 
   if (type === "call.transcription" && ccid) {
     const said = transcriptFrom(payload);
-    if (!said) return "transcription with no final text";
-    if (!beginAnswer(ccid)) return `ignored while answering: ${said.slice(0, 40)}`;
+    if (said === null) return "transcription with no final text";
+    if (said === "") {
+      // Gate it like a real answer, so a run of empty finals produces one
+      // apology rather than one per event.
+      if (!(await beginAnswer(pool, ccid))) return "already answering";
+      await say(pool, ccid, holdingLine("stt"), STATE_REPLY);
+      return "heard nothing usable, said so";
+    }
+    if (!(await beginAnswer(pool, ccid))) {
+      return `ignored while answering: ${said.slice(0, 40)}`;
+    }
     try {
       return await answerAloud(pool, ccid, said);
     } catch (err) {
-      endAnswer(ccid);
+      await endAnswer(pool, ccid);
       throw err;
     }
   }
@@ -609,6 +1008,17 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
     // The recording exists for the audio artifact and its retention clock, not
     // for the conversation — it arrives after the caller has hung up.
     return `stored ${stored.id}, transcript filed`;
+  }
+
+  /*
+   * Hang-up, and anything else that ends a call, releases the state. The plan:
+   * "Hang-up, caller silence, and mid-call network loss all end the call cleanly
+   * and release state." A row left in `thinking` forever is the persisted
+   * version of the stuck Map this replaced.
+   */
+  if ((type === "call.hangup" || type === "call.machine.detection.ended") && ccid) {
+    await finalizeCall(pool, ccid, `telnyx said ${type}`);
+    return `call ended: ${type}`;
   }
 
   return `ignored ${type}`;
