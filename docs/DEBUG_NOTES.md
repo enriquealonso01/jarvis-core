@@ -588,6 +588,25 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### The keyboard test pressed Enter on whatever it found, and cancelled the task
+**Symptom:** L17's keyboard half started failing at "the health strip opens with
+Enter", and then the next three journeys failed too — the task they used had
+become `cancelled` halfway through the run.
+**Cause:** the walk was `await tabTo(page, target); await keyboard.press("Enter")`
+— the press was unconditional. When `tabTo` could not find its target it returned
+null and the Enter went to whatever happened to hold focus, which on the work
+page is a row of buttons ending in **Cancel**. The test was cancelling the task
+it was about to assert on, and every failure after that was about a task that no
+longer existed.
+**Fix:** Enter is only pressed on a control the walk actually found; a miss is an
+assertion failure and nothing else. And the walk targets the real focusable
+element — the `<summary>`, not a `<span>` inside it, which is not focusable and
+never matched.
+**Lesson:** a test that acts when it cannot find its target does damage rather
+than reporting a problem, and the damage then looks like a different bug. Every
+synthetic key press or click needs a found-it guard, especially in a UI with
+destructive controls.
+
 ### An unreachable API signed you out of a console you were signed in to
 **Symptom:** with the API unreachable, every page in the console redirected to
 the login screen. S15's "does every screen name the state" pass reported no state

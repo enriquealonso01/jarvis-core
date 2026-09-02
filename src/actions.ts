@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { requireUser } from "./auth.js";
 import { storeJsonCredential } from "./credentials.js";
+import { testConnection } from "./conntest.js";
 import { sseBroadcast } from "./sse.js";
 
 const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
@@ -60,6 +61,11 @@ export async function ensureActionRequest(
     message: string;
     profileId?: string;
     connectionSlug?: string;
+    /** For a credential that belongs to one project rather than the system. */
+    projectId?: string | null;
+    /** What it is for and what it costs — S16 asks the page to say both. */
+    purpose?: string;
+    cost?: string;
     /** Defaults to the ADR 004 two hours. */
     ttlHours?: number;
   },
@@ -93,6 +99,9 @@ export async function ensureActionRequest(
         message: args.message,
         profile_id: args.profileId ?? null,
         connection_slug: args.connectionSlug ?? null,
+        project_id: args.projectId ?? null,
+        purpose: args.purpose ?? null,
+        cost: args.cost ?? null,
       }),
     ],
   );
@@ -159,17 +168,41 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
   });
 
   app.post("/api/action-requests/:id/submit", async (req, reply) => {
-    const user = await requireUser(pool, req, reply);
-    if (!user) return;
-    if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
-
     const id = (req.params as { id: string }).id;
-    const body = (req.body ?? {}) as { api_key?: string };
+    const body = (req.body ?? {}) as { api_key?: string; token?: string };
+    const token = body.token ?? (req.query as { t?: string }).t;
+
+    /*
+     * N4 is "one WhatsApp with a link, the action page takes a new PAT" — from a
+     * phone, with no terminal and no session. The GET already accepted the
+     * one-time token and the POST did not, so the page rendered and the form
+     * could not be submitted: the whole loop stopped one field short.
+     *
+     * The token is single-use and two hours old at most (ADR 004), so it is a
+     * weaker credential than a session and is treated as one — it authorises
+     * this one request and nothing else. Origin is still enforced for a session
+     * submit; a token submit comes from a link in a message and has no origin to
+     * check against.
+     */
+    let viaToken = false;
+    if (token) {
+      const hash = crypto.createHash("sha256").update(token).digest();
+      const check = await pool.query(
+        `SELECT 1 FROM user_action_requests WHERE id = $1 AND token_hash = $2`,
+        [id, hash],
+      );
+      if (!check.rowCount) return reply.code(404).send({ error: "not found" });
+      viaToken = true;
+    } else {
+      const user = await requireUser(pool, req, reply);
+      if (!user) return;
+      if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
+    }
 
     const r = await pool.query<{
       id: string;
       kind: string;
-      payload: { profile_id?: string; connection_slug?: string };
+      payload: { profile_id?: string; connection_slug?: string; project_id?: string };
       issue_id: string | null;
       consumed_at: Date | null;
       expires_at: Date | null;
@@ -214,25 +247,90 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
     }
 
     let fingerprint: string | null = null;
+    let tested: { ok: boolean; detail: string } | null = null;
     if (row.kind === "provide_api_key") {
       const profileId = row.payload?.profile_id;
+      const projectId = row.payload?.project_id ?? null;
       const apiKey = body.api_key?.trim();
-      if (!profileId) return reply.code(400).send({ error: "this request has no target profile" });
-      if (!KEY_PROFILES.has(profileId)) {
-        return reply.code(400).send({ error: "this profile is a host login, not an API key" });
-      }
       if (!apiKey) return reply.code(400).send({ error: "api_key required" });
 
-      fingerprint = `${profileId}:…${last4(apiKey)}`;
-      await storeJsonCredential(pool, {
+      /*
+       * Two shapes of credential arrive here and they are stored differently.
+       *
+       * A SYSTEM profile (groq, elevenlabs, the GitHub admin token) is one of
+       * the named KEY_PROFILES and belongs to Jarvis. A PROJECT credential
+       * belongs to one repository — the token that opens that project's pull
+       * requests — and must never be filed under a system profile, because the
+       * whole reason it exists is that the admin token can reach every
+       * repository on the account and this one cannot.
+       */
+      const slug = row.payload?.connection_slug ?? profileId ?? "";
+      if (!slug) return reply.code(400).send({ error: "this request has no target" });
+      if (!projectId) {
+        if (!profileId) return reply.code(400).send({ error: "this request has no target profile" });
+        if (!KEY_PROFILES.has(profileId)) {
+          return reply.code(400).send({ error: "this profile is a host login, not an API key" });
+        }
+      }
+
+      fingerprint = `${slug}:…${last4(apiKey)}`;
+      const stored = await storeJsonCredential(pool, {
         kind: "api_key",
-        authProfileId: profileId,
-        connectionSlug: row.payload?.connection_slug ?? profileId,
-        brokerOnly: ["github_personal_admin", "backup_b2", "netcup_scp"].includes(profileId),
+        authProfileId: projectId ? null : (profileId ?? null),
+        connectionSlug: slug,
+        projectId,
+        brokerOnly: !projectId && ["github_personal_admin", "backup_b2", "netcup_scp"].includes(profileId ?? ""),
         fingerprint,
         replace: true,
         payload: { api_key: apiKey },
       });
+      if (projectId) {
+        // The column the pull-request path reads. Storing the credential is only
+        // half of it: without this the token exists and the code that needs it
+        // still says the project has none.
+        await pool.query("UPDATE projects SET github_api_credential_id = $2 WHERE id = $1", [
+          projectId,
+          stored.credentialId,
+        ]);
+      }
+
+      /*
+       * S16: "submitted to the broker -> CONNECTION TESTED -> ticket closed".
+       *
+       * The ticket used to close on the strength of a key having been typed. A
+       * wrong one therefore resolved the blocker, requeued the parked task, and
+       * sent it straight back into the same failure — which looks like the loop
+       * working right up until it does not.
+       *
+       * A failed test leaves the link UNCONSUMED so the same message can be used
+       * again with a better key, keeps the issue open, and says what the
+       * provider said. The plan asks for "a useful message rather than a stack
+       * trace", and "GitHub answered 401" is the useful version.
+       */
+      const test = await testConnection(pool, slug);
+      if (!test.ok) {
+        if (row.issue_id) {
+          await pool.query(
+            `INSERT INTO issue_events (issue_id, body, actor)
+             VALUES ($1, $2, 'user')`,
+            [row.issue_id, `a key was submitted and rejected: ${test.detail}`],
+          );
+        }
+        await pool.query(
+          `INSERT INTO audit_events (actor, action, target, metadata)
+           VALUES ('user', 'action_request.rejected', $1, $2)`,
+          [row.kind, JSON.stringify({ action_request_id: id, fingerprint, detail: test.detail })],
+        );
+        sseBroadcast("issue.updated", {});
+        return reply.code(422).send({
+          error: {
+            code: "connection_test_failed",
+            message: `That key was stored but it does not work: ${test.detail}. The ticket is still open — try again with a working one.`,
+          },
+          tested: test,
+        });
+      }
+      tested = test;
     }
 
     await pool.query(
@@ -252,13 +350,26 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
          VALUES ($1, 'resolved from the action page', 'user')`,
         [row.issue_id],
       );
-      const requeue = await pool.query(
-        `UPDATE tasks SET state = 'queued', waiting_reason = NULL, updated_at = now()
-         WHERE state IN ('waiting_for_user', 'waiting_for_provider')
-         RETURNING id`,
+      /*
+       * Only what was waiting on THIS blocker.
+       *
+       * This used to requeue every parked task in the database, which resumed
+       * work blocked on a different credential, on a disk that is still full, or
+       * on a question nobody has answered — and each one then failed again
+       * immediately. Gate 4 wants the opposite property: every affected task
+       * links to the issue, and reauthenticating resumes all of them and only
+       * them.
+       */
+      const requeue = await pool.query<{ id: string; state: string }>(
+        `UPDATE tasks SET state = 'queued', waiting_reason = NULL,
+                blocked_by_issue_id = NULL, updated_at = now()
+         WHERE blocked_by_issue_id = $1
+           AND state IN ('waiting_for_user', 'waiting_for_provider')
+         RETURNING id, 'queued' AS state`,
+        [row.issue_id],
       );
       released = requeue.rowCount ?? 0;
-      for (const t of requeue.rows as { id: string }[]) {
+      for (const t of requeue.rows) {
         await pool.query(
           `INSERT INTO task_transitions (task_id, from_state, to_state, cause, actor)
            VALUES ($1, 'waiting_for_provider', 'queued', 'blocker resolved from the action page', 'user')`,
@@ -270,11 +381,11 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
     await pool.query(
       `INSERT INTO audit_events (actor, action, target, metadata)
        VALUES ('user', 'action_request.submit', $1, $2)`,
-      [row.kind, JSON.stringify({ action_request_id: id, fingerprint, released })],
+      [row.kind, JSON.stringify({ action_request_id: id, fingerprint, released, via: viaToken ? "link" : "session" })],
     );
 
     sseBroadcast("issue.updated", {});
     sseBroadcast("queue.updated", {});
-    return { ok: true, fingerprint, released };
+    return { ok: true, fingerprint, released, tested };
   });
 }

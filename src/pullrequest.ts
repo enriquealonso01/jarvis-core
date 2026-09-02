@@ -129,7 +129,7 @@ async function park(pool: pg.Pool, task: TaskRow, reason: string): Promise<void>
     .catch(() => undefined);
   // One issue, not one per attempt: a missing credential is a single thing to
   // fix, and a ticket per retry trains you to ignore the queue.
-  await raiseIssue(pool, {
+  const raised = await raiseIssue(pool, {
     category: "provider.cred_expired",
     service: "github",
     owner: "user",
@@ -142,7 +142,46 @@ async function park(pool: pg.Pool, task: TaskRow, reason: string): Promise<void>
     requiredAction:
       "Add a GitHub API credential for this project on the Connections page. The deploy key "
       + "pushes branches; opening pull requests needs an API token scoped to this repository.",
-  }).catch(() => undefined);
+  }).catch(() => ({ issueId: null, created: false, notified: false }));
+
+  /*
+   * S16: turn the blocker into something Enrique can clear from a phone.
+   *
+   * The task is linked to the issue so that supplying the token resumes THIS run
+   * and every other one parked on the same missing credential — a project with
+   * three finished branches waiting to become pull requests should take one
+   * paste, not three.
+   *
+   * The action request is idempotent per issue, so the second and third task to
+   * hit the same missing credential add themselves to the same ticket and the
+   * same link rather than sending another message.
+   */
+  if (raised.issueId) {
+    await pool
+      .query("UPDATE tasks SET blocked_by_issue_id = $2 WHERE id = $1", [task.id, raised.issueId])
+      .catch(() => undefined);
+    const slug = await pool
+      .query<{ slug: string }>("SELECT slug FROM projects WHERE id = $1", [task.project_id])
+      .then((r) => r.rows[0]?.slug ?? null)
+      .catch(() => null);
+    if (slug && task.project_id) {
+      const { ensureActionRequest } = await import("./actions.js");
+      await ensureActionRequest(pool, {
+        issueId: raised.issueId,
+        kind: "provide_api_key",
+        title: `A GitHub token for ${slug}`,
+        message:
+          `Jarvis finished the work on ${slug} and cannot open the pull request: ${reason}`,
+        purpose:
+          "Opening and merging pull requests on this one repository. It is never used for any "
+          + "other project, and it is not the account-wide admin token — that one can reach every "
+          + "repository you own, which is why this is separate.",
+        cost: "Free. A GitHub fine-grained personal access token costs nothing.",
+        connectionSlug: `github_api_${slug}`,
+        projectId: task.project_id,
+      }).catch(() => undefined);
+    }
+  }
 }
 
 /**

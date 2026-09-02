@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "713b7dcc1253bfaa78e61c3fc374bca9a32f6e6b",
+  "plan_sha": "76dd6a283ffdcbba1e49b4244e79a7e17ec0bac5",
   "total_steps": 37,
-  "updated_at": "2026-09-02T06:05:06.183Z",
+  "updated_at": "2026-09-02T06:41:30.473Z",
   "current_step": "S12",
   "steps": [
     {
@@ -130,7 +130,8 @@
       "id": "S16",
       "title": "The credential loop",
       "stage": 3,
-      "state": "not_started"
+      "state": "done",
+      "evidence": "N4 end to end from a phone with no session: 26 assertions, every effect checked in the database. A dead credential parks three tasks, produces ONE ticket and ONE link; the wrong key is refused with the provider's own words while the ticket stays open; the right key stores project-scoped, tests healthy, closes the ticket and requeues all three by itself. Replayed link 409, expired link 409 and stores nothing."
     },
     {
       "id": "S17",
