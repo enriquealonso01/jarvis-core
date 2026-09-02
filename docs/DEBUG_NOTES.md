@@ -49,6 +49,7 @@ is two or three entries, and it is where the time is actually saved.
 - [The console has been reporting a build state from a file nobody updates](#the-console-has-been-reporting-a-build-state-from-a-file-nobody-updates)
 - [The em-dashes were never mis-encoded; the header was missing](#the-em-dashes-were-never-mis-encoded-the-header-was-missing)
 - [GitHub acknowledged the commit and then served the old file](#github-acknowledged-the-commit-and-then-served-the-old-file)
+- [The Supervisor read project instructions from a key nothing writes](#the-supervisor-read-project-instructions-from-a-key-nothing-writes)
 - [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
 - [Three hours of work was committed to `main` because a heredoc had an apostrophe](#three-hours-of-work-was-committed-to-main-because-a-heredoc-had-an-apostrophe)
 - [The backups did not contain the database](#the-backups-did-not-contain-the-database)
@@ -1214,6 +1215,34 @@ not a write that silently did not.
 own database. If a test asserts on a remote resource it just changed, it has to
 converge on the expected value or say it could not — reading once and re-running
 on failure is how a real regression gets classified as a flake.
+
+---
+
+### The Supervisor read project instructions from a key nothing writes
+**Symptom:** none. That is the point. Every project-scoped conversation Jarvis
+has ever had was missing the project's own rules, and nothing anywhere said so.
+**Cause:** the project-context builder in `runSupervisorTurn` selected
+`config_versions` where `key = 'instructions'`. Nothing has ever written that
+key — one read, no writer, zero rows in production. The template line was
+conditional, so an empty result rendered nothing at all, which is
+indistinguishable from a project that genuinely has no instructions.
+**Found by:** reading the code on the way to S27, not by a failure. It surfaced
+only because S26 gave instructions a real home
+(`project_instructions_versions`), and the obvious next question — "so who reads
+them?" — had the answer "nobody, and the thing that tried was pointed at the
+wrong table".
+**Fix:** `projectContextFor` reads the latest row from
+`project_instructions_versions`, canonical per ADR 018, and says "no project
+instructions have been written yet" when there are none, so absence is visible
+rather than silent. Extracted from `runSupervisorTurn` so it can be asserted
+without a model call. The body goes in whole; it used to be JSON-stringified and
+cut at 800 characters, and a Supervisor handed the first two thirds of a
+project's rules will confidently break the last third.
+**Lesson:** a dead read is invisible in a way a dead write is not. Nothing
+errors, nothing logs, and the feature simply never happens. When a table is
+added, grep for its readers; when a read is added, grep for its writers. A
+`SELECT` whose `WHERE` clause no `INSERT` can satisfy is a silent feature-off
+switch, and the only way it shows up is somebody asking who consumes this.
 
 ---
 

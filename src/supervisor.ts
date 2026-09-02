@@ -1193,6 +1193,67 @@ export async function quickCompletion(
 }
 
 
+/**
+ * What the Supervisor is told about the project a conversation is scoped to.
+ *
+ * Extracted from `runSupervisorTurn` so it can be asserted without a model
+ * call — and it needed asserting, because it was reading the wrong table.
+ *
+ * The instructions line used to select `config_versions` where `key =
+ * 'instructions'`. **Nothing has ever written that key.** One read, no writer,
+ * zero rows in production: every project conversation Jarvis has ever had was
+ * missing the project's own rules, and the line simply rendered empty, which is
+ * indistinguishable from a project that has none. S26 gave the system a real
+ * home for this — `project_instructions_versions`, canonical per ADR 018 — and
+ * this now reads it.
+ *
+ * The body goes in whole rather than JSON-stringified and truncated at 800
+ * characters. It is the project's rules; a Supervisor that has been handed the
+ * first two thirds of them will confidently break the last third.
+ */
+export async function projectContextFor(
+  pool: pg.Pool,
+  projectId: string | null,
+): Promise<string> {
+  if (!projectId) return "";
+  const proj = await pool.query<{
+    name: string;
+    slug: string;
+    project_type: string;
+    confidentiality: string;
+    production_status: string;
+    customer_facing: boolean;
+    github_owner: string | null;
+    github_repo: string | null;
+    metered_spend_allowed: boolean;
+  }>(
+    `SELECT name, slug, project_type, confidentiality, production_status, customer_facing,
+            github_owner, github_repo, metered_spend_allowed
+     FROM projects WHERE id = $1`,
+    [projectId],
+  );
+  const pr = proj.rows[0];
+  if (!pr) return "";
+
+  const instructions = await pool.query<{ body: string; version: number }>(
+    `SELECT body, version FROM project_instructions_versions
+     WHERE project_id = $1
+     ORDER BY version DESC LIMIT 1`,
+    [projectId],
+  );
+  const latest = instructions.rows[0];
+
+  return `
+This conversation is scoped to the project ${pr.name} (${pr.slug}):
+- type ${pr.project_type}, confidentiality ${pr.confidentiality}, ${pr.production_status.replace(/_/g, " ")}
+- customer facing: ${pr.customer_facing ? "yes — always-confirm applies" : "no"}
+- repository: ${pr.github_owner && pr.github_repo ? `${pr.github_owner}/${pr.github_repo}` : "not linked yet"}
+- metered spend: ${pr.metered_spend_allowed ? "allowed" : "off"}
+${latest
+  ? `\nIts instructions (AGENTS.md v${latest.version}) say:\n${latest.body.trim()}\n`
+  : "- no project instructions have been written yet"}`;
+}
+
 export async function runSupervisorTurn(
   pool: pg.Pool,
   args: {
@@ -1228,41 +1289,7 @@ export async function runSupervisorTurn(
     [projectId],
   );
 
-  let projectContext = "";
-  if (projectId) {
-    const proj = await pool.query<{
-      name: string;
-      slug: string;
-      project_type: string;
-      confidentiality: string;
-      production_status: string;
-      customer_facing: boolean;
-      github_owner: string | null;
-      github_repo: string | null;
-      metered_spend_allowed: boolean;
-    }>(
-      `SELECT name, slug, project_type, confidentiality, production_status, customer_facing,
-              github_owner, github_repo, metered_spend_allowed
-       FROM projects WHERE id = $1`,
-      [projectId],
-    );
-    const pr = proj.rows[0];
-    if (pr) {
-      const instructions = await pool.query<{ value: unknown }>(
-        `SELECT value FROM config_versions
-         WHERE project_id = $1 AND key = 'instructions'
-         ORDER BY version DESC LIMIT 1`,
-        [projectId],
-      );
-      projectContext = `
-This conversation is scoped to the project ${pr.name} (${pr.slug}):
-- type ${pr.project_type}, confidentiality ${pr.confidentiality}, ${pr.production_status.replace(/_/g, " ")}
-- customer facing: ${pr.customer_facing ? "yes — always-confirm applies" : "no"}
-- repository: ${pr.github_owner && pr.github_repo ? `${pr.github_owner}/${pr.github_repo}` : "not linked yet"}
-- metered spend: ${pr.metered_spend_allowed ? "allowed" : "off"}
-${instructions.rows[0] ? `- project instructions: ${JSON.stringify(instructions.rows[0].value).slice(0, 800)}` : ""}`;
-    }
-  }
+  const projectContext = await projectContextFor(pool, projectId);
   const recent = await pool.query(
     // Four exchanges is enough to hold a phone conversation together; twelve is
     // for a console thread being read back.

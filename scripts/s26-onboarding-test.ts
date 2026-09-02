@@ -270,6 +270,56 @@ async function main(): Promise<void> {
     }
   }
 
+  console.log("\n########## the Supervisor is actually told the project's rules ##########\n");
+  {
+    /*
+     * Writing AGENTS.md is only half of S26. S6 reads it at every engineering
+     * task, and the Supervisor is supposed to know a project's rules when it is
+     * talking about that project.
+     *
+     * It did not. The project-context builder selected `config_versions` where
+     * `key = 'instructions'`, and NOTHING has ever written that key — one read,
+     * no writer, zero rows in production. The line rendered empty, which looks
+     * exactly like a project that has no instructions, so it never surfaced.
+     * This asserts the content arrives, not merely that a query runs.
+     */
+    const { projectContextFor } = await import("../src/supervisor.js");
+    const made = await pool.query<{ id: string }>(
+      `INSERT INTO projects (slug, name, is_system, project_type, confidentiality)
+       VALUES ($1, $2, false, 'professional', 'normal') RETURNING id`,
+      [`ctx-${STAMP}`, `Context ${STAMP}`]);
+    const pid = made.rows[0].id;
+
+    const before = await projectContextFor(pool, pid);
+    truthy("with no instructions written, it says so plainly",
+      before.includes("no project instructions have been written yet"));
+
+    const rendered = renderAgentsMd({ ...COMPLETE, project_name: COMPLETE.name } as never);
+    if (!rendered.ok) throw new Error("fixture failed to render");
+    await pool.query(
+      `INSERT INTO project_instructions_versions (project_id, version, body, created_by)
+       VALUES ($1, 1, $2, 'jarvis')`, [pid, rendered.body]);
+
+    const after = await projectContextFor(pool, pid);
+    truthy("once written, the rules are in the context", after.includes("AGENTS.md v1"));
+    truthy("his deploy policy, in full", after.includes(COMPLETE.deploy_policy));
+    truthy("his migration rule too", after.includes(COMPLETE.migration_policy));
+    truthy("and the last line, not a truncation of the first two thirds",
+      after.includes("Default priority: normal"));
+
+    // A second version supersedes the first, which is what makes S27 possible.
+    await pool.query(
+      `INSERT INTO project_instructions_versions (project_id, version, body, created_by)
+       VALUES ($1, 2, $2, 'jarvis')`,
+      [pid, rendered.body.replace(COMPLETE.deploy_policy, `changed policy ${STAMP}`)]);
+    const v2 = await projectContextFor(pool, pid);
+    truthy("a newer version is the one that counts", v2.includes(`changed policy ${STAMP}`));
+    check("and the superseded wording is gone", false, v2.includes(COMPLETE.deploy_policy));
+
+    await pool.query("DELETE FROM project_instructions_versions WHERE project_id = $1", [pid]);
+    await pool.query("DELETE FROM projects WHERE id = $1", [pid]);
+  }
+
   console.log("\n########## and the broker refuses it again at use ##########\n");
   {
     /*
