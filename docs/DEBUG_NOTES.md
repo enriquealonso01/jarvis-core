@@ -588,6 +588,24 @@ with it.
 convincing API. Nothing errors, nothing warns, and the feature is only missing
 when someone watches for a change they did not cause themselves.
 
+### A failed build left the last good one in place, and the sabotage passed
+**Symptom:** S15's state suite was sabotaged — every state made to fall through
+to a blank panel, which is the exact failure the step exists to prevent — and it
+reported **10 passed, 0 failed**.
+**Cause:** `next build` compiles first and type-checks second. The sabotage broke
+type narrowing, the type-check failed, and `out/` was left holding the previous
+export. The suite then measured the last good build. `pnpm build` had been run
+with its output redirected to /dev/null, so the failure was invisible.
+**Fix:** `scripts/console-rebuild.sh`, which fails loudly on a build error and
+additionally refuses to continue if `out/index.html` is older than the newest
+source file. Every console suite goes through it.
+**Lesson:** this is the third time a stale artifact has reported green — twice
+with Docker images, now with a static export — and the shape is always the same:
+a build step whose failure is silent, followed by a test that reads the output
+directory. Never redirect a build's output away, and have the test refuse to run
+on an artifact older than its sources. The first two cost hours; this one was
+caught only because the sabotage was supposed to fail and did not.
+
 ### One open connection stopped every one-shot runner from exiting
 **Symptom:** the sweep produced no output for twenty-five minutes. `docker ps`
 showed twelve `jarvis-dev-runner-run-*` containers still up, the oldest
