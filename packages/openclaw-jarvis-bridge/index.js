@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import fsp from "node:fs/promises";
+import { looksUnpaired } from "./classify.js";
 import { definePluginEntry } from "openclaw/plugin-sdk/core";
 
 // OpenClaw loads this file as plain JavaScript. It must stay valid JS — no type
@@ -69,7 +71,51 @@ export function looksForwarded(msg) {
   );
 }
 
-export function payloadFor(msg) {
+/**
+ * Is this a voice note, and where are its bytes?
+ *
+ * The WhatsApp plugin carries media as some combination of `mediaKind`,
+ * `mediaBuffer`, `mediaPath` and `mediaUrl` - all four names are present in its
+ * bundle, and which of them reaches this hook cannot be known until a real
+ * message arrives, because the channel is not paired yet. So all three carriers
+ * are handled and the shape is logged once when media appears: the first voice
+ * note Enrique sends will say which is true, in the log, instead of failing
+ * silently.
+ */
+export function audioFrom(msg) {
+  const kind = msg?.mediaKind ?? msg?.mediaType ?? msg?.type ?? "";
+  const mime = msg?.mediaMime ?? msg?.mimetype ?? msg?.mimeType ?? "";
+  const looksAudio = /audio|voice|ptt/i.test(String(kind)) || /^audio\//i.test(String(mime));
+  if (!looksAudio) return null;
+  return {
+    mime: mime || "audio/ogg",
+    buffer: msg?.mediaBuffer ?? msg?.buffer ?? null,
+    path: msg?.mediaPath ?? msg?.path ?? null,
+    url: msg?.mediaUrl ?? (Array.isArray(msg?.mediaUrls) ? msg.mediaUrls[0] : null),
+  };
+}
+
+async function audioBase64(audio, log) {
+  try {
+    if (audio.buffer) return Buffer.from(audio.buffer).toString("base64");
+    if (audio.path) return (await fsp.readFile(audio.path)).toString("base64");
+    if (audio.url) {
+      const r = await fetch(audio.url);
+      if (!r.ok) throw new Error(`media fetch ${r.status}`);
+      return Buffer.from(await r.arrayBuffer()).toString("base64");
+    }
+  } catch (err) {
+    log?.warn?.(`[jarvis-bridge] could not read voice note: ${err.message}`);
+  }
+  return null;
+}
+
+export async function payloadFor(msg, log) {
+  const audio = audioFrom(msg);
+  if (audio) {
+    log?.info?.(`[jarvis-bridge] media message; fields: ${Object.keys(msg ?? {}).join(",")}`);
+  }
+  const encoded = audio ? await audioBase64(audio, log) : null;
   return {
     channel: msg?.channel ?? "whatsapp",
     external_id: msg?.id ?? msg?.messageId,
@@ -77,6 +123,9 @@ export function payloadFor(msg) {
     text: msg?.text ?? msg?.body ?? "",
     is_forward: looksForwarded(msg),
     forwarded_text: msg?.quotedText ?? msg?.forwardedText ?? undefined,
+    // Jarvis stores the audio, transcribes it, and routes the transcript like
+    // typed text. The bridge does not transcribe: it is a pipe.
+    ...(encoded ? { audio_base64: encoded, audio_mime: audio.mime } : {}),
   };
 }
 
@@ -117,7 +166,7 @@ export default definePluginEntry({
 
     api.on("message_received", async (event) => {
       log.info?.("[jarvis-bridge] message_received fired");
-      const result = await ingestToJarvis(payloadFor(event?.message ?? event));
+      const result = await ingestToJarvis(await payloadFor(event?.message ?? event, log));
       if (!result.ok) {
         // Persist-first: if Jarvis did not store it, this must not be treated
         // as handled. Throwing also blocks the agent, which is the safe way to
@@ -193,7 +242,7 @@ export function sendViaCli(args) {
          */
         resolve({
           ok: false,
-          unavailable: /channel is unavailable|not connected|no such channel/i.test(text),
+          unavailable: looksUnpaired(text),
           detail: `${err.message} ${String(stderr).slice(0, 200)}`.trim(),
         });
         return;
