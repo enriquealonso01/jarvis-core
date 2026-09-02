@@ -1390,6 +1390,50 @@ implementation rather than fixing it.
 one search, every palette command works on desktop and mobile, and search cannot
 cross a project boundary.
 
+## S12b — Close the containment gaps
+*Size: 3–4 days. **Schedule this ahead of the rest of Stage 3.** Two of its items are live.*
+
+S12 proved isolation by probing it and found one hole. Everything specified since
+— by ADR sweep, by asking each surface how it bypasses the broker, by checking
+the plan against the box — landed after the code it governs. This step is that
+work, collected where it belongs rather than filed as cleanup.
+
+**Two of these are live right now.** Not "will be wrong when we get there" —
+running, on the box, today.
+
+| | Item | Live | Cost of leaving it |
+|---|---|---|---|
+| 1 | **The deterministic router** (ADR 005) | **yes** | A model is the first reader of every inbound body, confidential ones included |
+| 2 | **SSH hardening** (V.1) | **yes** | Password auth and root login at Debian defaults, on a public port |
+| 3 | **Output scrubber and canary** (Part V) | unverified | "Never logged" has nothing behind it |
+| 4 | **The extended path guard** (II.5) | no | `openclaw/` and other projects' `artifacts/` unguarded |
+| 5 | **Harness network egress** (II.5) | no | A run can POST to `/internal/*` or open Postgres |
+| 6 | **Audit keys and console hardening** (IV.9, Part V) | no | Level 3 approvals need no re-auth; audit keys inconsistent |
+
+Items 1 and 2 are **exceptions to the step order** — the plan's one-step-at-a-time
+discipline is right for building and wrong for a live security gap. Item 2 is ten
+minutes and is not code.
+
+### Test
+
+Each item carries its test where it is specified. Three are worth restating
+because they are the ones that prove the thing rather than its shadow:
+
+- **The router**: a `#project-slug` message reaches **zero** model calls, and a code-shaped body routes globally without one.
+- **Egress**: `/internal/*`, Postgres and the gateway all refused **at the network layer**. An application-layer refusal proves the request arrived.
+- **The canary**: a credential with a known unique value, the system exercised until it fails, every log and audit row and artifact grepped. Zero hits.
+
+### Debug
+
+If a containment test passes on the first attempt, be suspicious before being
+pleased. S12's isolation probe found its hole precisely because it tried the
+thing rather than asserting the rule — **a guard nobody has attacked is a guard
+nobody has tested.**
+
+**Done when:** all six are implemented, each with its own test observed, and the
+two live items are closed first and separately so their fix is not buried in a
+batch.
+
 ## S18b — The retrofit sweep
 *Size: 3–4 days. Everything specified after the step it governs had already shipped.*
 
@@ -1407,35 +1451,16 @@ From now on: a requirement that lands after its governing step has shipped goes
 into **this step**, not into the finished one. The finished step gets a one-line
 pointer and nothing else.
 
-### Triage — two of these do not wait for their turn
+### What is left here
 
-The list below grew in the order the gaps were found, which is chronological and
-has nothing to do with risk. Ordered by what it actually costs to leave alone:
+The six containment items that were on this list have moved to **S12b**, where
+they sit next to the isolation step they belong to and can be scheduled ahead of
+the rest of Stage 3. What remains is correctness debt: real, but nothing on it is
+live and exploitable.
 
-| | Item | Live? | Why it ranks here |
-|---|---|---|---|
-| 1 | Deterministic router | **yes** | A model reads every inbound body first, confidential ones included |
-| 2 | SSH hardening | **yes** | Password auth and root login at defaults, on a public port |
-| 3 | Output scrubber + canary | unknown | "Never logged" has nothing behind it; unverified, not known-broken |
-| 4 | Checkpoint contents | no | The recovery ladder cannot resume without it |
-| 5 | Recovery ladder | no | Recovery is one action where it should be ten |
-| 6 | Three error classes | no | Taxonomy and code disagree |
-| 7 | Internal HMAC idempotency | no | Small, and easy to skip forever |
-| 8 | Status bar and composer | no | Missing features, not risk |
-
-**Items 1 and 2 are exceptions to the step order.** The plan's whole discipline
-is one step at a time, in sequence — and that rule is right for building and
-wrong for a live security gap. Both are running on the box now, both predate
-their specifications, and neither becomes less true by waiting for S16 and S17
-to finish.
-
-Do them next, out of order, and say so in the commit. Item 2 is roughly ten
-minutes and is not code. Item 1 is a day and makes the system cheaper as well as
-safer.
-
-The other six wait their turn. **A retrofit list where everything is urgent is a
-retrofit list nobody triages**, which is how the important two would end up
-queued behind the status bar.
+Order: checkpoint contents first, because the recovery ladder cannot resume
+without it, then the ladder, then the error classes it raises, then the two small
+ones.
 
 ### The debt, as of 2026-09-02
 
@@ -1455,39 +1480,6 @@ recorded on the task.
 `resource.cpu`, `dependency.unavailable`, `agent.repeat` are in the taxonomy and
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
-
-**The deterministic router** *(ADR 005 Stage B; S3 shipped without it).* The
-router calls a model on every raw body, so an LLM is currently the first reader
-of everything including confidential content. Implement rules B1–B7 ahead of the
-model call, and gate the model on `looksConfidential`. **This is the highest-
-priority item in this step** — it is a security property, not a refinement, and
-it is live.
-
-**SSH hardening and the Tailscale cutover** *(V.1 claimed an end state the box
-does not have).* Set `PasswordAuthentication no` and `PermitRootLogin no` — the
-bootstrap script sets neither, and they matter more than the port being open.
-Then run the four-step cutover in V.1. This one is not a code change and can be
-done in ten minutes; it is here because nothing else owns it.
-
-**The output scrubber and its canary test** *(Part V asserted "never logged" and
-nothing enforced it).* Build the filter and the canary, and run the canary before
-this step is called done — the claim has been in the plan since the beginning
-with nothing behind it.
-
-**The extended path guard** *(II.5's table; S12 shipped covering less).* S12 fixed
-`browsers/` and other tasks' `worktrees/`. The table added `openclaw/` — which
-holds the paired WhatsApp session — and other projects' `artifacts/`. Neither is
-guarded, and the second is where transcripts and dumped documents live.
-
-**Harness network egress** *(II.5; written after S6 shipped).* Deny the worktree's
-namespace reach to `127.0.0.1`, the host addresses and the Docker network, so a
-run cannot POST to `/internal/*` or open a Postgres connection. Log the hosts
-each run contacts.
-
-**Audit metadata keys and console session hardening** *(IV.9 and Part V; neither
-had a step).* The canonical `metadata` keys with `outcome` required on every row;
-re-authentication for Level 3 approvals; approvals bound to the exact action and
-state they were computed against; the per-hour ceiling.
 
 **Internal HMAC idempotency** *(IV.7 named it; no step owned it).* Dedupe
 internal posts on their request id. It is the smallest of the five sources and
@@ -3427,7 +3419,7 @@ shared working tree.
 | Stage | Steps | What it buys | Rough |
 |---|---|---|---|
 | **1 — It acts** | S1–S8 | A sentence becomes a pull request. **The only stage that is not optional.** | 12–15 days |
-| **2 — It is trustworthy** | S9–S12 | Review, grants, recovery, proven isolation | 7–8 days |
+| **2 — It is trustworthy** | S9–S12b | Review, grants, recovery, proven isolation, containment closed | 10–12 days |
 | **3 — It is visible** | S13–S18b | A console that shows work, repairs credentials, controls output quality, and can be searched — plus the retrofit sweep | 18–21 days |
 | **4 — The phone is reliable** | S19–S24 | A call you can depend on and hold a real conversation with, and Jarvis calling you | 14–17 days |
 | **5 — It reaches** | S25–S32 | Routing, onboarding, config-by-voice, runtime interface, model evals, memory, Composio, MCP, scraping | 22–27 days |
