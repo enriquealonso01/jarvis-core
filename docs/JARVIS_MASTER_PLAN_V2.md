@@ -1800,7 +1800,46 @@ and route on: task complexity, project confidentiality, model capability,
 **remaining quota**, provider availability, latency, and cost. So:
 
 - "Rename this variable" → the cheap utility route, never a coding subscription.
-- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → **the paid hosted route, within the ceiling.** Only when that is also exhausted does the task park, and it says which engines were spent and when each resets.
+- "Investigate why checkout occasionally creates duplicate orders" → Codex. At quota? → Claude Code. Exhausted? → Cursor. All three spent? → **the hosted open-weights engineering route, within the ceiling.** Only when that is also exhausted does the task park, and it says which engines were spent and when each resets.
+
+### The engineering fallback needs a name
+
+"The paid hosted route" is not a route. The last rung of that ladder must be a
+**specific model on the hosted provider, probed and registered like any other** —
+otherwise the day every subscription is exhausted is the day someone discovers
+the fallback was a phrase.
+
+Selection criteria, since the model itself will change:
+
+- Open weights, so the provider stays replaceable (VI.0).
+- Strong on long-horizon coding and tool use, not on chat benchmarks.
+- Large enough context for a real repository slice.
+- Cheap enough that a full engineering task fits inside the remaining ceiling — a fallback that exhausts the budget in one task is a fallback that runs once.
+
+It is registered with `role_assignments` including `senior_engineer`, at a
+`route_order` behind the subscriptions, and it is **benchmarked by S29 like every
+other candidate**. If it scores below the role's floor it is still the fallback —
+but tasks that run on it are marked as having run below the floor (VI.2), so a
+change made under degraded conditions is identifiable afterwards.
+
+### Reviewer is the interesting case, and open weights may win it outright
+
+VI.3 requires the reviewer to come from a **different family** than the
+implementer wherever policy allows, because a model reviewing its own family's
+output shares its blind spots. The starting routes put both on Claude Code, and
+the plan's own fallback for that is "a second Claude context" — which satisfies
+the letter of independent review and not much of its purpose.
+
+A hosted open-weights reviewer is **better on exactly that axis**: genuinely
+different training, different failure modes, different things it finds
+surprising. It is also cheap, because reviewing a diff costs a fraction of
+producing one.
+
+So this is not merely a fallback slot. **Run the eval suite for `reviewer`
+separately from `senior_engineer`**, and let an open-weights model take the role
+outright if it scores well — the two roles want different things, and assuming
+the best engineer is also the best reviewer is the assumption the family rule
+exists to reject.
 
 Parking is the last resort, not the first response. A task that stops because
 one of three available engines was busy is a task that did not need to stop.
@@ -2891,7 +2930,8 @@ stay routable; hard failures drop out.
 | Role | Route | Cost |
 |---|---|---|
 | Supervisor / utility | Hosted open-weights, one primary + one fallback (Fireworks today) | ~$5–10/mo |
-| Senior engineer / reviewer | Claude Code on `anthropic_personal` | $0 marginal |
+| Senior engineer | Claude Code on `anthropic_personal`, with a named open-weights fallback (S25) | $0 marginal |
+| Reviewer | Different family from the implementer — an open-weights route is a candidate on merit, not only as fallback (S25) | pennies per diff |
 | STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
 
