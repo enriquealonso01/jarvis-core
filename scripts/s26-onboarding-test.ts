@@ -141,8 +141,13 @@ async function main(): Promise<void> {
   {
     const convo = await newConversation();
     await runTool(pool, convo, "", "project.onboarding_start", {}, "");
-    // Everything except the one question nobody asked.
-    for (const [field, value] of Object.entries(COMPLETE)) {
+    /*
+     * Everything except the one question nobody asked — and with no repository,
+     * so this suite never reaches out to GitHub. The committing half is a
+     * separate live test against a real repo, because a mock of the Contents
+     * API would prove only that the mock agrees with itself.
+     */
+    for (const [field, value] of Object.entries({ ...COMPLETE, github_owner: "none", github_repo: "none" })) {
       if (field === "before_deploy") continue;
       await runTool(pool, convo, "", "project.onboarding_set", { field, value }, "");
     }
@@ -169,6 +174,13 @@ async function main(): Promise<void> {
       { field: "before_deploy", value: COMPLETE.before_deploy }, "");
     const done = await runTool(pool, cid, "", "project.onboarding_finalize", {}, "");
     truthy("finalize succeeds", done.includes("project_id"));
+    /*
+     * "none" is an answer to the repository question too. The instructions still
+     * exist and are still canonical; there is simply nowhere to commit them, and
+     * saying so is different from claiming a commit that never happened.
+     */
+    truthy("and says the instructions are stored with no repository to commit to",
+      done.includes("stored (no repository)"));
 
     const row = await pool.query<{ id: string; project_type: string; confidentiality: string }>(
       "SELECT id, project_type, confidentiality FROM projects WHERE slug = $1", [COMPLETE.slug]);
@@ -190,7 +202,10 @@ async function main(): Promise<void> {
     const body = version.rows[0]?.body ?? "";
     check("no placeholder survived into the stored body", 0, templatePlaceholders(body).length);
     truthy("it carries his project name", body.includes(COMPLETE.name));
-    truthy("his repo", body.includes(`${COMPLETE.github_owner}/${COMPLETE.github_repo}`));
+    // This flow answered "none" to the repository question, and the file says so
+    // rather than inventing one. The real owner/repo case is asserted above,
+    // against the renderer, and again live.
+    truthy("the repository he actually named", body.includes("owner/repo: none/none"));
     truthy("his auth profiles", body.includes(COMPLETE.allowed_auth_profiles));
     truthy("his test command", body.includes(COMPLETE.test_command));
     truthy("his deploy policy", body.includes(COMPLETE.deploy_policy));

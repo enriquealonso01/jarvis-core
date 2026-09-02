@@ -596,7 +596,52 @@ export async function runTool(
        VALUES ('supervisor', 'project.create', $1, $2, $3)`,
       [a.slug, inserted.rows[0].id, JSON.stringify({ name: a.name, type: a.project_type })],
     );
-    return JSON.stringify({ project_id: inserted.rows[0].id, slug: a.slug });
+
+    /*
+     * S26's Done-when: the instructions are COMMITTED, not merely stored. The
+     * row is canonical (ADR 018) and is already written, so a failure here
+     * leaves a real project with real instructions and an uncommitted file —
+     * which is recoverable — rather than losing the onboarding. It is reported
+     * rather than swallowed: the Supervisor has to be able to tell him the file
+     * is not in the repository yet.
+     *
+     * A project may legitimately have no repository. "none" is a real answer to
+     * the repository question, and it means there is nowhere to commit.
+     */
+    const noRepo = (v: string) => ["none", "n/a", "na", "-"].includes(v.trim().toLowerCase());
+    let committed: string | null = null;
+    let commitError: string | null = null;
+    if (a.github_owner && a.github_repo && !noRepo(a.github_owner) && !noRepo(a.github_repo)) {
+      const { githubPutFile } = await import("./github.js");
+      const put = await githubPutFile(pool, {
+        owner: a.github_owner.trim(),
+        repo: a.github_repo.trim(),
+        path: "AGENTS.md",
+        content: rendered.body,
+        message: `Add Jarvis agent instructions for ${a.name}`,
+        branch: a.default_branch && !noRepo(a.default_branch) ? a.default_branch.trim() : undefined,
+      });
+      if ("error" in put) {
+        commitError = put.error;
+      } else {
+        committed = put.commit_sha;
+      }
+      await pool.query(
+        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+         VALUES ('supervisor', 'project.instructions_commit', $1, $2, $3)`,
+        [a.slug, inserted.rows[0].id,
+         JSON.stringify({ outcome: commitError ? "failed" : "committed", commit_sha: committed, error: commitError })],
+      );
+    }
+
+    return JSON.stringify({
+      project_id: inserted.rows[0].id,
+      slug: a.slug,
+      instructions_version: 1,
+      agents_md: commitError
+        ? `stored but NOT committed: ${commitError}`
+        : committed ? `committed ${committed.slice(0, 7)}` : "stored (no repository)",
+    });
   }
   if (name === "conversation.create") {
     let projectId: string | null = null;
