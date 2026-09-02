@@ -163,7 +163,7 @@
       "title": "The retrofit sweep",
       "stage": 3,
       "state": "done",
-      "pr": 74,
+      "pr": 77,
       "evidence": "All five retrofit items, 66 assertions. Checkpoints record WHY and the resume path reads them. The three taxonomy-only error classes exist, with a real liveness-vs-progress detector for agent.repeat. Internal posts dedupe atomically. The recovery ladder climbs ten rungs cheapest-first, records each including the two that are not available yet, respects every limit and ends at Enrique. The status bar has all six states, forced individually. The composer's inbox row is byte-shape-identical to WhatsApp's."
     },
     {
