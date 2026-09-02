@@ -10,6 +10,7 @@ import path from "node:path";
 import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { sweepCallDeadlines } from "./callcontrol.js";
 import { sweepOutboundCalls } from "./outbound.js";
+import { audioRetention } from "./retention.js";
 
 const WORKER_ID = process.env.WORKER_ID ?? "system-1";
 const ARTIFACTS = ARTIFACTS_DIR;
@@ -203,33 +204,6 @@ async function drainOutbox(pool: ReturnType<typeof createPool>) {
   }
 }
 
-async function audioRetention(pool: ReturnType<typeof createPool>) {
-  const expired = await pool.query<{ id: string; path: string; project_id: string | null }>(
-    `SELECT id, path, project_id FROM artifacts
-     WHERE retention_class = 'raw_audio' AND permanent = false
-       AND retain_until IS NOT NULL AND retain_until < now()`,
-  );
-  for (const a of expired.rows) {
-    const full = path.join(ARTIFACTS, a.path);
-    await fs.unlink(full).catch(() => undefined);
-    await pool.query(`DELETE FROM artifacts WHERE id = $1`, [a.id]);
-  }
-  const breach = await pool.query(
-    `SELECT 1 FROM artifacts
-     WHERE retention_class = 'raw_audio' AND permanent = false
-       AND created_at < now() - interval '10 days' LIMIT 1`,
-  );
-  if ((breach.rowCount ?? 0) > 0) {
-    await pool.query(
-      `INSERT INTO issues (severity, category, service, status, owner, title, dedupe_key)
-       SELECT 'critical', 'security.retention_breach', 'retention', 'open', 'jarvis',
-              '[retention] raw audio older than 10 days', 'sec.retention'
-       WHERE NOT EXISTS (
-         SELECT 1 FROM issues WHERE dedupe_key = 'sec.retention' AND status NOT IN ('resolved','ignored')
-       )`,
-    );
-  }
-}
 
 /**
  * Reap worktrees left behind by crashed harness runs (ADR 015 consequence).
