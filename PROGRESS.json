@@ -116,7 +116,7 @@
       "stage": 3,
       "state": "done",
       "pr": 49,
-      "evidence": "Built in S13/S15 and verified there: the bar is on Home above the fold, every pair of states differs by more than colour, each segment is labelled, and the staleness notice and derived denominator are asserted."
+      "evidence": "Built in S13/S15 and verified there: the bar is on Home above the fold, every pair of states differs by more than colour, each segment is labelled, and the staleness notice and derived denominator are asserted. Extended: publishing the state is a file copy onto a path no code deploy touches (/var/lib/jarvis/state), the API serves /BLOCKED.md so the why link resolves to the file rather than the dashboard, and awaiting_verification is rendered and counted apart from blocked. tests/s13b-progress-live.sh asserts all four against the live site; the console counting is asserted in tests/build-progress-summary.test.ts."
     },
     {
       "id": "S14",
