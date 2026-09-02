@@ -34,11 +34,34 @@ export default function jarvisBridge() {
   return {
     name: "openclaw-jarvis-bridge",
     async onInbound(msg) {
+      /*
+       * S37: whether Enrique wrote this, or passed it along.
+       *
+       * WhatsApp marks a forward on the message itself, and OpenClaw surfaces
+       * it under one of several names depending on the adapter version — so all
+       * the plausible ones are checked rather than betting on one. Getting this
+       * wrong in the permissive direction is the injection the whole rule
+       * exists to prevent, so an unrecognised shape falls to "forwarded" only
+       * when something actually says so.
+       *
+       * Jarvis decides what the flag MEANS (see `splitAuthorship`); the bridge
+       * only reports what the channel said.
+       */
+      const forwarded = Boolean(
+        msg?.isForwarded ?? msg?.is_forwarded ?? msg?.forwarded
+        ?? msg?.contextInfo?.isForwarded
+        ?? (typeof msg?.contextInfo?.forwardingScore === "number"
+          && msg.contextInfo.forwardingScore > 0),
+      );
+
       const result = await ingestToJarvis({
         channel: msg?.channel ?? "whatsapp",
         external_id: msg?.id,
         sender: msg?.sender ?? "",
         text: msg?.text ?? "",
+        is_forward: forwarded,
+        // A quoted/forwarded body when the adapter gives one separately.
+        forwarded_text: msg?.quotedText ?? msg?.forwardedText ?? undefined,
       });
       if (!result.ok) {
         // Persist-first: if Jarvis did not store it, retry rather than answer.
