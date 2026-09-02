@@ -1533,6 +1533,11 @@ recorded on the task.
 not in the code. `agent.repeat` is the one that matters — it is what gives the
 liveness-versus-progress check something to raise.
 
+**Contract conformance tests** *(Part IV defines them; nothing verifies them).*
+Two generated suites — illegal transitions across the ten state machines, and
+every error class against its taxonomy row. Both read their tables at run time,
+so neither goes stale when a table grows.
+
 **Internal HMAC idempotency** *(IV.7 named it; no step owned it).* Dedupe
 internal posts on their request id. It is the smallest of the five sources and
 the easiest to skip, which is why it is written down.
@@ -3309,6 +3314,30 @@ Each gate is a set of tests with **numbers in them**. A gate written as a feelin
 ("capture works under load") passes whenever someone wants it to. The quantities
 below come from the planning conversation and are the point of the exercise.
 
+### The Part IV contracts need conformance tests, and they can be generated
+
+`STATE_MACHINES.md` defines ten machines and says illegal transitions are a 409
+plus an audit row. `ERROR_TAXONOMY.md` defines about thirty-five classes, each
+with severity, retryability, a limit, a backoff and a notify level.
+
+**Neither has a conformance test.** "Illegal transition" appears once in this
+plan — stating the rule — and is exercised incidentally by one grants test. No
+step checks that a class actually honours the limit written next to it.
+
+These are the easiest contracts in the system to verify, because **they are
+tables, so the tests can be generated from the tables** rather than hand-written
+forty-five times:
+
+- **Transition conformance.** Read `STATE_MACHINES.md`, enumerate every state pair, attempt the ones not listed as legal. Each must return 409 **and** leave an audit row. One test, ten machines, and it stays correct when a machine gains a state.
+- **Taxonomy conformance.** Read `ERROR_TAXONOMY.md`, force each class, and assert the recorded severity, retry count, backoff shape and notify level match the row. One test, every class, and a new class is covered the moment it is added.
+
+A hand-written test per machine would drift the first time a table changed. A
+generated one fails loudly instead, which is the behaviour worth having: **when
+the table and the code disagree, the test should not have an opinion about which
+is right — it should stop.**
+
+Owned by S18b.
+
 ### The loops are inherited, and four were never wired in
 
 `FULL_LOOPS.md` defines twenty-one loops, several marked *critical*. This plan
@@ -3363,6 +3392,8 @@ purpose, and that crossing is what it exists to check.
 - **L1** capture while busy, including a 10-second API kill mid-send
 - **Duplicate delivery**: deliver the same webhook **5 times** → exactly one logical inbox event and one task (IV.7)
 - **L2** restart the entire server with queued *and* running work → queued state survives in order; running work is reconciled or recovered
+- **Transition conformance**: every illegal state pair across all ten machines refused with 409 and audited, generated from `STATE_MACHINES.md`
+- **Taxonomy conformance**: every class behaves as its row says — severity, retry count, backoff, notify — generated from `ERROR_TAXONOMY.md`
 - **L3** kill the heavy worker mid-task → recovery resumes **without losing the user instructions attached to it**
 - **N3** one input, several projects — the five-minute memo (S3)
 - Five distinct mid-run failures (S11) each resumable
