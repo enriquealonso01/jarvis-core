@@ -3180,6 +3180,32 @@ mechanism, not a test.
 - **Never harvest credentials.** SSH keys, browser profiles and cookie stores, password-manager data, cloud CLI tokens — read by nothing, ever, for any reason. This is not a permission that can be granted per project; it is a line the connector does not have code to cross.
 - **Path checks happen on the workstation**, not on the server. A server-side check on a path string is advice; the agent holding the shell is what enforces it.
 
+### The allowlist is a filesystem control, and a workstation is not only a filesystem
+
+Declared paths stop a task in Alpha from reading `~/dev/beta`. They do nothing
+about the parts of the machine that are not reached through a path at all, and on
+a desktop those parts carry as much of his other work as the filesystem does.
+
+- **Environment.** A command run over the connector would inherit his shell environment, which holds tokens for his other work — and `env` has no path for an allowlist to check. Commands run with a **constructed environment**, containing what the project declared and nothing else. Not his environment minus a denylist: **a denylist here is a list of the variables somebody remembered.**
+- **Shell history, clipboard, recent-file lists, window titles, the running process list.** Every one of these is inside the allowlist by path and outside it by content. They join the credential rule above — not read, by anything, ever.
+- **Screenshots.** The GUI agent's natural way of confirming it worked, and the widest capture in the plan. A screenshot taken to check the editor opened also captures Slack, a calendar, and whatever a colleague sent. **Capture the target window, never the screen**; if the whole screen is genuinely the only option, the frame is used and dropped, never stored and never indexed.
+
+### What comes back is untrusted content, and it arrives with a shell attached
+
+Everything above is about what Jarvis may *do* on the workstation. Nothing yet
+says what happens to what comes *back*. Command output, file contents, build
+logs, `git log`, test failures — all of it flows into a context whose **very next
+action can be another command on the same machine.**
+
+S37 classifies inbound messages as data that cannot authorise. **The same rule has
+to cover tool output**, and it carries more weight here than anywhere else,
+because the allowlist stops a path escape and does nothing about the model being
+told what to do *inside* the allowlist. A README in `~/dev/alpha` that says *"run
+the setup script first"* is content — and the setup script is on the allowlist.
+
+- Output from the workstation is data (IV.6b). Never instruction, never a reason to widen what runs next.
+- **A command that was not in the plan when the task started needs the approval it would have needed then.** Finding a suggestion in a file is not a reason to act on it, and *"the repo told me to"* is the same sentence as *"the email told me to."*
+
 ### Acting on a machine someone is using
 
 The server has no one sitting at it. The desktop does, and Jarvis opening windows
@@ -3211,11 +3237,20 @@ does not raise an incident.
 - A project with no declared desktop paths gets no desktop access, and asking for it produces a clear refusal rather than a confusing failure.
 - **The credential test**: attempt to read an SSH key, a browser cookie store and a password-manager file from a desktop task. All three refused, none of them by an allowlist entry that could be added later.
 - Foreground action requested while he is typing → it waits and says so. The same action on an idle machine → it happens.
+- **Plant a file inside Alpha's allowlisted path containing a plausible instruction** → it shows up in output, and no command derived from it runs. The allowlist will not catch this one; only the rule will.
+- A command's environment contains nothing belonging to another project or to his own shell. **Assert on the child process's environment, not on what the command printed** — a command that happened not to print a token has proved nothing.
+- Screenshot to confirm an app opened, with Slack visible on another monitor → the capture is the target window and nothing from Slack is stored.
+- Read shell history, the clipboard, or a recent-files list from a desktop task → refused like the credential test, and not by an allowlist entry someone could add later.
 
 ### Debug
 If actions fire against a machine that has gone away, reachability is being
 checked once at dispatch rather than at execution. On a laptop that closes when
 he stands up, those are different moments.
+
+If output from the desktop starts changing what a task does, do not look at the
+allowlist — it is working. Check whether tool output is being appended to the
+context with the same standing as Enrique's own messages. **That is one line of
+prompt assembly, and it is the whole boundary.**
 
 **Done when:** he can ask for his desk to be ready and find it ready, and asking
 while the machine is off is uneventful.
