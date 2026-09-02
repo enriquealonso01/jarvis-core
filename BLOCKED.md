@@ -26,6 +26,26 @@ unblocked, finish it before starting anything new.
   ownership fixed, `runner.env` written, `dist/` built, migrations 010+011
   applied to the live DB, unit installed and enabled.
 
+## May a confidential project use telnyx, elevenlabs and composio?
+
+- **Step:** S37 / isolation
+- **Decided already:** models. A confidential project may use every paid model
+  (anthropic_personal, cursor_personal, openai_codex_personal, fireworks) and no
+  free tier (groq, nvidia, google_ai). That is live and asserted.
+- **Not decided:** the three SERVICE connections. They are not models, so your
+  answer did not cover them, and I am not extending it by inference - each one
+  carries a confidential project's content just as a model does:
+  - **telnyx** - the words of a call. Speech in, speech out, over a carrier.
+  - **elevenlabs** - whatever Jarvis says aloud is sent there to be rendered.
+  - **composio** - whatever a tool call passes through it.
+- **What happens today:** all three are `{normal}`, so a confidential project
+  cannot use them at all. That means a confidential project currently cannot be
+  discussed by voice. That may well be what you want; it should be a decision.
+- **Not asked:** `restricted` was not part of your decision either, so nothing
+  is eligible for it. Deliberate, and easy to widen once you say so.
+- **Moot:** github_personal_admin, backup_b2 and netcup_scp are broker-only.
+- **Raised:** 2026-09-02 22:40
+
 ## The WhatsApp QR is ready for you to scan
 
 - **Step:** S37 item 3
