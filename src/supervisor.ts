@@ -6,7 +6,7 @@ import { classifyRouteFailure, markRouteHealth, routesForRole, setProbeTools, ty
 import { CHAT_MAX_TOKENS, CHAT_TEMPERATURE } from "./chatparams.js";
 import { metadataOnlyPayload } from "./redaction.js";
 import { createTask, normalise, projectSlug, resolveProject } from "./work.js";
-import { FAKE_MODEL, fakeCompletion } from "./fakemodel.js";
+import { FAKE_MODEL, fakeCompletion, fakeThinkingTime } from "./fakemodel.js";
 import {
   ONBOARDING_FIELDS,
   PROFESSIONAL_REQUIRED,
@@ -807,7 +807,10 @@ async function chatCompletionWithFailover(
 ): Promise<ChatMsg> {
   // Test-only, and gated on an env var no deployment sets. See src/fakemodel.ts
   // for why it exists and what it does not prove.
-  if (FAKE_MODEL) return fakeCompletion(messages) as ChatMsg;
+  if (FAKE_MODEL) {
+    await fakeThinkingTime();
+    return fakeCompletion(messages) as ChatMsg;
+  }
   const candidates = await getProviderCandidates(pool, ctx.role ?? "supervisor");
   if (!candidates.length) {
     throw new Error(
@@ -995,6 +998,7 @@ export async function quickCompletion(
     ]);
     return reply.content ?? null;
   }
+
   const candidates = await getProviderCandidates(pool, opts.role ?? "supervisor");
   for (const c of candidates) {
     try {

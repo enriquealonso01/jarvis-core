@@ -82,6 +82,22 @@ function loadScript(): { supervisor: FakeTurn[]; classifier: FakeTurn[]; reviewe
 
 type Msg = { role: string; content?: unknown; name?: string };
 
+/**
+ * How long the fake model pretends to think.
+ *
+ * Only the DELIBERATING call — the Supervisor's tool loop — waits. The tier-1
+ * quick completion never does, because the whole point of the two tiers is that
+ * one of them stays fast while the other takes as long as it takes, and a test
+ * that slowed both could not tell the difference.
+ *
+ * This is what makes S21's budget ladder testable: "force a tool to take 60s"
+ * needs a tool that takes 60s.
+ */
+export async function fakeThinkingTime(): Promise<void> {
+  const ms = Number(process.env.JARVIS_MODEL_DELAY_MS ?? 0);
+  if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+}
+
 function textOf(m: Msg | undefined): string {
   return typeof m?.content === "string" ? m.content : "";
 }
@@ -91,6 +107,17 @@ export function fakeCompletion(messages: Msg[]): {
   content: string | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
 } {
+  /*
+   * Forced provider failure, for the tests that need one.
+   *
+   * A real 500 from a real provider is not reproducible offline, and what is
+   * worth testing is what everything downstream does when no answer comes back.
+   * Throwing here means the failure travels the whole real path — supervisor,
+   * router, phone runtime — instead of being simulated separately at each one.
+   */
+  if (process.env.JARVIS_MODEL_FAIL === "1") {
+    throw new Error("fake model: forced provider failure");
+  }
   const script = loadScript();
   const system = messages.filter((m) => m.role === "system").map(textOf).join("\n").toLowerCase();
   const isRouter = system.includes(CLASSIFIER_MARKER);

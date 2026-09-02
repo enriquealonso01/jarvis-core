@@ -8,11 +8,17 @@ import { raiseIssue } from "./notify.js";
 import { runSupervisorTurn } from "./supervisor.js";
 import { ARTIFACTS_DIR } from "./paths.js";
 import {
-  appendUtterance, BUDGET_MS, bumpSilence, countBargeIn, endCall, ensureCall,
+  appendUtterance, BUDGET_MS, bumpSilence, countBargeIn, currentState, endCall, ensureCall,
   holdingLine, move, openCall, overdueCalls, setSpeakingMarker, stalledCalls, takeUtterance,
   type CallState,
 } from "./callstate.js";
 import { recordArtifact } from "./artifacts.js";
+import { phoneFailing } from "./phonefail.js";
+import { cancelTurn, runTurn } from "./callruntime.js";
+import type { SpeechKind } from "./callbank.js";
+
+// Re-exported: the phone path is where it is read from, and the tests set it.
+export { phoneFailing };
 
 const ARTIFACTS = ARTIFACTS_DIR;
 const TELNYX_API = "https://api.telnyx.com/v2";
@@ -107,13 +113,6 @@ async function telnyxKey(pool: pg.Pool): Promise<string | null> {
 const FAKE_TELNYX = process.env.JARVIS_TELNYX === "fake";
 
 /**
- * Which provider is being forced to fail, for the plan's "force each provider to
- * fail in turn" test. Set by nothing in production; the failure modes it stands
- * in for (bad key, unroutable endpoint, 500) all arrive here as the same thing —
- * no usable answer — and the point of the test is the spoken fallback, not the
- * HTTP status that caused it.
- */
-/**
  * Run something with a wall-clock budget.
  *
  * "A hung call is almost always an awaited promise with no timeout." This is the
@@ -133,30 +132,6 @@ export async function withDeadline<T>(work: Promise<T>, ms: number, fallback: T)
   }
 }
 
-export function phoneFailing(what: string): boolean {
-  return (process.env.JARVIS_PHONE_FAIL ?? "").split(",").includes(what);
-}
-
-/**
- * `model` fails every attempt; `model_once` fails only the first, which is the
- * case the retry exists for — the two produce different spoken endings and both
- * need testing.
- */
-let failEnvSeen: string | null = null;
-let modelFailuresLeft = 0;
-function modelForcedToFail(): boolean {
-  const env = process.env.JARVIS_PHONE_FAIL ?? "";
-  if (env !== failEnvSeen) {
-    failEnvSeen = env;
-    modelFailuresLeft = phoneFailing("model_once") ? 1 : 0;
-  }
-  if (phoneFailing("model")) return true;
-  if (modelFailuresLeft > 0) {
-    modelFailuresLeft -= 1;
-    return true;
-  }
-  return false;
-}
 export const sentCommands: { ccid: string; action: string; body: Record<string, unknown> }[] = [];
 export function clearSentCommands(): void {
   sentCommands.length = 0;
@@ -725,18 +700,55 @@ function disarmEndpoint(ccid: string): void {
 }
 
 /**
- * The caller has finished. Answer what they actually said, all of it.
+ * The caller has finished. Hand the whole utterance to the runtime.
+ *
+ * Everything after "persist it" belongs to S21: the acknowledgement, the tool
+ * track, the progress ladder and the handover. What stays here is the carrier —
+ * how a line becomes audio and how the state machine records that it did.
  */
 export async function takeTurn(pool: pg.Pool, ccid: string): Promise<string> {
   if (!(await beginAnswer(pool, ccid))) return "not our turn";
-  const text = await takeUtterance(pool, ccid);
-  if (!text) {
+  const heard = await takeUtterance(pool, ccid);
+  if (!heard) {
     await endAnswer(pool, ccid);
     return "nothing was said";
   }
   disarmEndpoint(ccid);
+
+  const conversationId = await callConversation(pool, ccid);
+  if (!conversationId) {
+    await endAnswer(pool, ccid);
+    return "no conversation to answer in";
+  }
+
+  /*
+   * Persist-first, before a model sees it and before anything is said about it.
+   * The runtime then routes this same row through `ingestUserMessage` — the
+   * path a WhatsApp message takes — so what he said is captured and routed no
+   * matter how the conversation goes.
+   */
+  const inbox = await pool.query<{ id: string }>(
+    `INSERT INTO inbox_events
+       (channel, sender, raw_text, checksum, capture_state, processing_state, conversation_id)
+     VALUES ('phone', 'enrique', $1, $2, 'persisted', 'pending', $3)
+     RETURNING id`,
+    [
+      heard.slice(0, 8000),
+      crypto.createHash("sha256").update(heard).digest("hex").slice(0, 32),
+      conversationId,
+    ],
+  );
+
   try {
-    return await answerAloud(pool, ccid, text);
+    return await runTurn(pool, {
+      ccid,
+      conversationId,
+      inboxId: inbox.rows[0].id,
+      heard,
+      speak: (text, kind) => speakTurnLine(pool, ccid, text, kind),
+      release: () => endAnswer(pool, ccid),
+      canSpeak: async () => (await currentState(pool, ccid)) === "listening",
+    });
   } catch (err) {
     await endAnswer(pool, ccid);
     throw err;
@@ -752,10 +764,19 @@ export async function takeTurn(pool: pg.Pool, ccid: string): Promise<string> {
  * command is on its way.
  */
 async function bargeIn(pool: pg.Pool, ccid: string, marker: string | null): Promise<void> {
+  // S21: the scheduler goes first. A progress line queued for eight seconds'
+  // time is audio that has not been rendered yet, and cancelling the playback
+  // while leaving the timer running means being interrupted and then
+  // interrupted again by the thing that was already on its way.
+  cancelTurn(ccid);
   await command(pool, ccid, "playback_stop", marker ? { client_state: marker } : {});
   await command(pool, ccid, "speak_stop").catch(() => false);
   await move(pool, ccid, "listening", {
-    from: ["speaking", "greeting"],
+    // `thinking` too: an acknowledgement and every progress line are spoken
+    // while the tool track runs, and "everything is interruptible — the
+    // acknowledgement was never the point" means interrupting one of those has
+    // to work exactly like interrupting an answer.
+    from: ["speaking", "greeting", "thinking"],
     cause: "the caller spoke over the reply",
     eventType: "call.transcription",
     leg: "listening",
@@ -764,102 +785,24 @@ async function bargeIn(pool: pg.Pool, ccid: string, marker: string | null): Prom
   await setSpeakingMarker(pool, ccid, null);
 }
 
-/** Run a Supervisor turn on what was said and play the answer back. */
-async function answerAloud(pool: pg.Pool, ccid: string, said: string): Promise<string> {
-  const startedAt = Date.now();
-
-
-  const conversationId = await callConversation(pool, ccid);
-  if (!conversationId) return "no conversation to answer in";
-
-  const inbox = await pool.query<{ id: string }>(
-    `INSERT INTO inbox_events
-       (channel, sender, raw_text, checksum, capture_state, processing_state, conversation_id)
-     VALUES ('phone', 'enrique', $1, $2, 'persisted', 'pending', $3)
-     RETURNING id`,
-    [said.slice(0, 8000), crypto.createHash("sha256").update(said).digest("hex").slice(0, 32), conversationId],
-  );
-
-  // §13.3: a phone call cannot authorise an always-confirm action. Caller ID is
-  // spoofable and a voice can be cloned, so a spoken instruction is a request to
-  // be confirmed elsewhere, never authority in itself.
-  const reply = modelForcedToFail() ? null : await withDeadline(runSupervisorTurn(pool, {
-    conversationId,
-    inboxId: inbox.rows[0].id,
-    userText:
-      `[Spoken by Enrique on the phone. You may call him "sir" occasionally, the way a butler `
-      + `would - not in every sentence, and never twice in one reply. Reply in ONE short sentence - `
-      + `it is read aloud over a phone line, so brevity matters more than completeness. No `
-      + `lists, no markdown, no preamble. This channel can never authorise a destructive or `
-      + `always-confirm action: if he asks for one, say it needs confirming in the Control `
-      + `Center.]
-
-${said}`,
-    brief: true,
-    // Stays on the paid supervisor chain. Routing spoken turns at the free-tier
-    // utility chain was quick right up until Groq hit its daily limit mid-call.
-    // Measured head to head on Fireworks, the supervisor model is also simply
-    // the fastest of the three: deepseek-v4-flash 1226ms, glm-5p3-flash 2705ms,
-    // nemotron-lightning 3594ms. The 5.5s seen on real calls is context, not the
-    // model — full system prompt, twelve messages of history, eleven tool
-    // schemas, and a second round trip whenever a tool is called.
-  }).catch((err) => {
-    console.error("phone supervisor turn failed:", err instanceof Error ? err.message : err);
-    return null;
-  }), BUDGET_MS.model, null);
-
-  /*
-   * The model failed. Say so out loud, then try once more.
-   *
-   * "model fails -> 'give me a moment' then retry once, then offer to follow up
-   * in writing." The filler carries STATE_ACK, which the playback handler
-   * deliberately does not treat as the end of the answer — without that marker
-   * the filler's own `playback.ended` would release the turn gate mid-thought
-   * and the retry's reply would arrive after the caller had started talking
-   * again.
-   */
-  let spoken = reply;
-  if (spoken === null) {
-    await say(pool, ccid, "Give me a moment, sir, I am still working on that.", STATE_ACK);
-    spoken = modelForcedToFail() ? null : await withDeadline(runSupervisorTurn(pool, {
-      conversationId, inboxId: inbox.rows[0].id, userText: said, brief: true,
-    }).catch(() => null), BUDGET_MS.model, null);
-    if (spoken === null) {
-      await raiseIssue(pool, {
-        category: "dependency.unavailable",
-        service: "model",
-        title: "[phone] a spoken turn could not reach a model, twice",
-        dedupeKey: "phone-model-unreachable",
-        evidence: { call_control_id: ccid, said: said.slice(0, 200) },
-      }).catch(() => undefined);
-      // The inbox event is already filed and still `pending`, so the follow-up
-      // this promises is a queued message rather than a good intention.
-      spoken = "I could not reach a model just then, sir. I have saved what you said "
-        + "and I will follow up in writing.";
-    }
+/**
+ * Say one line of a turn, as the runtime asks for it (plan S21).
+ *
+ * The `client_state` is what tells the two apart on the way back: an ANSWER
+ * ends the turn when its playback ends, an acknowledgement does not. Getting
+ * that wrong is how a caller gets the floor back in the middle of being
+ * answered — Telnyx echoes the marker, and it is the only reliable signal.
+ */
+async function speakTurnLine(
+  pool: pg.Pool, ccid: string, text: string, kind: SpeechKind,
+): Promise<boolean> {
+  const ending = kind === "answer" || kind === "handover" || kind === "closing";
+  const marker = ending ? STATE_REPLY : STATE_ACK;
+  if (ending) {
+    await move(pool, ccid, "speaking", { from: "thinking", cause: "playing the answer", leg: "tts" });
   }
-  const afterModel = Date.now();
-  const url = await renderSpeech(pool, spoken).catch(() => null);
-  // Split the wait so the slow half is known rather than guessed at.
-  console.log(
-    `phone turn: model ${afterModel - startedAt}ms, tts ${Date.now() - afterModel}ms, `
-    + `reply ${spoken.length} chars`,
-  );
-  await move(pool, ccid, "speaking", {
-    from: "thinking", cause: "playing the answer", leg: "tts",
-  });
-  if (FAKE_TELNYX) spokenLines.push({ ccid, text: spoken, clientState: STATE_REPLY });
-  await setSpeakingMarker(pool, ccid, STATE_REPLY);
-  const played = url
-    ? await command(pool, ccid, "playback_start", { audio_url: url, client_state: STATE_REPLY })
-    : await say(pool, ccid, spoken, STATE_REPLY);
-  if (!played) {
-    // Nothing was spoken and there will be no playback.ended to release the
-    // gate, so release it here or the call goes deaf for the rest of its life.
-    await endAnswer(pool, ccid);
-    return `could not speak ${spoken.length} chars`;
-  }
-  return `answered ${spoken.length} chars`;
+  await setSpeakingMarker(pool, ccid, marker);
+  return await say(pool, ccid, text, marker);
 }
 
 
@@ -946,10 +889,19 @@ export async function sweepCallDeadlines(pool: pg.Pool): Promise<string[]> {
  * remove dead air.
  */
 export async function warmPhoneAudio(pool: pg.Pool): Promise<void> {
+  /*
+   * S21: the acknowledgement bank is warmed too. "Pre-render the
+   * acknowledgement bank; a fixed phrase should never pay for synthesis twice"
+   * — and the acknowledgement has a 700ms budget it cannot meet if it is
+   * waiting on ElevenLabs the first time each line is used.
+   */
+  const { everyFixedLine } = await import("./callbank.js");
   const lines = [
     "Good morning, sir. What can I do for you?",
     "Good afternoon, sir. What can I do for you?",
-    "Good evening, sir. What can I do for you?"];
+    "Good evening, sir. What can I do for you?",
+    ...everyFixedLine(),
+  ];
   for (const line of lines) {
     await renderSpeech(pool, line).catch(() => undefined);
   }
@@ -1121,7 +1073,7 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
      * it is `listening` again a moment later, and what they said accumulates
      * like any other utterance.
      */
-    if (state === "speaking" || state === "greeting") {
+    if (state === "speaking" || state === "greeting" || state === "thinking") {
       await bargeIn(pool, ccid, call.rows[0]?.speaking_marker ?? null);
     }
 
@@ -1130,7 +1082,7 @@ export async function handleCallEvent(pool: pg.Pool, event: TelnyxEvent): Promis
     const whole = await appendUtterance(pool, ccid, said);
     // Only a call that is listening is waiting for the caller to finish. Said
     // over a reply being composed, it waits for that reply to land first.
-    if (state === "listening" || state === "speaking" || state === "greeting") {
+    if (state === "listening" || state === "speaking" || state === "greeting" || state === "thinking") {
       armEndpoint(pool, ccid);
     }
     return `heard "${said.slice(0, 40)}", turn so far ${whole.length} chars`;

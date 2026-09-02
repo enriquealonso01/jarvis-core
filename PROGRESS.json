@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "3e4100b471a877aec207efab413baea940081514",
   "total_steps": 39,
-  "updated_at": "2026-09-02T11:20:30.331Z",
-  "current_step": "S12",
+  "updated_at": "2026-09-02T11:57:39.182Z",
+  "current_step": "S21",
   "steps": [
     {
       "id": "S1",
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -179,14 +179,15 @@
       "title": "Turn-taking and barge-in",
       "stage": 4,
       "state": "done",
-      "evidence": "52/52; a scripted conversation with an interruption and no overlap in either direction",
-      "pr": 87
+      "pr": 87,
+      "evidence": "52/52; a scripted conversation with an interruption and no overlap in either direction"
     },
     {
       "id": "S21",
       "title": "The conversational orchestration runtime",
       "stage": 4,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "43/43 incl. variety, the 2.5/10/25s ladder, three interruption points and capture independence; PR open"
     },
     {
       "id": "S22",
