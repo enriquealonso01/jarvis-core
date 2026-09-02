@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import os from "node:os";
+import { scrubString } from "./scrubber.js";
 import path from "node:path";
 import type pg from "pg";
 import { connectClient, createPool } from "./db.js";
@@ -550,7 +551,13 @@ async function runHarness(args: {
   let escape: string | null = null;
 
   child.stdout.on("data", (chunk: Buffer) => {
-    sink.write(chunk);
+    /*
+     * The transcript is one of the four exits the scrubber has to cover (Part
+     * V). It is written straight to disk rather than through the pool, so it is
+     * the one place that needs the filter applied by hand — a harness that
+     * echoes a key it was handed would otherwise leave it on the volume.
+     */
+    sink.write(scrubString(chunk.toString("utf8")));
     buf += chunk.toString("utf8");
     let nl: number;
     while ((nl = buf.indexOf("\n")) !== -1) {
