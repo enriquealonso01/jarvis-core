@@ -262,6 +262,33 @@ async function main() {
     process.exit(0);
   }
 
+  // --- S11: the five mid-run failures, each with its own taxonomy class ---
+  if (variant === "fail") {
+    // JARVIS_FAKE_FAILURE picks which. The text is what a real harness prints;
+    // the runner classifies from it, so the fixture must not hand over a class
+    // directly or the test would be asserting its own input.
+    const kind = process.env.JARVIS_FAKE_FAILURE ?? "crash";
+    const messages = {
+      limit:   "Claude usage limit reached. Your limit will reset at 3pm.",
+      revoked: "API Error: 401 Unauthorized - invalid api key; please run `claude login`",
+      disk:    "Error: ENOSPC: no space left on device, write",
+      network: "TypeError: fetch failed ... getaddrinfo ENOTFOUND api.anthropic.com",
+      ratelimit: "API Error: 429 Too Many Requests (retry-after: 30)",
+      crash:   "Segmentation fault in the harness",
+    };
+    init();
+    assistantText("starting work");
+    const jdir = path.join(cwd, ".jarvis");
+    fs.mkdirSync(jdir, { recursive: true });
+    for (const ph of ["preserve", "context", "reproduce"]) {
+      fs.appendFileSync(path.join(jdir, "phases.jsonl"), JSON.stringify({ phase: ph, note: "before the failure" }) + "\n");
+    }
+    emit({ type: "result", subtype: "error_during_execution", session_id: sessionId,
+           is_error: true, duration_ms: 500, num_turns: 1,
+           result: messages[kind] ?? messages.crash });
+    process.exit(1);
+  }
+
   if (variant === "errorresult") {
     // Reproduces exactly what a real `claude -p --output-format stream-json`
     // run emitted when it hit --max-turns: exit 1, is_error true, a subtype

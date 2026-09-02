@@ -30,7 +30,8 @@
     "dev:test:n1": "python scripts/acceptance-runner.py --only n1 || python -c \"import sys,pathlib;sys.path.insert(0,str(pathlib.Path('scripts').resolve()));from s8_n1 import run_n1;r=[];run_n1(lambda i,t,p,dt:(r.append(p),print(('PASS' if p else 'FAIL'),i,t,dt)),lambda *a:None);sys.exit(0 if all(r) else 1)\"",
     "dev:test:s9": "bash scripts/s9-review-test.sh",
     "dev:burst": "bash scripts/burst-repro.sh",
-    "dev:test:s10": "bash scripts/s10-grants-test.sh"
+    "dev:test:s10": "bash scripts/s10-grants-test.sh",
+    "dev:test:s11": "bash scripts/s11-recovery-test.sh"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

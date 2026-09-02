@@ -21,7 +21,17 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
+# S11 made several failure classes retryable, so a failed variant leaves its task
+# QUEUED. Without this, the next variant's one-shot runner claims the previous
+# variant's leftover and the new task is never run at all — which shows up as an
+# empty error_class rather than as interference.
+clearqueue() {
+  q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
+     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
+}
+
 new_task() {
+  clearqueue
   q "INSERT INTO tasks (project_id, title, objective, state, lane, priority)
      SELECT id, '$1', '$2', 'queued', 'heavy', 'normal' FROM projects WHERE slug = 'dev-sandbox'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
@@ -86,21 +96,25 @@ for v in $VARIANTS; do
       contains "summary says so" "no changes" "$summary"
       ;;
     crash)
-      check "task fails terminally" "failed_terminal" "$state"
+      # S11 gave every failure class its own retry budget. harness.crash is
+      # retryable three times, so the FIRST failure requeues rather than ending
+      # the task — that is the taxonomy, not a regression.
+      check "requeued for retry, not failed on the first crash" "queued" "$state"
       check "error class" "harness.crash" "$ec"
       ;;
     slow)
-      check "task fails terminally" "failed_terminal" "$state"
+      check "requeued for retry (process.stuck retries 3)" "queued" "$state"
       check "error class" "process.stuck" "$ec"
       ;;
     runaway)
-      check "task fails terminally" "failed_terminal" "$state"
+      # agent.loop is "no retry; stall; Issue" — a looping agent loops again.
+      check "stalled for Enrique, never retried" "stalled" "$state"
       check "error class" "agent.loop" "$ec"
       ;;
     errorresult)
       # The real claude emits is_error with result:"" — a blank summary here
       # means a failed task nobody can explain without opening the transcript.
-      check "task fails terminally" "failed_terminal" "$ec_state"
+      check "requeued for retry" "queued" "$ec_state"
       check "error class" "harness.crash" "$ec"
       if [ -n "$summary" ]; then ok "the failure has a summary at all"; else bad "the failure has a summary at all" "non-empty" "(empty)"; fi
       contains "and it names what the harness reported" "error_max_turns" "$summary"

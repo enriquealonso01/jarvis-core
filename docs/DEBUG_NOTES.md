@@ -135,6 +135,34 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### Assertions inside `$( )` are decoration: the subshell throws the count away
+**Symptom:** the S11 suite reported 17 passed, 0 failed. Sabotaging the failure
+classifier turned only 4 of them red — far fewer than the change should have
+broken.
+**Cause:** three of the five failure cases were invoked as
+`T1=$(one_failure ...)`. A command substitution runs in a **subshell**, so every
+`check()` inside it incremented a copy of `pass`/`fail` that was discarded when
+the subshell exited, and the PASS/FAIL lines were swallowed by the `| tail -1`
+used to read the task id back. Those cases could have failed silently forever.
+**Fix:** the helper writes the task id to a variable instead of stdout, and is
+never called inside a capture. With that, the same sabotage turns **10** red.
+**Lesson:** in shell, a function that both asserts and returns a value cannot do
+both through stdout. If a suite's failure count does not move when you break the
+thing it tests, suspect the harness before the code.
+
+### Retryable failures leave tasks queued, and the next test claims them
+**Symptom:** after S11 made several failure classes retryable, S1 went from 23/23
+to 6/17 — with empty `error_class` values, as if the runner had not run.
+**Cause:** it had not. A retryable failure requeues its task, so the next
+variant's one-shot runner claimed the PREVIOUS variant's leftover instead of the
+new one. Both suites were written when every failure was terminal and nothing
+stayed on the queue.
+**Fix:** both suites cancel any queued heavy task before creating theirs, so each
+case is the only thing a one-shot runner can claim.
+**Lesson:** a test that creates work in a shared queue is only isolated while
+nothing else survives. Changing retry behaviour silently changed what every
+later test was actually running.
+
 ### A containment tripwire that destroyed two correct runs
 **Symptom:** two live engineering runs were killed and recorded as
 `security.isolation` breaches. Neither was one. The first "reached outside its

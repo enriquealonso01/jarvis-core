@@ -9,6 +9,7 @@ import { claimTask, transitionTask, writeCheckpoint } from "./jobs.js";
 import { raiseIssue } from "./notify.js";
 import { sseBroadcast } from "./sse.js";
 import { ARTIFACTS_DIR, JARVIS_ROOT, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
+import { classifyHarnessFailure, retriesExhausted } from "./failures.js";
 import {
   completedPhases,
   drainPhases,
@@ -935,27 +936,83 @@ async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void> {
     }
 
     if (stopReason || outcome.code !== 0 || outcome.isError) {
-      const errorClass = stopReason === "silent" ? "process.stuck" : stopReason === "timeout" ? "agent.loop" : "harness.crash";
+      // S11: the class comes from what the run actually said, not from "it
+      // exited non-zero". Retrying a subscription limit three times spends the
+      // limit three times; retrying a full disk fills it faster.
+      const verdict = classifyHarnessFailure({
+        stopReason,
+        exitCode: outcome.code,
+        subtype: outcome.subtype,
+        result: outcome.result,
+        stderr: outcome.result,
+      });
       const summary =
         stopReason === "silent"
           ? `no harness output for ${humanMs(SILENCE_LIMIT_MS)}`
           : stopReason === "timeout"
             ? `exceeded the ${humanMs(RUN_LIMIT_MS)} run limit`
-            : (outcome.result?.trim() || `harness exited ${outcome.code}`).slice(0, 300);
+            : `${verdict.summary}: ${(outcome.result?.trim() || `exit ${outcome.code}`).slice(0, 200)}`;
+
       await pool.query(
         `UPDATE task_attempts SET ended_at = now(), error_class = $3, summary = $4 WHERE task_id = $1 AND n = $2`,
-        [taskId, n, errorClass, summary],
+        [taskId, n, verdict.errorClass, summary.slice(0, 300)],
       );
-      await transitionTask(pool, taskId, "failed_terminal", summary, "runner", "lease_until = NULL");
+
+      // Retries are counted per class. A task that crashed twice and then hit a
+      // rate limit has not used its rate-limit budget, and counting every
+      // failure together would retire it early.
+      const prior = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM task_attempts
+         WHERE task_id = $1 AND error_class = $2`,
+        [taskId, verdict.errorClass],
+      );
+      const used = Number(prior.rows[0]?.n ?? 0);
+      const canRetry = !verdict.park && !retriesExhausted(used, verdict);
+
+      if (canRetry) {
+        // Back onto the queue, keeping every checkpoint and phase so the next
+        // attempt resumes where this one stopped rather than starting over.
+        await pool.query(
+          `UPDATE tasks SET state = 'queued', lease_owner = NULL, lease_until = NULL,
+             waiting_reason = $2, updated_at = now() WHERE id = $1`,
+          [taskId, `retrying after ${verdict.errorClass} (${used}/${verdict.maxRetries})`],
+        );
+        await pool.query(
+          `INSERT INTO task_transitions (task_id, from_state, to_state, cause, actor)
+           VALUES ($1, 'running', 'queued', $2, 'runner')`,
+          [taskId, `retry ${used}/${verdict.maxRetries} after ${verdict.errorClass}`],
+        ).catch(() => undefined);
+        console.log(`task ${taskId} requeued: ${verdict.errorClass} ${used}/${verdict.maxRetries}`);
+        return;
+      }
+
+      // Parked classes go back to Enrique; exhausted ones fail terminally. A
+      // subscription limit is not a broken task and must not read like one.
+      const finalState = verdict.park ? verdict.parkState : "failed_terminal";
+      await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [
+        taskId,
+        summary.slice(0, 500),
+      ]).catch(() => undefined);
+      await transitionTask(pool, taskId, finalState, summary.slice(0, 300), "runner", "lease_until = NULL");
       await raiseIssue(pool, {
-        category: errorClass,
+        category: verdict.errorClass,
         service: "harness",
+        owner: verdict.park ? "user" : undefined,
+        status: verdict.park ? "waiting_for_user" : undefined,
         title: `[harness] ${task.title.slice(0, 80)}`,
-        dedupeKey: `${errorClass}:${taskId}`,
+        dedupeKey: `${verdict.errorClass}:${taskId}`,
         taskId,
         projectId: task.project_id,
-        evidence: { exit_code: outcome.code, events: outcome.events, transcript: relTranscript, stop_reason: stopReason },
-        requiredAction: "Read the run transcript artifact before retrying.",
+        evidence: {
+          exit_code: outcome.code,
+          events: outcome.events,
+          transcript: relTranscript,
+          stop_reason: stopReason,
+          attempts_with_this_class: used,
+        },
+        requiredAction: verdict.park
+          ? "This will not fix itself by retrying. Read the transcript and clear the cause."
+          : "Read the run transcript artifact before retrying.",
       });
       return;
     }
