@@ -19,7 +19,7 @@ COPY scripts ./scripts
 COPY migrations ./migrations
 # In production the API reads this from the deployed source tree at
 # /opt/jarvis/core, bind-mounted read-only. Dev has no such tree, so /app is it.
-COPY PROGRESS.json ./
+COPY PROGRESS.json BLOCKED.md ./
 # Dev only, and only for tests. Nothing at runtime reads docs/ — the production
 # image deliberately does not ship it — but the S26 suite compares the AGENTS.md
 # template in docs/TEMPLATES.md against the constant in src/agentsfile.ts, which

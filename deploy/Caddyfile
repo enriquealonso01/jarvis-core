@@ -29,6 +29,12 @@ jarvis.enriquecodes.com {
 		reverse_proxy api:8080
 	}
 
+	# The blockers the bar counts. Same tree as the count, on purpose - see the
+	# BLOCKED_PATH comment in src/index.ts.
+	handle /BLOCKED.md {
+		reverse_proxy api:8080
+	}
+
 	handle {
 		root * /srv/www
 		try_files {path} {path}/ {path}.html /index.html

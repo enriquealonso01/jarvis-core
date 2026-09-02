@@ -71,6 +71,50 @@ async function main() {
     check("no mojibake anywhere in the body", false, raw.includes("â€"));
   }
 
+  console.log("\n########## the count and its explanation are one commit ##########\n");
+  {
+    /*
+     * The bar counts blocked steps from PROGRESS.json and links to BLOCKED.md
+     * for the reasons. Those were two different sources — the deployed tree and
+     * GitHub's `main` — which agree only while the two are equal, and they are
+     * not equal during any step: every deploy before a merge ships a branch.
+     *
+     * Enrique hit exactly that. The bar counted three blockers and the linked
+     * file's last entry was a blocker from two steps earlier, so the number and
+     * the explanation described different days.
+     *
+     * The endpoint is therefore derived from the same path, and this asserts the
+     * consequence rather than the mechanism: whatever the bar counts, the file
+     * it links to explains.
+     */
+    const res = await fetch(`${BASE}/BLOCKED.md`);
+    check("BLOCKED.md is served", 200, res.status);
+    const ctype = res.headers.get("content-type") ?? "";
+    truthy(`as markdown, declared UTF-8 (${ctype})`, /charset=utf-8/i.test(ctype));
+
+    const body = await res.text();
+    truthy("and it is the blockers file, not something else",
+      body.includes("# Blocked") || body.includes("Things only Enrique can do"));
+
+    const onDisk = JSON.parse(fs.readFileSync(PROGRESS, "utf8"));
+    const blocked = onDisk.steps.filter((s) => s.state === "blocked").map((s) => s.id);
+    console.log(`        blocked in PROGRESS.json: ${blocked.join(", ") || "(none)"}`);
+
+    /*
+     * Every blocked step must appear in the file that claims to explain them.
+     * This is the assertion that would have caught the report: a count of three
+     * against a file mentioning none of them.
+     */
+    const unexplained = blocked.filter((id) => !new RegExp(`\\b${id}\\b`).test(body));
+    check("every blocked step is explained by the served file", 0, unexplained.length);
+    if (unexplained.length) console.log(`        unexplained: ${unexplained.join(", ")}`);
+
+    // Same tree: the file the endpoint serves is the repo's own, byte for byte.
+    const local = fs.readFileSync(new URL("../BLOCKED.md", import.meta.url).pathname
+      .replace(/^\/([A-Za-z]:)/, "$1"), "utf8");
+    check("and it is this working tree's BLOCKED.md, exactly", local, body);
+  }
+
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   process.exit(fail === 0 ? 0 : 1);
 }

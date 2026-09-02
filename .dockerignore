@@ -5,3 +5,6 @@ dist
 docs/JARVIS_V1_MASTER_PLAN_v1.1.md
 *.md
 !README.md
+# The build bar links to this, and the API serves it from the same tree as
+# PROGRESS.json so a blocked count and its explanation are one commit.
+!BLOCKED.md

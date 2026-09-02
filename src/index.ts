@@ -32,6 +32,22 @@ const ORIGIN = process.env.JARVIS_ORIGIN ?? "https://jarvis.enriquecodes.com";
  */
 const PROGRESS_PATH = process.env.JARVIS_PROGRESS_PATH ?? "/opt/jarvis/core/PROGRESS.json";
 
+/**
+ * The blockers, from the SAME tree as the count that cites them.
+ *
+ * The build bar counts blocked steps out of `PROGRESS.json` and offered a "why"
+ * link to `BLOCKED.md` on GitHub's `main`. Two sources, and they agree only when
+ * the deployed tree happens to equal `main` — which it very often is not, since
+ * every deploy during a step ships an unmerged branch. Enrique hit exactly that:
+ * a bar counting three blockers linked to a file whose last entry was a blocker
+ * from two steps earlier.
+ *
+ * A count and its explanation have to come from one commit, so this is derived
+ * from `PROGRESS_PATH` rather than configured separately — the two cannot be
+ * pointed at different places even by mistake.
+ */
+const BLOCKED_PATH = PROGRESS_PATH.replace(/PROGRESS\.json$/, "BLOCKED.md");
+
 function originOk(req: { headers: { origin?: string } }): boolean {
   const origin = req.headers.origin;
   if (origin) return origin === ORIGIN;
@@ -188,6 +204,34 @@ async function main() {
           message: `no PROGRESS.json at ${PROGRESS_PATH}`,
         },
       });
+    }
+  });
+
+  /**
+   * The "why" behind the blocked count, from the same tree that produced it.
+   *
+   * Public for the same reason `/PROGRESS.json` is: the bar renders before
+   * anyone has logged in, and a link that 401s is worse than no link. What it
+   * exposes is what is already published to the console — the file that says
+   * what Jarvis is waiting on, which is written to be read by Enrique.
+   */
+  app.get("/BLOCKED.md", async (_req, reply) => {
+    try {
+      const [raw, stat] = await Promise.all([
+        fs.readFile(BLOCKED_PATH, "utf8"),
+        fs.stat(BLOCKED_PATH),
+      ]);
+      return reply
+        // Markdown, declared as UTF-8: the same missing-charset bug that drew
+        // every em-dash as `â€"` would otherwise apply here too, and this file
+        // is nothing but prose.
+        .type("text/markdown; charset=utf-8")
+        .header("Cache-Control", "no-cache")
+        .header("Last-Modified", stat.mtime.toUTCString())
+        .send(raw);
+    } catch {
+      return reply.code(503).type("text/plain; charset=utf-8")
+        .send(`no BLOCKED.md at ${BLOCKED_PATH}`);
     }
   });
 
