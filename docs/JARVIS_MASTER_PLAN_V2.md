@@ -1855,11 +1855,23 @@ silently diverge. Always add a new one.
 As in `docs/STATE_MACHINES.md`. Illegal transitions are a 409 plus an audit row.
 
 ## IV.3 Error taxonomy
-As in `docs/ERROR_TAXONOMY.md`: every failure class maps to severity, whether a
-retry can help, a retry limit, and a notification level. A new class is a deliberate
-addition to the taxonomy, with its severity, retryability, limit and notify level
-chosen on purpose — never a string invented at a call site, which is how a
-failure ends up silent.
+
+As in `docs/ERROR_TAXONOMY.md`. **Every class carries all eight fields**: type,
+severity, retryability, retry policy, maximum attempts, backoff, recovery action,
+and user-notification policy. A class missing one of those is a class that will
+behave unpredictably exactly once, at the worst moment.
+
+A new class is a deliberate addition with each field chosen on purpose — never a
+string invented at a call site, which is how a failure ends up silent.
+
+The plan checked its taxonomy against the twenty-eight failures the planning
+conversation named. Twenty-five were covered; three were added:
+`resource.cpu`, `dependency.unavailable`, and `agent.repeat` — the last being the
+companion to II.3's liveness-vs-progress rule, because **identical progress is
+not progress**.
+
+**No silent task loss.** A terminal failure always has an Issue unless it was
+cancelled.
 
 ## IV.4 Credential broker
 Check order: connection exists → project allowlist → role allowlist →

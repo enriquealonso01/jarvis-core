@@ -26,6 +26,9 @@ Notify: `none | whatsapp_blocker | whatsapp_degraded | ui_only`.
 | resource.disk | high | no | — | prune temps; Issue before destructive | whatsapp_blocker at 85% | `resource.disk` |
 | resource.ram | high | no | — | shed embeddings/browser | ui_only | `resource.ram` |
 | resource.io | med | yes | 3 | backoff | ui_only | `resource.io` |
+| resource.cpu | med | yes | 3 | shed embeddings/browser; defer heavy start | ui_only | `resource.cpu` |
+| dependency.unavailable | med | yes | 4 | retry with backoff; then park with the registry and package named | whatsapp_blocker after limit | `dep.unavailable:{registry}` |
+| agent.repeat | high | no | — | stall; Issue with the repeated action quoted | whatsapp_blocker | `repeat:{task}` |
 | db.error | crit | yes | 5 | Maintenance; do not fake success | whatsapp_blocker if API down >2m | `db.error` |
 | artifact.corrupt | med | no | — | quarantine; Issue | ui_only | `artifact.corrupt:{id}` |
 | model.malformed_tool | med | yes | 3 | re-prompt; then switch model | none | `malformed:{task}` |
@@ -40,3 +43,9 @@ Notify: `none | whatsapp_blocker | whatsapp_degraded | ui_only`.
 | telnyx.quiet_hours | low | n/a | — | skip call; WhatsApp instead | whatsapp_blocker for the incident | `phone.quiet:{issue}` |
 
 Unknown errors: treat as `worker.crash` severity high, Issue, no data delete.
+
+## Three classes added 2026-09-02
+
+- **`resource.cpu`** — `resource.ram`, `resource.disk` and `resource.io` existed; sustained CPU saturation had no class. On a one-heavy-slot box it makes everything slow without anything failing, which is the hardest state to diagnose from tickets.
+- **`dependency.unavailable`** — an unreachable npm/PyPI/apt registry, a yanked package, a lockfile pointing at something gone. Not `network.timeout` (transient, retry fixes it) and not `harness.crash` (the harness is fine). It is the commonest external failure a coding agent hits, and the fix is outside the box — so it retries, then parks naming the registry and the package rather than reporting a build failure.
+- **`agent.repeat`** — distinct from `agent.loop`. A loop never terminates; a repeat *is* emitting progress events, but they are all the same one: re-running the same failing test, re-editing the same line. Identical progress is not progress, and without this class the watchdog's new liveness-vs-progress check (II.3) has nothing to raise.
