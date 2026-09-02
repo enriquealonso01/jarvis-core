@@ -245,6 +245,9 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
     spokenSomething = spokenSomething || said;
     await finishTurn(pool, turnId, {
       answer_text: verdict.say, answered_at: new Date(), outcome: said ? "answered" : "interrupted",
+      // Said by tier 1, so `model_ms` here is the whole time the caller waited
+      // for an answer - the number the sub-second requirement is about.
+      answered_by: "tier1",
       model_ms: modelMs, total_ms: Date.now() - startedAt,
     });
     await recordSpeech(pool, { ccid: ctx.ccid, turnId, kind: "answer", text: verdict.say });
@@ -369,6 +372,10 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
     answer_text: answer,
     answered_at: new Date(),
     outcome: said ? (outcome.ok ? "answered" : "failed") : "interrupted",
+    // Said by the desk, which has tools and deliberates. Its `model_ms` is
+    // measured from when the desk began, not from the top of the turn, so the
+    // two are not comparable and must not be averaged together.
+    answered_by: "desk",
     model_ms: modelMs,
     tts_ms: Date.now() - ttsAt,
     total_ms: Date.now() - startedAt,

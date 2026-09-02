@@ -26,7 +26,10 @@ export type Triage =
   | { mode: "answer"; say: string }
   | { mode: "delegate"; say: string; request: string };
 
-const TRIAGE_SYSTEM =
+// Exported so a latency suite can measure the REAL prompt: prefill of this
+// text is most of tier 1 latency, and measuring a shorter stand-in flatters the
+// result by about a second.
+export const TRIAGE_SYSTEM =
   `You are Jarvis answering Enrique's phone.
 
 `
@@ -72,8 +75,29 @@ const TRIAGE_SYSTEM =
  * point — it is the only configuration measured to answer in under a second
  * every single time.
  */
-export async function triage(pool: pg.Pool, text: string): Promise<Triage> {
-  const raw = (await quickCompletion(pool, TRIAGE_SYSTEM, text))?.trim() ?? "";
+export async function triage(
+  pool: pg.Pool,
+  text: string,
+  opts: { onRoute?: (route: { provider: string; model: string }) => void } = {},
+): Promise<Triage> {
+  /*
+   * The UTILITY route, not the supervisor one.
+   *
+   * `quickCompletion` defaults to the supervisor role, so tier 1 - the tool-less
+   * turn whose entire purpose is to answer before the caller notices a pause -
+   * was being served by the same large model as the desk. Measured on the box,
+   * three trivial turns each way: supervisor averaged 1288ms and peaked at
+   * 1795ms; utility averaged 495ms and peaked at 578ms. Same answers, a third
+   * of the wait.
+   *
+   * `maxTokens` is small on purpose too: tier 1 is one short line by
+   * specification, and a token budget is the cheapest latency control there is.
+   */
+  const raw = (await quickCompletion(pool, TRIAGE_SYSTEM, text, {
+    role: "utility",
+    maxTokens: 80,
+    ...(opts.onRoute ? { onRoute: opts.onRoute } : {}),
+  }))?.trim() ?? "";
   const line = raw.split("\n").find((l) => /^(ANSWER|DELEGATE)\s*:/i.test(l.trim()))?.trim();
 
   if (!line) {

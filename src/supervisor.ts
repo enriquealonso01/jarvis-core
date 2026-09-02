@@ -1405,7 +1405,20 @@ export async function quickCompletion(
   pool: pg.Pool,
   system: string,
   user: string,
-  opts: { maxTokens?: number; role?: ModelRole } = {},
+  opts: {
+    maxTokens?: number;
+    role?: ModelRole;
+    /**
+     * Told which route actually answered.
+     *
+     * Latency alone cannot prove tier 1 is on the small model: measured on the
+     * box, the supervisor route answered four trivial turns in 712ms on one
+     * sample and 1401ms on another, so a timing threshold that catches the
+     * regression on a bad afternoon waves it through on a good one. Which model
+     * replied is a fact, not a measurement, and that is what a test can hold.
+     */
+    onRoute?: (route: { provider: string; model: string }) => void;
+  } = {},
 ): Promise<string | null> {
   // The router is a quickCompletion too, so the fake model has to reach here or
   // routing cannot be tested offline at all.
@@ -1437,7 +1450,10 @@ export async function quickCompletion(
       if (!res.ok) continue;
       const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
       const text = json.choices?.[0]?.message?.content;
-      if (text) return text;
+      if (text) {
+        opts.onRoute?.({ provider: c.provider, model: c.model });
+        return text;
+      }
     } catch {
       /* try the next route */
     }
