@@ -284,6 +284,13 @@ export async function applyInstructionsChange(
     actor: "user" | "jarvis";
     conversationId?: string | null;
     causedByMessage?: string | null;
+    /**
+     * The answers this body was rendered from, carried forward so the NEXT
+     * change has something to edit. A version without them is a dead end: the
+     * file can still be read, but "change the deploy policy" has nothing to
+     * change except the prose.
+     */
+    parsedPolicy?: Record<string, string> | null;
   },
 ): Promise<{ version: number } | { error: string }> {
   const body = args.body.trim();
@@ -295,13 +302,18 @@ export async function applyInstructionsChange(
   }
   const r = await pool.query<{ version: number }>(
     `INSERT INTO project_instructions_versions
-       (project_id, version, body, created_by, conversation_id, caused_by_message)
+       (project_id, version, body, created_by, conversation_id, caused_by_message, parsed_policy)
      VALUES ($1,
              COALESCE((SELECT max(version) FROM project_instructions_versions
                        WHERE project_id = $1), 0) + 1,
-             $2, $3, $4, $5)
+             $2, $3, $4, $5,
+             -- Carry the previous answers forward when the caller has none, so
+             -- a hand-written body does not strand the project's edit history.
+             COALESCE($6::jsonb, (SELECT parsed_policy FROM project_instructions_versions
+                                  WHERE project_id = $1 ORDER BY version DESC LIMIT 1)))
      RETURNING version`,
-    [args.projectId, body, args.actor, args.conversationId ?? null, args.causedByMessage ?? null],
+    [args.projectId, body, args.actor, args.conversationId ?? null, args.causedByMessage ?? null,
+     args.parsedPolicy ? JSON.stringify(args.parsedPolicy) : null],
   );
   await pool.query(
     `INSERT INTO audit_events (actor, action, target, project_id, metadata)
@@ -311,6 +323,73 @@ export async function applyInstructionsChange(
                       asked: args.causedByMessage ?? null })],
   );
   return { version: r.rows[0].version };
+}
+
+/**
+ * Change ONE answer in a project's instructions, and re-render the file.
+ *
+ * "Change Alpha's deploy policy" must not become a model rewriting a policy
+ * document freehand. The answers that produced `AGENTS.md` are kept on the
+ * version row (`parsed_policy`), so a spoken change edits an answer and the
+ * file is rendered from the template again — the same renderer, the same
+ * completeness check, no opportunity to quietly drop a section or invent one.
+ *
+ * What Enrique says becomes the VALUE of a named field. Everything else about
+ * the file is mechanical.
+ */
+export async function applyInstructionsField(
+  pool: pg.Pool,
+  args: {
+    projectId: string;
+    field: string;
+    value: string;
+    actor: "user" | "jarvis";
+    conversationId?: string | null;
+    causedByMessage?: string | null;
+  },
+): Promise<{ version: number; body: string } | { error: string }> {
+  const { AGENTS_FIELDS, renderAgentsMd } = await import("./agentsfile.js");
+  const field = args.field.trim();
+  if (!(AGENTS_FIELDS as readonly string[]).includes(field)) {
+    return { error: `${field} is not part of AGENTS.md. Fields: ${AGENTS_FIELDS.join(", ")}` };
+  }
+  const value = args.value.trim();
+  if (!value) return { error: `${field} needs a value; "none" is how you say there is none` };
+
+  const latest = await pool.query<{ parsed_policy: Record<string, string> | null }>(
+    `SELECT parsed_policy FROM project_instructions_versions
+     WHERE project_id = $1 ORDER BY version DESC LIMIT 1`,
+    [args.projectId],
+  );
+  const answers = latest.rows[0]?.parsed_policy;
+  if (!answers) {
+    /*
+     * No answers to edit means this project was never onboarded through S26.
+     * Rendering from a blank slate would produce a file full of guesses, so the
+     * honest outcome is to say the project has no instructions to change.
+     */
+    return { error: "this project has no recorded onboarding answers to change; onboard it first" };
+  }
+
+  // `name` is the onboarding field; `project_name` is the template placeholder.
+  const merged: Record<string, string> = { ...answers, project_name: answers.name ?? answers.project_name };
+  merged[field] = value;
+
+  const rendered = renderAgentsMd(merged as never);
+  if (!rendered.ok) {
+    return { error: `cannot re-render AGENTS.md — still unanswered: ${rendered.missing.join(", ")}` };
+  }
+
+  const written = await applyInstructionsChange(pool, {
+    projectId: args.projectId,
+    body: rendered.body,
+    actor: args.actor,
+    conversationId: args.conversationId,
+    causedByMessage: args.causedByMessage,
+    parsedPolicy: merged,
+  });
+  if ("error" in written) return written;
+  return { version: written.version, body: rendered.body };
 }
 
 /** Restore an instructions version exactly, as a new version. */
@@ -333,6 +412,54 @@ export async function rollbackInstructions(
     conversationId: args.conversationId,
     causedByMessage: `rolled back to version ${args.toVersion}`,
   });
+}
+
+/**
+ * Push the project's current instructions into its repository.
+ *
+ * Called after a change, never instead of one: the row is canonical (ADR 018)
+ * and is already written by the time this runs, so a GitHub failure leaves the
+ * change made and the file stale rather than losing the change. It returns a
+ * fragment for the caller's reply instead of throwing, because "I changed it but
+ * could not commit it" is something Enrique needs told, not an exception.
+ */
+export async function commitInstructions(
+  pool: pg.Pool,
+  projectId: string,
+  message: string,
+): Promise<string> {
+  const row = await pool.query<{
+    body: string; version: number; github_owner: string | null;
+    github_repo: string | null; slug: string;
+  }>(
+    `SELECT v.body, v.version, p.github_owner, p.github_repo, p.slug
+     FROM project_instructions_versions v
+     JOIN projects p ON p.id = v.project_id
+     WHERE v.project_id = $1 ORDER BY v.version DESC LIMIT 1`,
+    [projectId],
+  );
+  const r = row.rows[0];
+  if (!r) return "";
+  if (!r.github_owner || !r.github_repo) return ", not committed (no repository)";
+
+  const { githubPutFile } = await import("./github.js");
+  const put = await githubPutFile(pool, {
+    owner: r.github_owner,
+    repo: r.github_repo,
+    path: "AGENTS.md",
+    content: r.body,
+    message,
+  });
+  await pool.query(
+    `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+     VALUES ('supervisor', 'config.instructions_commit', 'AGENTS.md', $1, $2)`,
+    [projectId, JSON.stringify({
+      version: r.version,
+      outcome: "error" in put ? "failed" : "committed",
+      error: "error" in put ? put.error : null,
+    })],
+  );
+  return "error" in put ? `, NOT committed: ${put.error}` : ", committed";
 }
 
 /** Keys with a known shape are checked before the write, not after. */

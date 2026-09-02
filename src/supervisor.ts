@@ -142,6 +142,73 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "config_change",
+      description:
+        "Change how Jarvis behaves for a project, when Enrique tells you to. "
+        + "'Stop doing X', 'always do Y in Alpha', 'change Beta's deploy policy' are this. "
+        + "It works on ANY project, not only the one you are talking about - name it. "
+        + "Use field for something that belongs in the project's AGENTS.md (deploy_policy, "
+        + "before_pr, before_deploy, migration_policy, test_command, and so on) and key for "
+        + "anything else. If you are not sure WHICH setting he means, pass ambiguous with the "
+        + "one question that would settle it: nothing is changed and he is asked. Never guess - "
+        + "a half-applied configuration change is worse than none.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Project slug or name." },
+          field: { type: "string", description: "An AGENTS.md field to change." },
+          key: { type: "string", description: "A configuration key, for anything not in AGENTS.md." },
+          value: { type: "string" },
+          ambiguous: {
+            type: "string",
+            description: "The single question to ask instead of changing anything.",
+          },
+          said: { type: "string", description: "What he actually said, in his words." },
+        },
+        required: ["project", "value"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "config_history",
+      description:
+        "What changed in a project's configuration, and why. Use it for any question about "
+        + "how a project came to be set up the way it is - 'what changed in Alpha last week', "
+        + "'why does Beta need approval to deploy'. Each entry carries what he said at the time.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string" },
+          days: { type: "string", description: "How far back to look. Default 30." },
+        },
+        required: ["project"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "config_rollback",
+      description:
+        "Put a project's configuration back to an earlier version. Use config_history first "
+        + "to find the version number. The old version is restored as a NEW version, so the "
+        + "record of what happened in between survives.",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string" },
+          key: { type: "string", description: "Omit to roll back the project's AGENTS.md." },
+          to_version: { type: "string" },
+        },
+        required: ["project", "to_version"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "conversation_create",
       description: "Open a new conversation thread. Pass project_slug to scope it to a project.",
       parameters: {
@@ -312,6 +379,9 @@ const WIRE_TO_CANONICAL: Record<string, string> = {
   project_onboarding_start: "project.onboarding_start",
   project_onboarding_set: "project.onboarding_set",
   project_onboarding_finalize: "project.onboarding_finalize",
+  config_change: "config.change",
+  config_history: "config.history",
+  config_rollback: "config.rollback",
   conversation_create: "conversation.create",
   connection_list: "connection.list",
   connection_request: "connection.request",
@@ -685,6 +755,103 @@ export async function runTool(
         ? `stored but NOT committed: ${commitError}`
         : committed ? `committed ${committed.slice(0, 7)}` : "stored (no repository)",
     });
+  }
+  if (name === "config.change" || name === "config.history" || name === "config.rollback") {
+    /*
+     * S27's whole point is that these reach a project he is not talking about,
+     * so the project is resolved from what he named rather than from the
+     * conversation's scope. A name that matches nothing is a question, not a
+     * default: applying a change to the wrong project is exactly the kind of
+     * silent damage the step is trying to prevent.
+     */
+    const wanted = (args.project ?? "").trim();
+    const target = await pool.query<{ id: string; slug: string; name: string }>(
+      `SELECT id, slug, name FROM projects
+       WHERE archived_at IS NULL AND (slug = $1 OR lower(name) = lower($1))`,
+      [wanted],
+    );
+    if (!target.rows[0]) {
+      const all = await pool.query<{ slug: string }>(
+        `SELECT slug FROM projects WHERE archived_at IS NULL ORDER BY slug`);
+      return `no project called ${wanted || "(nothing)"}. There is: ${all.rows.map((r) => r.slug).join(", ") || "none yet"}`;
+    }
+    const projectId = target.rows[0].id;
+    const said = (args.said ?? userText ?? "").trim() || null;
+    const cfg = await import("./config.js");
+
+    if (name === "config.history") {
+      const days = Number((args.days ?? "30").trim()) || 30;
+      const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+      const rows = await cfg.configHistory(pool, { projectId, since });
+      const instructions = await pool.query<{ version: number; at: string; caused_by_message: string | null }>(
+        `SELECT version, created_at::text AS at, caused_by_message
+         FROM project_instructions_versions
+         WHERE project_id = $1 AND created_at >= $2 ORDER BY version DESC`,
+        [projectId, since.toISOString()],
+      );
+      return JSON.stringify({
+        project: target.rows[0].slug,
+        since: since.toISOString(),
+        config: rows.map((r) => ({
+          key: r.key, version: r.version, at: r.at, asked: r.caused_by_message, value: r.value,
+        })),
+        agents_md: instructions.rows.map((r) => ({
+          version: r.version, at: r.at, asked: r.caused_by_message,
+        })),
+      });
+    }
+
+    if (name === "config.rollback") {
+      const to = Number((args.to_version ?? "").trim());
+      if (!Number.isInteger(to) || to < 1) return "to_version must be a version number";
+      if (args.key) {
+        const r = await cfg.rollbackConfig(pool, {
+          projectId, key: args.key.trim(), toVersion: to, actor: "user",
+          conversationId, causedByMessage: said,
+        });
+        return r.applied
+          ? `restored ${args.key} to version ${to}, recorded as version ${r.version}`
+          : `could not roll back: ${"reason" in r ? r.reason : "refused"}`;
+      }
+      const r = await cfg.rollbackInstructions(pool, {
+        projectId, toVersion: to, actor: "user", conversationId,
+      });
+      if ("error" in r) return `could not roll back: ${r.error}`;
+      await cfg.commitInstructions(pool, projectId, `Roll back agent instructions to v${to}`);
+      return `restored ${target.rows[0].slug}'s AGENTS.md to version ${to}, recorded as version ${r.version}`;
+    }
+
+    // config.change
+    const ambiguous = (args.ambiguous ?? "").trim() || null;
+    if (args.field) {
+      if (ambiguous) return `ask him: ${ambiguous}`;
+      const r = await cfg.applyInstructionsField(pool, {
+        projectId, field: args.field.trim(), value: args.value ?? "", actor: "user",
+        conversationId, causedByMessage: said,
+      });
+      if ("error" in r) return `not changed: ${r.error}`;
+      const commit = await cfg.commitInstructions(
+        pool, projectId, `Update ${args.field.trim()} for ${target.rows[0].name}`);
+      return `${target.rows[0].slug}: ${args.field} is now "${args.value}" (AGENTS.md v${r.version}${commit})`;
+    }
+
+    const r = await cfg.applyConfigChange(pool, {
+      scope: "project",
+      projectId,
+      key: (args.key ?? "").trim(),
+      value: args.value ?? "",
+      actor: "user",
+      note: "spoken instruction",
+      conversationId,
+      causedByMessage: said,
+      ambiguous,
+    });
+    if (r.applied) return `${target.rows[0].slug}: ${args.key} set (version ${r.version})`;
+    if (r.refused === "ambiguous") return `ask him: ${r.question}`;
+    if (r.refused === "immutable") {
+      return `refused, and an approval is waiting for him: ${r.reason}. Nothing was changed.`;
+    }
+    return `not changed: ${r.reason}`;
   }
   if (name === "conversation.create") {
     let projectId: string | null = null;

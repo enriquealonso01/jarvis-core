@@ -261,6 +261,99 @@ async function main(): Promise<void> {
     check("whose body is v1's, exactly", body, restored.rows[0]?.body.endsWith("\n") ? restored.rows[0].body : `${restored.rows[0]?.body}\n`);
   }
 
+  console.log("\n########## a sentence, through the tool the model actually calls ##########\n");
+  {
+    /*
+     * Everything above tests the write path. This tests the thing a spoken
+     * sentence reaches: the tool. It runs through the same dispatcher a model
+     * turn drives, and — the point of the whole step — the conversation is
+     * scoped to Beta while every change lands on Alpha.
+     */
+    const { runTool } = await import("../src/supervisor.js");
+
+    // Alpha needs recorded onboarding answers before a field can be changed.
+    const answers: Record<string, string> = {
+      name: `Alpha ${STAMP}`, project_name: `Alpha ${STAMP}`,
+      project_type: "professional", production_status: "staging", customer_facing: "no",
+      confidentiality: "normal", github_owner: "none", github_repo: "none",
+      default_branch: "main", allowed_auth_profiles: "none", approved_data_processors: "none",
+      setup_command: "pnpm install", test_command: "pnpm test", lint_command: "none",
+      safe_environments: "staging", deploy_policy: "anyone may deploy",
+      project_forbidden: "none", before_pr: "tests green", before_deploy: "none",
+      migration_policy: "none", default_queue_priority: "normal",
+    };
+    const { renderAgentsMd } = await import("../src/agentsfile.js");
+    const seed = renderAgentsMd(answers as never);
+    if (!seed.ok) throw new Error(`fixture render failed: ${seed.missing.join(", ")}`);
+    await pool.query(
+      `INSERT INTO project_instructions_versions
+         (project_id, version, body, created_by, parsed_policy)
+       VALUES ($1, COALESCE((SELECT max(version) FROM project_instructions_versions
+                             WHERE project_id = $1), 0) + 1, $2, 'jarvis', $3)`,
+      [alpha, seed.body, JSON.stringify(answers)]);
+
+    const said = `from now on nobody deploys Alpha without asking me (${STAMP})`;
+    const r = await runTool(pool, convo, "", "config_change", {
+      project: `alpha-${STAMP}`, field: "deploy_policy",
+      value: `ask Enrique first (${STAMP})`, said,
+    }, said);
+    truthy("the tool reports the change", r.includes("deploy_policy is now"));
+
+    const now = await pool.query<{ body: string; caused_by_message: string; created_by: string }>(
+      `SELECT body, caused_by_message, created_by FROM project_instructions_versions
+       WHERE project_id = $1 ORDER BY version DESC LIMIT 1`, [alpha]);
+    truthy("Alpha's AGENTS.md now says what he said", now.rows[0]?.body.includes(`ask Enrique first (${STAMP})`));
+    check("recorded as his, not Jarvis's idea", "user", now.rows[0]?.created_by);
+    check("with his sentence attached", said, now.rows[0]?.caused_by_message);
+    truthy("and the rest of the file is intact, not rewritten",
+      now.rows[0]?.body.includes("Setup: pnpm install") && now.rows[0]?.body.includes("Test: pnpm test"));
+
+    // Naming a project that does not exist is a question, never a default.
+    const nowhere = await runTool(pool, convo, "", "config_change", {
+      project: "a-project-that-does-not-exist", field: "deploy_policy", value: "x",
+    }, "");
+    truthy("an unknown project is refused by name", nowhere.includes("no project called"));
+    truthy("...and the real ones are offered", nowhere.includes(`alpha-${STAMP}`));
+
+    // The immutable list, through the tool.
+    const refused = await runTool(pool, convo, "", "config_change", {
+      project: `alpha-${STAMP}`, key: "isolation.cross_project", value: "off",
+      said: `let alpha read beta's files (${STAMP})`,
+    }, "");
+    truthy("an immutable change is refused through the tool too", refused.includes("refused"));
+    truthy("...saying an approval is waiting", refused.includes("approval"));
+    truthy("...and that nothing changed", refused.includes("Nothing was changed"));
+
+    // Ambiguity, through the tool.
+    const asked = await runTool(pool, convo, "", "config_change", {
+      project: `alpha-${STAMP}`, key: "queue.default_priority", value: "high",
+      ambiguous: "Alpha's queue priority, or how many run at once?",
+    }, "");
+    truthy("an ambiguous instruction comes back as one question", asked.startsWith("ask him:"));
+
+    // History, through the tool: his words are what makes it answerable.
+    const hist = JSON.parse(await runTool(pool, convo, "", "config_history",
+      { project: `alpha-${STAMP}`, days: "30" }, ""));
+    truthy("history covers the AGENTS.md change", hist.agents_md.length >= 1);
+    truthy("carrying what he said", JSON.stringify(hist).includes(said));
+
+    /*
+     * And rolled back through the tool. Guarded rather than indexed blindly:
+     * when the sabotage round pointed the tool at the wrong project, this line
+     * threw on an empty history and killed the suite BEFORE the Beta
+     * assertions — which are the ones that catch that exact bug. A test that
+     * dies on the way to its own point is worse than one that fails.
+     */
+    const oldest = hist.agents_md[hist.agents_md.length - 1];
+    if (!oldest) {
+      bad("rollback reports a new version", "a version to roll back to", "no history at all");
+    } else {
+      const back = await runTool(pool, convo, "", "config_rollback",
+        { project: `alpha-${STAMP}`, to_version: String(oldest.version) }, "");
+      truthy("rollback reports a new version", back.includes("recorded as version"));
+    }
+  }
+
   console.log("\n########## and none of it touched Beta ##########\n");
   {
     const bconf = await pool.query(`SELECT count(*)::int AS n FROM config_versions WHERE project_id = $1`, [beta]);
