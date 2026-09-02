@@ -2608,6 +2608,41 @@ is for the detail, not for the decision.
 It is invalidated by any of the eight conditions in S10. It can never reach
 Level 3.
 
+### The console grants the approvals, so it is the gate behind every gate
+
+Six surfaces now carry their own gate, and **every one of those gates resolves to
+the same sentence: Enrique approves in the console.** That makes the console's
+session the thing all of it rests on, and the plan has never said what protects
+it beyond being a cookie.
+
+The session is HttpOnly, `SameSite=Lax`, same-origin, origin-checked, argon2id
+behind it — good, and ADR 004 got that right. But it slides for 30 idle days and
+lives 90. **An unattended laptop with an open tab can approve a production
+deploy**, and unlike every other surface there is no latency, no rate limit and
+no second party.
+
+Two additions, both proportionate for one user:
+
+**Level 3 requires re-authentication.** Approving an always-confirm action asks
+for the password again, with a short grace window — a few minutes, so a sequence
+of related approvals does not become theatre. This is the ordinary "sudo moment"
+pattern and it costs nothing, because **Level 3 is rare by design**. If it starts
+feeling frequent, something is mis-classified.
+
+**An approval binds to exactly what it approved.** Not the action type — the
+specific action, its arguments, and the state they were computed against, hashed
+into the approval. If the page has moved on, the click is refused and re-presented
+rather than applied to whatever is current now. Task grants already do this by
+SHA (S10); approvals in general did not, and *"approve"* clicked against a stale
+screen is the failure mode that produces the wrong outcome with a complete audit
+trail saying it was authorised.
+
+**Bounded, not rate-limited.** A per-hour ceiling on Level 3 approvals and on
+metered spend initiated from one session — high enough never to be noticed in
+normal use, low enough that a compromised session cannot empty the budget or
+approve forty things before anyone looks. A limit nobody ever hits costs nothing
+and is the only thing standing between one bad afternoon and all of them.
+
 ### Where this is enforced
 
 In the broker, before the action — not in the prompt, not in the UI, and never
@@ -3220,6 +3255,8 @@ below come from the planning conversation and are the point of the exercise.
 - **Expired connection**: expire a GitHub credential → **one** deduplicated issue, and **every affected task links to it**. Reauthenticating closes the issue and resumes all of them, not just the one that hit it first
 - **Stuck worker, visible**: hang a worker deliberately → the task timeline in the console shows stalled → recovering → resumed. The watchdog's intervention must be legible in the UI, not only in the database
 - **Client security**: inspect browser traffic and client storage → no provider secret, no OpenClaw admin token, no database credential, no secret value in logs or analytics
+- **Re-auth on Level 3**: an approval with a valid session but no recent password re-entry is refused. Then, with re-auth, it succeeds — and a second Level 3 inside the grace window does not re-prompt
+- **Stale approval**: change the underlying state between rendering an approval and clicking it → refused and re-presented, never applied. **This is the one that produces a wrong outcome with an audit trail saying it was authorised**
 
 ## Gate 5 — The phone is dependable
 - **Ten consecutive calls**, three with a forced provider failure, all ending cleanly with a stored transcript
