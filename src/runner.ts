@@ -1403,7 +1403,18 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       await raiseIssue(pool, {
         category: "security.isolation",
         service: "harness",
-        title: `[isolation] harness wrote outside the worktree on ${task.title.slice(0, 60)}`,
+        /*
+         * "touched", not "wrote".
+         *
+         * The tripwire reads tool events, and a Bash command is a string: it
+         * cannot always tell a read from a write. The one that fired in anger
+         * was `ls -la` on the worktree parent, and the ticket announced that the
+         * harness had WRITTEN outside its worktree - which sent the next reader
+         * looking for a file that was never created. Both still matter, so both
+         * still fire; the title now claims only what is known, and
+         * `attempted_path` in the evidence says where.
+         */
+        title: `[isolation] harness touched a path outside the worktree on ${task.title.slice(0, 60)}`,
         dedupeKey: `security.isolation:${taskId}`,
         taskId,
         projectId: task.project_id,
