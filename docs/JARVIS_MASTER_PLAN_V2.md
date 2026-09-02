@@ -1939,6 +1939,12 @@ On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.m
 **Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
 
 ## S27 — Configuration by conversation
+
+> **S43 generalises this step's entrance, not its mechanism.** What is built here
+> — interpret, validate, version, apply, audit, reverse — is what S43 routes a
+> much wider range of requests into, including changes to the console's own UI.
+> **Build the pipeline so its input is "a described outcome", not "a config
+> field"**, and S43 becomes a routing problem rather than a rewrite.
 *Size: 2 days.*
 
 Transcript msg 17: telling Jarvis to change how Jarvis works must work from
@@ -2070,6 +2076,13 @@ observed scores rather than picking a round number first.
 
 Transcript msg 01: "somewhere where I can just dump stuff, and it will organize
 it. I will be able to ask questions about anything at any time."
+
+> **S41 adds two things to what this step builds**: a time index, so a document
+> is findable by "two days ago" and not only by content, and a **voice rendering**
+> that explains rather than recites. Both sit on this step's retrieval path. If
+> chunks are stored without a usable date, S41 has nothing to search on — so keep
+> the date, the kind and the project on every chunk from the start, even though
+> nothing reads them yet.
 
 ### Four tiers, deliberately separate
 
@@ -2358,6 +2371,13 @@ see another project's session.
 
 ## S33 — Notification policy
 *Size: 2 days.*
+
+> **S38 shapes what these messages look like.** This step decides *whether* to
+> send; S38 decides *how long a message may be* and what happens when the content
+> is genuinely long — it becomes a document with a two-line covering note. Build
+> the decision here and leave the rendering to S38 rather than writing a
+> long-message formatter that S38 will replace. **The weekly report in particular
+> is a document plus two lines, not a message.**
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
 
