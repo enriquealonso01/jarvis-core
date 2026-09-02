@@ -123,7 +123,7 @@
       "title": "Repair the degraded console",
       "stage": 3,
       "state": "in_progress",
-      "pr": 55,
+      "pr": 58,
       "evidence": "L17's six journeys pass on a 375px phone AND keyboard-only (36 assertions, each ending in a database check); console installable as a PWA; audit green on all 16 routes (99) plus forced states (10) = 145. PARTIAL: the twelve states are on /queue only — the other screens still fall through to a plain 'Loading…' for offline, expired session and server error."
     },
     {
