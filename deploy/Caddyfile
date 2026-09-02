@@ -29,6 +29,14 @@ jarvis.enriquecodes.com {
 		reverse_proxy api:8080
 	}
 
+	# The reasons behind the counts. Without this block /BLOCKED.md fell through
+	# to the static site, whose try_files ends at /index.html, so the "why" link
+	# under the blocked and awaiting counts answered with the dashboard itself -
+	# a 200, an HTML page, and no way to tell from the outside that it was broken.
+	handle /BLOCKED.md {
+		reverse_proxy api:8080
+	}
+
 	handle {
 		root * /srv/www
 		try_files {path} {path}/ {path}.html /index.html
