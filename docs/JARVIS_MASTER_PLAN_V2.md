@@ -1215,11 +1215,43 @@ count links to `BLOCKED.md`.
 If `PROGRESS.json` is older than 24 hours, the bar **says so** rather than
 presenting stale numbers as live.
 
+### Staleness is the wrong check. Divergence is the right one.
+
+An age check on `updated_at` does not catch the failure that actually happened:
+the repository's file was reconciled to 51 steps, the box kept serving 40, and
+**the stale copy carried a recent timestamp** because it was accurate when it was
+deployed. The bar reported `S28 of 40` with complete confidence and no warning,
+and neither Enrique nor the agent updating it noticed for a day.
+
+So the bar compares itself against something it cannot fake:
+
+- **`plan_sha`** — the file records the plan revision it describes. The API knows which plan is deployed alongside it. **Different sha → say so on the bar**, with the two values.
+- **`total_steps` against the deployed plan.** Counting `^## S\d+b? — ` costs nothing and catches exactly this case: a denominator that stopped growing.
+- **A `done` step whose PR is not merged** — already specified above, and the same principle: the bar is a claim, and the thing rendering it is allowed to check.
+
+**"Last updated" is a claim about the file. Divergence is a claim about the
+world.** Only the second one catches a copy that was true when it was written and
+is not true where it is read.
+
+### Updating it must be cheaper than deploying
+
+The deeper cause is worth stating, because no amount of checking fixes it: **if
+updating the progress bar costs a full image rebuild, the bar will always be
+stale.** The cost of updating a thing has to be proportional to how often it
+changes, and this changes several times a day.
+
+Serve `PROGRESS.json` from a path a file sync can update — a bind mount, not the
+image build context. Then keeping the bar current is copying one file, which is
+something that happens without ceremony, rather than something that waits for the
+next deploy.
+
 ### Test
 
 - Every state renders distinguishably, including on a phone and in the colour-blind-safe palette. Blocked must not read as done.
 - Add a step to the plan → the denominator grows on the next update and the percentage **goes down**. That is correct behaviour and the bar must not hide it.
 - Stale file → the staleness notice appears; back-date `updated_at` to force it.
+- **Divergence**: serve a `PROGRESS.json` whose `total_steps` disagrees with the deployed plan, and whose `updated_at` is *recent*. The bar must flag it. **This is the case the age check misses, and it is the one that actually occurred** — a confident wrong number is worse than an obviously old one.
+- Update `PROGRESS.json` by copying one file, with no rebuild, and confirm the bar changes. If that is not possible, the file is in the wrong place.
 - A step marked `done` whose PR is not merged → the console flags the inconsistency rather than trusting the file. **The bar is a claim, and the console is allowed to check it.**
 - Malformed or missing `PROGRESS.json` → the bar is absent with a plain explanation, never a half-drawn bar or a crash.
 - **`awaiting_verification` renders distinctly from `blocked`** — different colour, different word, and it does **not** count toward the blocked total. Assert the counts separately.
