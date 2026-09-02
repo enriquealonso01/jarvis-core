@@ -114,8 +114,15 @@ wait
 elapsed=$(( $(date +%s) - start ))
 echo "  sent 3 concurrently in ${elapsed}s"
 check "three tasks created" "$((before+3))" "$(q 'SELECT count(*) FROM tasks;')"
-check "none merged: three distinct titles" "3" \
-  "$(q "SELECT count(DISTINCT title) FROM tasks WHERE title LIKE 'Burst %';")"
+burst_titles=$(q "SELECT count(DISTINCT title) FROM tasks WHERE title LIKE 'Burst %';")
+check "none merged: three distinct titles" "3" "$burst_titles"
+if [ "$burst_titles" != "3" ]; then
+  # Intermittent, roughly 1 run in 10. Dump what actually happened so the next
+  # occurrence is diagnosable instead of just a red line. See DEBUG_NOTES.
+  echo "  --- burst diagnostics ---"
+  q "SELECT COALESCE(title,'?')||' | '||state FROM tasks WHERE title LIKE 'Burst %' ORDER BY created_at;" | sed 's/^/      /'
+  q "SELECT left(raw_text,24)||' -> '||COALESCE(route_category,'-')||' | '||COALESCE(routing_note,'-') FROM inbox_events WHERE raw_text ILIKE 'burst%' ORDER BY received_at;" | sed 's/^/      /'
+fi
 check "each carries its own inbox event" "3" \
   "$(q "SELECT count(DISTINCT origin_inbox_id) FROM tasks WHERE title LIKE 'Burst %';")"
 check "all three are queued heavy on alpha-web" "3" \

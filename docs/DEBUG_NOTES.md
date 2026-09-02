@@ -135,6 +135,22 @@ credential; the fake harness never reads it.
 fixture. Reconcilers run on everything, so the seed has to satisfy the
 reconciler, not just the reader.
 
+### Known intermittent: the three-message burst occasionally produces two tasks
+**Symptom:** S2's "three messages in ten seconds -> three tasks, none merged,
+none dropped" fails roughly once in ten runs with two distinct titles instead of
+three. Twelve consecutive runs afterwards were clean, so it is not reproducible
+on demand.
+**Cause:** not yet known. The three requests are sent concurrently and each
+should produce its own inbox event, route decision and task; the failure loses
+one of the three somewhere along that path.
+**Fix:** none yet — this is recorded as OPEN, not solved. The test now dumps the
+tasks and the inbox events with their route verdicts whenever the count is
+wrong, so the next occurrence carries its own evidence instead of being a bare
+red line.
+**Lesson:** "three messages, none dropped" is a plan requirement, not a nicety.
+An intermittent failure of it is a real defect and is written down as one rather
+than being re-run until it passes.
+
 ### A fixture that lied about being GitHub-linked parked every successful run
 **Symptom:** the moment S7 wired pull-request opening into the runner's success
 path, four suites regressed: every heavy task that had been reaching `succeeded`
