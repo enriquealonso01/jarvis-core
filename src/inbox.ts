@@ -5,6 +5,7 @@ import { looksConfidential } from "./redaction.js";
 import { applyRouteB, deterministicRoute } from "./routeb.js";
 import { applyRoute, summariseRoute, type RouteOutcome } from "./routing.js";
 import { classifyInbox } from "./routing.js";
+import { askAboutForward, hasOwnerInstruction, splitAuthorship } from "./untrusted.js";
 
 /**
  * A readable thread name taken from the first thing said in it.
@@ -41,6 +42,15 @@ export async function ingestUserMessage(
     body: string;
     inboxId?: string;
     /**
+     * Content he did not author — a forward, a pasted thread (S37).
+     *
+     * It is stored and quotable and reaches no decision. `body` is his words
+     * and his authority; this is evidence. When `body` is empty, the message is
+     * a bare forward: it is filed, quoted back, and he is asked what he wants
+     * done, because an instruction inside it is a proposal and never a command.
+     */
+    forwardedText?: string | null;
+    /**
      * Called the moment ROUTING is done, before the Supervisor is asked
      * anything (S22).
      *
@@ -71,8 +81,17 @@ export async function ingestUserMessage(
   if (!conv.rows[0]) {
     throw new Error("conversation not found");
   }
-  const text = args.body.trim();
-  if (!text) {
+  /*
+   * S37: whose words are these?
+   *
+   * `text` is what HE said and is the only thing that can authorise anything.
+   * A forward travels with it as evidence and is never routed — not filtered,
+   * not scanned for dangerous phrases, simply never given to the thing that
+   * decides. A word list loses to the first paraphrase; this cannot.
+   */
+  const authored = splitAuthorship({ text: args.body, forwardedText: args.forwardedText });
+  const text = authored.owner;
+  if (!text && !authored.forwarded) {
     throw new Error("empty message");
   }
 
@@ -104,6 +123,38 @@ export async function ingestUserMessage(
       inboxId,
       payloadMode,
     ]);
+  }
+
+  // The forward is stored in full and separately, so it is searchable and
+  // quotable and can never be mistaken for something he said.
+  if (authored.forwarded) {
+    await pool.query("UPDATE inbox_events SET forwarded_text = $2 WHERE id = $1",
+      [inboxId, authored.forwarded]);
+  }
+
+  /*
+   * A bare forward: he passed something along and said nothing.
+   *
+   * Nothing is routed, so nothing can be acted on — the untrusted text never
+   * reaches the classifier, the Supervisor, or a task. It is filed, quoted back,
+   * and he is asked. His answer is then an ordinary message from him, and
+   * carries the authority the forward never had.
+   */
+  if (!hasOwnerInstruction(authored)) {
+    const reply = askAboutForward(authored.forwarded);
+    await pool.query(
+      `INSERT INTO messages (conversation_id, inbox_event_id, role, body) VALUES ($1, $2, 'jarvis', $3)`,
+      [args.conversationId, inboxId, reply],
+    );
+    await pool.query(
+      `UPDATE inbox_events SET processing_state = 'processed',
+         routing_note = 'forwarded content with no covering instruction: quoted, not acted on'
+       WHERE id = $1`,
+      [inboxId],
+    );
+    await pool.query("UPDATE conversations SET last_activity_at = now() WHERE id = $1",
+      [args.conversationId]);
+    return { inboxId, assistant: reply };
   }
 
   await pool.query(
