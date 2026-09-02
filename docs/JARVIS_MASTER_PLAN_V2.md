@@ -3203,6 +3203,41 @@ in-app chat — for:
 what remains into the improvement or fix workflow. The goal is not a report about
 quality — **it is that the same mistake stops happening.**
 
+### This is the one place the plan reads across every project on purpose
+
+Everything else here is scoped. A task in Alpha cannot read Beta. S30 applies the
+project filter *in the query*, not in post-processing. S12's isolation probes
+exist to prove exactly that. **S48 is the single deliberate exception** — it reads
+every conversation from every surface and every project, in one pass, because the
+patterns worth finding only exist across them.
+
+An exception that broad, arriving in the last step, is how isolation quietly stops
+meaning anything. So it needs a shape.
+
+**Fan out per project. Merge findings, never transcripts.**
+
+- The analysis runs **once per project** — and once for system scope — each under that project's own routing and auth policy. A confidential project's conversations are read by whatever that project permits and by nothing else. **No single context ever holds two projects' bodies.**
+- **The merge operates on findings, not on conversation content.** Cross-project repetition — the strongest signal in this step — survives, because a correction is carried as a normalised shape: what behaviour was corrected, to what, and a reference. *"The same correction appears in three projects"* is computable over that field without one body crossing.
+- **A finding cites; it does not quote.** The citation is a conversation and turn reference that resolves in the console, where Enrique can already see everything. A reference carries no content.
+
+That also resolves the tension in the Debug note below. The signal genuinely does
+live in the exact words of the correction — and those words stay inside the
+project pass that read them. **They drive the finding; they do not become its
+payload.**
+
+### The weekly report is a document about every project at once
+
+By S38's rule, an artifact spanning a normal and a confidential project takes the
+strictest classification present — and this report spans all of them *by
+construction*. So it is confidential unless every project it touched was normal:
+linked rather than attached, not read aloud by S41, retained as its strictest
+input demands.
+
+It is also indexed by S30. **That is precisely the path by which a distilled
+summary of confidential work becomes casually retrievable** — a paragraph about
+the Alpha migration, sitting in an unclassified weekly report, answering a search
+nobody thought was sensitive.
+
 ### What makes this work rather than generate noise
 
 - **Repeated corrections rank above everything else.** One awkward exchange is noise; the same correction three times is a defect with a location.
@@ -3215,11 +3250,19 @@ quality — **it is that the same mistake stops happening.**
 - Fix something mid-week → it does **not** appear.
 - A week with genuinely nothing wrong produces a short report saying so. **A cycle that always finds problems is a cycle that invents them**, and this test is what keeps it honest.
 - An approved finding becomes a task and the behaviour actually changes.
+- **Two projects, one confidential, both carrying the same repeated correction** → found once and ranked, **and the confidential project's conversation body appears nowhere in the merge input or the report**. Assert on what crossed between passes, not on what the report says about itself.
+- A confidential project's pass runs under that project's routing. A run that would have sent its body anywhere else **fails closed rather than quietly downgrading** — a fallback that silently picks another provider is the whole defect wearing a retry.
+- The report spans a confidential project → classified confidential, delivered as a link (S38), and refused by voice recall (S41).
 
 ### Debug
 If findings are vague, the analysis is reading summaries instead of transcripts.
 The signal lives in the exact words of the correction, not in a paraphrase of the
 conversation.
+
+If cross-project repetition stops being detected once the passes are split, the
+finding shape is carrying prose instead of a normalised correction. **Two passes
+describing the same defect in different words will never match**, and the step
+will report three unrelated one-offs where there is one standing complaint.
 
 **Done when:** a mistake Enrique corrects twice becomes a fix he did not have to
 ask for.
