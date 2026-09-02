@@ -357,9 +357,21 @@ export function toolCalls(event: Record<string, unknown>): { name: string; detai
  * `escapedPath` does with a list and nothing at all about the list it is given.
  */
 export function allowedPathsFor(slug: string | null, taskId: string): string[] {
-  return slug
-    ? [path.join(PROJECTS, slug)]
-    : [path.join(WORKTREES, "unscoped", taskId.slice(0, 8))];
+  /*
+   * What a task may touch under the root, as a LIST rather than as prose
+   * (II.5). Its own worktree is `cwd` and is added by the guard itself; these
+   * are the two other places its own work legitimately lives:
+   *
+   *   projects/<its own>   the checkout its worktree was cut from
+   *   artifacts/<its own>  its own transcripts and outputs
+   *
+   * Everything else under `/var/lib/jarvis` — another project's checkout,
+   * another task's worktree, `browsers/`, `harness-auth/`, `keys/`,
+   * `openclaw/`, another project's `artifacts/` — is denied by the default,
+   * so adding a directory does not mean remembering to add it here.
+   */
+  if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8))];
+  return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug)];
 }
 
 export function escapedPath(
@@ -436,13 +448,23 @@ export function escapedPath(
         // profile — where Beta's logged-in sessions and cookies live — walked
         // straight past the tripwire, and so did a read of another task's
         // worktree. Both are exactly the cross-project read L9 names.
-        const outsideOwn =
-          abs.startsWith(`${PROJECTS}${path.sep}`)
-          || abs.startsWith(`${BROWSERS}${path.sep}`)
-          || abs.startsWith(`${WORKTREES}${path.sep}`)
-          || abs.startsWith(`${path.join(ROOT, "keys")}${path.sep}`)
-          || abs.startsWith(`${path.join(ROOT, "harness-auth")}${path.sep}`);
-        if (outsideOwn) return abs;
+        /*
+         * Everything under the root is guarded, not a list of five things.
+         *
+         * The list WAS five prefixes, and II.5 enumerates seven — `openclaw/`
+         * (the paired WhatsApp session) and another project's `artifacts/`
+         * (transcripts, dumped documents) were both missing, exactly as the
+         * plan warned: "the failure was an unlisted directory, not a broken
+         * rule". So the rule is inverted. Anything under `/var/lib/jarvis`
+         * that is not positively permitted is a breach, which means a
+         * directory added tomorrow is protected the day it is created rather
+         * than the day someone remembers to add it here.
+         *
+         * Outside the root is left alone deliberately: `/usr/lib`, a package
+         * cache, a system binary are ordinary build traffic, and a guard that
+         * fires on those is a guard that gets switched off.
+         */
+        if (abs.startsWith(`${ROOT}${path.sep}`)) return abs;
       }
     }
   }

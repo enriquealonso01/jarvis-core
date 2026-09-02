@@ -134,6 +134,48 @@ async function main(): Promise<void> {
     );
   }
 
+  console.log("\n########## the path guard covers the whole root ##########\n");
+  {
+    /*
+     * II.5 enumerates seven places a task may not touch. The guard listed five:
+     * `openclaw/` — the paired WhatsApp session — and another project's
+     * `artifacts/` were both missing, which is the plan's own warning about
+     * prose reading as complete. The rule is inverted now: anything under
+     * /var/lib/jarvis that is not positively permitted is a breach, so the
+     * eighth directory is protected the day it is created.
+     */
+    const cwd = path.join(WORKTREES_DIR, "alpha", "aaaa1111");
+    const allowed = allowedPathsFor("alpha", "aaaa1111-0000-0000-0000-000000000000");
+    const root = process.env.JARVIS_ROOT ?? "/var/lib/jarvis";
+    const breach = (p: string) => escapedPath(cwd, touching({ command: `cat ${p}` }), allowed);
+
+    const mustDeny: [string, string][] = [
+      ["another project's checkout", path.join(root, "projects", "beta", "repo", ".env")],
+      ["another task's worktree", path.join(root, "worktrees", "alpha", "bbbb2222", "x")],
+      ["another project's worktree", path.join(root, "worktrees", "beta", "cccc3333", "x")],
+      ["a browser profile", path.join(root, "browsers", "beta", "Cookies")],
+      ["the harness logins", path.join(root, "harness-auth", "anthropic_personal", "creds.json")],
+      ["the master key", path.join(root, "keys", "master.key")],
+      ["the paired WhatsApp session", path.join(root, "openclaw", "session", "creds.json")],
+      ["another project's artifacts", path.join(root, "artifacts", "beta", "transcript.jsonl")],
+      ["a directory nobody has thought of yet", path.join(root, "something-new", "secret")],
+    ];
+    for (const [what, p] of mustDeny) {
+      truthy(`${what} is a breach`, breach(p));
+    }
+
+    const mustAllow: [string, string][] = [
+      ["its own worktree", path.join(cwd, "src", "index.ts")],
+      ["its own project's checkout", path.join(root, "projects", "alpha", "repo", "src", "x.ts")],
+      ["its own artifacts", path.join(root, "artifacts", "alpha", "transcript.jsonl")],
+      ["a system path outside the root", "/usr/lib/node_modules/npm/package.json"],
+      ["the scratch directory", "/tmp/repro.mjs"],
+    ];
+    for (const [what, p] of mustAllow) {
+      check(`${what} is not`, null, breach(p));
+    }
+  }
+
   console.log("\n########## a denial that worked is not a page ##########\n");
   {
     const { recordDenial } = await import("../src/isolation.js");
