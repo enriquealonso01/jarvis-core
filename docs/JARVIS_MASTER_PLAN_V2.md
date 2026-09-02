@@ -1901,7 +1901,51 @@ The exception is coding. The senior engineer and reviewer roles run on
 registered for later. Those are flat-rate and their marginal cost is zero, which
 is why the most expensive role in the system is also the cheapest to run.
 
-**Roles**: supervisor, utility, senior_engineer, reviewer, stt, voice_tts, vision, embeddings.
+## VI.1 The approved pool, and the line Jarvis may not cross
+
+Jarvis has real autonomy over models — it must, or every provider hiccup becomes
+an interruption. But that autonomy is **bounded by an approved pool**, and the
+boundary is what makes the autonomy safe to grant.
+
+**Inside the pool, Jarvis is free.** It swaps between approved models at will:
+routing by role, by quota, by health, by cost. It never asks, and it should not.
+
+**Outside the pool, it may recommend and nothing more.** Jarvis must never
+autonomously:
+
+- create a paid account
+- add a payment method
+- enable pay-as-you-go on an existing account
+- send proprietary or confidential code to a provider not already approved for that project
+- change a data-retention or privacy setting
+- hand credentials to a new provider
+
+The path out of the pool is fixed:
+
+```
+find candidate → benchmark it (S26) → recommend, with evidence
+                                            ↓
+                                     Enrique approves
+                                            ↓
+                                   Jarvis activates it
+```
+
+Every step of that is Jarvis's work except the approval, which is never
+delegable and never inferable from a task grant. "Find me a better model" is
+permission to search, not permission to sign up.
+
+This is the model-layer instance of the immutable list in §59, and it holds even
+under a broad authority grant: **a grant widens what Jarvis may do with what it
+has, never what it may go and acquire.**
+
+**Roles**: supervisor, utility, senior_engineer, reviewer, **research/browser**,
+stt, voice_tts, vision, embeddings.
+
+`research/browser` is its own role because its demands are the opposite of the
+Supervisor's: high volume, cheap, latency-tolerant, and error-tolerant — a
+misread page is retried, where a misrouted Supervisor turn is a broken
+conversation. Routing them to the same model wastes money on one and quality on
+the other.
 
 **Routing key**: `role + model + provider + auth_profile + project_policy`. Never
 substitute a different account because it happens to be the same provider.
