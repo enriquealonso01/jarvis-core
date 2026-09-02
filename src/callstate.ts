@@ -42,6 +42,16 @@ export const BUDGET_MS: Record<string, number> = {
   // Not a provider budget: how long a silent caller is left alone before being
   // asked whether they are still there.
   listening: 30_000,
+  /*
+   * How long an answer may be PLAYING.
+   *
+   * Separate from `tts`, which is the render, and the distinction cost a real
+   * call: a 150-word answer took 15 seconds to play, the 12-second `tts` budget
+   * fired mid-sentence, and the sweep spoke a holding line over the top of it.
+   * A blown render is a provider being slow; a blown playback is a stuck call,
+   * and they are nothing like each other.
+   */
+  playing: 180_000,
   // How long the caller may pause mid-thought before the turn passes to Jarvis
   // (plan S20: "roughly five seconds of silence hands the turn"). Overridable
   // so a test can prove the behaviour without spending six seconds per
@@ -210,7 +220,16 @@ export async function move(
     : (Object.keys(ALLOWED) as CallState[]).filter((s) => canMove(s, to));
   const deadline = args.leg ? BUDGET_MS[args.leg] ?? null : null;
 
-  const r = await pool.query<{ state: string }>(
+  /*
+   * `old.state` is the state it was ACTUALLY in.
+   *
+   * The first version wrote `froms.join("|")` into the transition, so a real
+   * call's trail read `from_state = "greeting|thinking|speaking|ringing"` — the
+   * set the move was allowed from, not the state it moved from. The point of
+   * writing transitions down is that the ordering can be read afterwards, and a
+   * row naming four states says nothing.
+   */
+  const r = await pool.query<{ state: string; was: string }>(
     `UPDATE calls
      SET state = $2,
          state_at = now(),
@@ -219,8 +238,10 @@ export async function move(
                             ELSE now() + make_interval(secs => $5::int / 1000.0) END,
          turns = turns + CASE WHEN $2 = 'thinking' THEN 1 ELSE 0 END,
          ended_at = CASE WHEN $2 = 'ended' THEN now() ELSE ended_at END
-     WHERE call_control_id = $1 AND state = ANY($3::text[]) AND ended_at IS NULL
-     RETURNING state`,
+     FROM (SELECT call_control_id, state FROM calls WHERE call_control_id = $1 FOR UPDATE) old
+     WHERE calls.call_control_id = old.call_control_id
+       AND calls.state = ANY($3::text[]) AND calls.ended_at IS NULL
+     RETURNING calls.state, old.state AS was`,
     [ccid, to, froms, args.leg ?? null, deadline],
   );
   const moved = (r.rowCount ?? 0) > 0;
@@ -229,7 +250,7 @@ export async function move(
       .query(
         `INSERT INTO call_transitions (call_control_id, from_state, to_state, cause, event_type)
          VALUES ($1, $2, $3, $4, $5)`,
-        [ccid, froms.join("|"), to, args.cause ?? null, args.eventType ?? null],
+        [ccid, r.rows[0].was, to, args.cause ?? null, args.eventType ?? null],
       )
       .catch(() => undefined);
   }
