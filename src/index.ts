@@ -13,6 +13,7 @@ import { registerGrantRoutes } from "./grants.js";
 import { registerOperationsRoutes } from "./operations.js";
 import { registerActionRoutes } from "./actions.js";
 import { registerArtifactRoutes } from "./artifacts.js";
+import { registerSearchRoutes } from "./search.js";
 import { registerIsolationRoutes } from "./isolation.js";
 import { registerServiceRoutes } from "./services.js";
 import { ensureActionRequests, ensureBlockedIssues } from "./blockers.js";
@@ -139,6 +140,7 @@ async function main() {
   registerOperationsRoutes(app, pool);
   registerActionRoutes(app, pool);
   registerArtifactRoutes(app, pool);
+  registerSearchRoutes(app, pool);
   registerIsolationRoutes(app, pool);
   registerServiceRoutes(app, pool);
 

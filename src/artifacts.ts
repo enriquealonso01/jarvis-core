@@ -177,6 +177,16 @@ export async function recordArtifact(
       [previous.id],
     );
   }
+  const { recordActivity } = await import("./activity.js");
+  await recordActivity(pool, {
+    projectId: args.projectId,
+    kind: "artifact",
+    subjectId: r.rows[0].id,
+    title: `${args.type} v${r.rows[0].version}: ${path.basename(args.path)}`,
+    detail: previous ? `replaces v${previous.version}` : null,
+    actor: args.agent ?? "jarvis",
+    href: `/artifacts/?id=${r.rows[0].id}`,
+  });
   sseBroadcast("queue.updated", {});
   return { id: r.rows[0].id, version: r.rows[0].version, supersedes: previous?.id ?? null };
 }
