@@ -5,8 +5,16 @@ import { startSseBridge } from "./sse.js";
 import { claimTask, runSystemTask, transitionTask } from "./jobs.js";
 import { backoffSeconds, raiseIssue } from "./notify.js";
 import { cronMatches } from "./cron.js";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+/**
+ * Where the OpenClaw bridge listens. Overridable so a test can point the worker
+ * at a stand-in and assert the outbox state machine without a paired phone.
+ */
+const BRIDGE_SEND_URL = process.env.JARVIS_BRIDGE_SEND_URL ?? "http://openclaw:18789/jarvis/send";
 import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { sweepCallDeadlines } from "./callcontrol.js";
 import { sweepOutboundCalls } from "./outbound.js";
@@ -155,7 +163,7 @@ async function climbParked(pool: ReturnType<typeof createPool>) {
   }
 }
 
-async function drainOutbox(pool: ReturnType<typeof createPool>) {
+export async function drainOutbox(pool: ReturnType<typeof createPool>) {
   // A notification that ran out of retries while its channel was unpaired is
   // terminal, so pairing WhatsApp later would leave exactly the blockers that
   // asked for the pairing undelivered on it forever. Nothing is lost — every one
@@ -186,8 +194,18 @@ async function drainOutbox(pool: ReturnType<typeof createPool>) {
       await pool.query(`UPDATE notifications_outbox SET state = 'sent', attempts = attempts + 1 WHERE id = $1`, [n.id]);
       continue;
     }
-    // No transport is paired yet, so this is expected rather than broken. Back
-    // off on the taxonomy curve instead of hammering a flat interval.
+    // Hand it to the bridge, which owns the channel. Everything about the
+    // retry curve below is unchanged: a send that does not succeed lands in
+    // exactly the state it landed in when there was no transport at all.
+    const sent = await sendViaBridge(pool, n.id);
+    if (sent.ok) {
+      await pool.query(
+        `UPDATE notifications_outbox SET state = 'sent', attempts = attempts + 1, last_error = NULL WHERE id = $1`,
+        [n.id],
+      );
+      continue;
+    }
+    // Back off on the taxonomy curve instead of hammering a flat interval.
     const attempts = await pool.query<{ attempts: number }>(
       `SELECT attempts FROM notifications_outbox WHERE id = $1`,
       [n.id],
@@ -195,11 +213,11 @@ async function drainOutbox(pool: ReturnType<typeof createPool>) {
     const next = backoffSeconds((attempts.rows[0]?.attempts ?? 0) + 4);
     await pool.query(
       `UPDATE notifications_outbox
-       SET attempts = attempts + 1, last_error = 'whatsapp/phone transport not paired',
+       SET attempts = attempts + 1, last_error = $3,
            next_attempt_at = now() + ($2 || ' seconds')::interval,
            state = CASE WHEN attempts >= 7 THEN 'failed' ELSE 'pending' END
        WHERE id = $1`,
-      [n.id, String(next)],
+      [n.id, String(next), sent.detail.slice(0, 500)],
     );
   }
 }
@@ -216,6 +234,58 @@ async function drainOutbox(pool: ReturnType<typeof createPool>) {
  * Only directories whose task has reached a terminal state are touched, so a
  * long-running task is never robbed of the tree it is working in.
  */
+/**
+ * Deliver one queued notification through the OpenClaw bridge.
+ *
+ * The worker cannot run the OpenClaw CLI - different container, and no Docker
+ * socket by design - so the bridge exposes one HMAC-authenticated route and
+ * performs the send with OpenClaw's own machinery. The signature is over the
+ * exact bytes, and it is the same INTERNAL_HMAC the inbound direction uses.
+ *
+ * Exactly once, which is the property Enrique asked for, is held in two places
+ * because one is not enough:
+ *
+ *   here    a row is marked sent only after a 2xx, so a failure retries.
+ *   bridge  the row id is remembered after a successful send, so a crash
+ *           between the send and the mark does not deliver twice on retry.
+ *
+ * The recipient is the commanding identity from `channel_allowlist` rather than
+ * anything in the row: the outbox stores what to say, not who to say it to.
+ */
+async function sendViaBridge(
+  pool: ReturnType<typeof createPool>,
+  id: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const secret = process.env.INTERNAL_HMAC;
+  if (!secret) return { ok: false, detail: "INTERNAL_HMAC missing" };
+
+  const row = await pool.query<{ body: string; channel: string; identifier: string | null }>(
+    `SELECT o.body, o.channel,
+            (SELECT identifier FROM channel_allowlist a
+              WHERE a.channel = o.channel AND a.can_command ORDER BY a.id LIMIT 1) AS identifier
+       FROM notifications_outbox o WHERE o.id = $1`,
+    [id],
+  );
+  const n = row.rows[0];
+  if (!n) return { ok: false, detail: "row vanished" };
+  if (!n.identifier) return { ok: false, detail: `no commanding identity for channel ${n.channel}` };
+
+  const body = JSON.stringify({ id, to: n.identifier, text: n.body, channel: n.channel });
+  const signature = crypto.createHmac("sha256", secret).update(body).digest("hex");
+  try {
+    const res = await fetch(BRIDGE_SEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Jarvis-Internal": signature },
+      body,
+      signal: AbortSignal.timeout(90_000),
+    });
+    const text = await res.text();
+    return { ok: res.ok, detail: `${res.status} ${text.slice(0, 300)}` };
+  } catch (err) {
+    return { ok: false, detail: `bridge unreachable: ${String((err as Error).message ?? err)}` };
+  }
+}
+
 async function reapWorktrees(pool: ReturnType<typeof createPool>) {
   const projects = await fs.readdir(WORKTREES).catch(() => [] as string[]);
   for (const slug of projects) {
@@ -390,7 +460,21 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+/*
+ * Only when this file IS the process, never on import.
+ *
+ * The outbox sweep has to be callable from a test - "exactly once" is a claim
+ * about repeated sweeps, and the only honest way to assert it is to sweep more
+ * than once and count. Importing the module used to start the whole worker
+ * loop, so the guard is what makes that test possible at all.
+ */
+const isEntrypoint = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (isEntrypoint) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

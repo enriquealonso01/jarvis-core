@@ -189,6 +189,31 @@ export function sendViaCli(args) {
   });
 }
 
+/**
+ * Read the raw request body.
+ *
+ * The HMAC is computed over the exact bytes Jarvis signed, so the body must be
+ * verified BEFORE it is parsed - re-serialising a parsed object changes key
+ * order and whitespace and the signature stops matching.
+ */
+function readBody(req, limit = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 function registerSendRoute(api) {
   const log = api.logger ?? console;
   api.registerHttpRoute({
@@ -198,28 +223,61 @@ function registerSendRoute(api) {
      * "plugin" means this route authenticates itself, and it does: the same
      * INTERNAL_HMAC the inbound direction uses, so neither direction is weaker
      * than the other. The alternative, "gateway", would gate on the gateway
-     * token instead — a second secret to distribute for no gain, since the
-     * worker already holds the HMAC.
+     * token instead - a second secret to distribute for no gain, since the
+     * worker already holds the HMAC. The loader rejects any other value, and
+     * rejects a missing one, which is how the first version was caught.
      */
     auth: "plugin",
-    handler: async (req) => {
+    /*
+     * (req, res), raw Node - NOT a handler that returns { status, body }.
+     *
+     * This was read out of the gateway rather than assumed, after a version
+     * that returned an object hung every request for twenty seconds with no
+     * error and no log line. The dispatcher calls `route.handler(req, res)` and
+     * only checks whether the result is `false`, which means "not handled, try
+     * the next route". Every other return value - including a perfectly formed
+     * response object - means "handled", so the gateway stops and nothing is
+     * ever written to the socket. The handler must write the response itself.
+     */
+    handler: async (req, res) => {
+      log.info?.(`[jarvis-bridge] send route entered ${req.method} ${req.url}`);
+      const reply = (status, payload) => {
+        res.statusCode = status;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify(payload));
+        return true;
+      };
+
       const secret = process.env.INTERNAL_HMAC;
-      const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
-      const signature = req.headers?.[HMAC_HEADER.toLowerCase()] ?? req.headers?.[HMAC_HEADER];
-      if (!secret || !signature || signature !== signBody(secret, raw)) {
-        return { status: 401, body: { ok: false, error: "hmac" } };
+      let raw;
+      try {
+        raw = await readBody(req);
+        log.info?.(`[jarvis-bridge] send route read ${raw.length} body bytes`);
+      } catch (err) {
+        return reply(413, { ok: false, error: String(err.message ?? err) });
       }
-      const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body ?? {});
+
+      const signature = req.headers[HMAC_HEADER.toLowerCase()];
+      if (!secret || !signature || !safeEqualHex(signature, signBody(secret, raw))) {
+        return reply(401, { ok: false, error: "hmac" });
+      }
+
+      let body;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return reply(400, { ok: false, error: "invalid json" });
+      }
       if (!body.to || !body.text) {
-        return { status: 400, body: { ok: false, error: "to and text are required" } };
+        return reply(400, { ok: false, error: "to and text are required" });
       }
-      // The outbox's own row id. Without it there is no way to be idempotent,
-      // so it is required rather than optional.
-      if (!body.id) return { status: 400, body: { ok: false, error: "id is required" } };
+      // The outbox row id. Without it there is no way to be idempotent, so it
+      // is required rather than optional.
+      if (!body.id) return reply(400, { ok: false, error: "id is required" });
 
       if (alreadySent(body.id)) {
         log.info?.(`[jarvis-bridge] send ${body.id} already delivered; not sending again`);
-        return { status: 200, body: { ok: true, deduped: true } };
+        return reply(200, { ok: true, deduped: true });
       }
 
       const result = await sendViaCli({
@@ -227,7 +285,15 @@ function registerSendRoute(api) {
       });
       if (result.ok && !body.dry_run) sentIds.set(body.id, Date.now());
       log.info?.(`[jarvis-bridge] send ${body.id} ok=${result.ok} ${result.detail}`);
-      return { status: result.ok ? 200 : 502, body: { ok: result.ok, detail: result.detail } };
+      return reply(result.ok ? 200 : 502, { ok: result.ok, detail: result.detail });
     },
   });
+}
+
+/** Constant-time compare that cannot throw on a wrong-length header. */
+function safeEqualHex(a, b) {
+  const x = Buffer.from(String(a), "utf8");
+  const y = Buffer.from(String(b), "utf8");
+  if (x.length !== y.length) return false;
+  return crypto.timingSafeEqual(x, y);
 }
