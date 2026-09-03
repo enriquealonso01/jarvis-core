@@ -30,7 +30,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createPool } from "../src/db.js";
 import { collectEvidence, loadCases, measureBranch, scoreRun } from "../src/benchmark.js";
-import { proposeFloor, type BenchRow } from "../src/ranking.js";
+import { proposeFloor, TIE_BAND, type BenchRow } from "../src/ranking.js";
 
 const run = promisify(execFile);
 const pool = createPool();
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
   try {
     const evidence = await collectEvidence(pool, taskId, {
       hiddenTestsPassed: m.hidden,
-      regressionTestsPassed: m.own,
+      regressionTestsPassed: m.baseHadTests ? m.own : null,
       ownTestsPassed: m.own,
       redGreenVerified: m.redGreen,
       filesChanged: m.changed,
@@ -171,9 +171,17 @@ async function main(): Promise<void> {
         ? ok(`the fraud scores ${overall.toFixed(3)}, below the floor`)
         : bad(`the fraud scores ${overall.toFixed(3)}, at or above the floor of ${floor.floor.toFixed(2)}`);
       const margin = floor.floor - overall;
-      margin > 0.1
-        ? ok(`and it is not a near miss - ${margin.toFixed(3)} clear of the floor`)
-        : bad(`it clears the floor by only ${margin.toFixed(3)}: process points nearly carried a run that fixed nothing`);
+      /*
+       * Clear of the floor by more than the suite's own noise.
+       *
+       * A fraud that sits inside one run's normal wobble of the floor is only
+       * failed by luck: the next real run that scores a little low drags the
+       * floor down onto it. The band is the one already derived from observed
+       * spread, not a new number chosen to make this pass.
+       */
+      margin > TIE_BAND
+        ? ok(`and it is clear of the floor by ${margin.toFixed(3)}, more than the ${TIE_BAND} noise band`)
+        : bad(`it clears the floor by only ${margin.toFixed(3)}, within the ${TIE_BAND} noise band: process points nearly carried a run that fixed nothing`);
     } else {
       console.log(`  no floor to compare against: ${floor.reason}`);
     }

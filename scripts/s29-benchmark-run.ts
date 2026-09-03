@@ -142,6 +142,7 @@ async function main(): Promise<void> {
   let own: boolean | null = null;
   let redGreen: boolean | null = null;
   let changed: string[] = [];
+  let baseHadTests = false;
   if (branch) {
     const m = await measureBranch({
       dir, base: repo.default_branch, branch, caseDir: c.dir, runTests: nodeTest,
@@ -150,13 +151,16 @@ async function main(): Promise<void> {
     own = m.own;
     redGreen = m.redGreen;
     changed = m.changed;
+    baseHadTests = m.baseHadTests;
   }
 
   const evidence = await collectEvidence(pool, taskId, {
     hiddenTestsPassed: hidden,
     // The seed tests are part of what the agent inherited, so "its tests pass"
     // and "it did not break what was there" are the same run here.
-    regressionTestsPassed: own,
+    // Only when the base had tests to break. Feeding this the same boolean as
+    // correctness paid a run twice for one self-certified fact.
+    regressionTestsPassed: baseHadTests ? own : null,
     ownTestsPassed: own,
     redGreenVerified: redGreen,
     filesChanged: changed,

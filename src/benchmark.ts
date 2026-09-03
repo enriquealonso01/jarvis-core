@@ -420,6 +420,13 @@ export type BranchMeasurement = {
   redGreen: boolean | null;
   /** Files the branch changed, excluding harness bookkeeping. */
   changed: string[];
+  /**
+   * Did the base have tests of its own?
+   *
+   * When it did not there is nothing to regress, and "it did not break what was
+   * there" is unmeasurable rather than true.
+   */
+  baseHadTests: boolean;
 };
 
 export async function measureBranch(args: {
@@ -483,7 +490,21 @@ export async function measureBranch(args: {
     }
     const hidden = await args.runTests(work);
 
-    return { hidden, own, redGreen, changed };
+    /*
+     * Whether there was anything to regress at all.
+     *
+     * regression_safety was being fed the SAME boolean as correctness - "the
+     * agent's own tests pass" - so one self-certified fact carried four of the
+     * eleven-and-a-half weight. A fluent fraud that fixed nothing scored 0.652
+     * against a floor of 0.67 on the strength of it. When the base ships no
+     * tests, not breaking them is not an achievement, it is an absence, and an
+     * absence is null.
+     */
+    const baseFiles = await run("git", ["ls-tree", "-r", "--name-only", args.base], { cwd: args.dir });
+    const baseHadTests = baseFiles.stdout.split("\n").map((x) => x.trim())
+      .filter(Boolean).some(isTestPath);
+
+    return { hidden, own, redGreen, changed, baseHadTests };
   } finally {
     await run("git", ["worktree", "remove", "--force", work], { cwd: args.dir }).catch(() => undefined);
   }
