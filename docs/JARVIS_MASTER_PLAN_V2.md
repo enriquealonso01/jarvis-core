@@ -535,6 +535,39 @@ memory, child-process state, browser state, harness state, task duration,
 **repeated identical actions** (`agent.repeat`), tool errors, network waits, and
 queue health.
 
+### Nobody is watching the watchdog
+
+The watchdog runs in the `worker` container and is the only thing that notices a
+stuck agent. **Its own failure is the one failure in this plan that gets quieter
+instead of louder.** A stopped watchdog produces exactly the console a calm system
+produces — no stalls, no recoveries, no incidents — while tasks sit in `running`
+forever. Every other fault here announces itself; this one announces nothing, and
+Enrique's evidence that it is working is the absence of the events it would have
+raised.
+
+It is also in a **different failure domain from most of what it watches**: heavy
+runs live in `jarvis-runner` on the host (ADR 015), the watchdog lives in a
+container. That separation is deliberate and right — a container restart must not
+kill a forty-minute run — but it means the process supervising the work is not
+the process running it, and neither notices the other stopping.
+
+A second watchdog is not the answer, because it needs a third. The regress stops
+at things that cannot themselves hang:
+
+- **The watchdog records each completed sweep, not a tick.** *Liveness is not progress* applies to it exactly as it applies to a worker: a watchdog wedged on a database call heartbeats perfectly.
+- **Its last sweep is a health signal like any other**, and VII.1 already carries the rule this needs — absence of data must never render as absence of problems. A sweep timestamp older than a few cycles is an incident, raised by whatever renders health. **A component must not be the sole author of its own liveness.**
+- **A host timer is the backstop.** It runs outside the container, needs no application state, and cannot be starved by whatever starved the watchdog.
+- **It appears in the daily digest** — one line, and only when it is wrong.
+
+### Coming back blind
+
+A watchdog that restarts has to reconcile the window it missed rather than
+beginning at zero.
+
+- **Stall detection compares against each task's own last heartbeat**, which is absolute. A restart then catches what went silent while it was down, instead of treating its own start as the beginning of time.
+- **The blind window is written on the timeline.** Otherwise forty unwatched minutes render as forty healthy ones, and the recovery story reads as though it worked.
+- **Leases are reconciled on the first sweep.** A worker that died during the blind window holds a lease nobody released — and on this hardware, one held lease in the heavy lane is the entire lane.
+
 ### The recovery ladder
 
 Recovery escalates from cheapest to most expensive, and stops at the first rung
@@ -1684,6 +1717,12 @@ so neither goes stale when a table grows.
 internal posts on their request id. It is the smallest of the five sources and
 the easiest to skip, which is why it is written down.
 
+**Watchdog self-observation** *(S11 shipped before II.3 asked who watches the
+watchdog).* The sweep-completion record, the health signal derived from it, the
+host-timer backstop, and blind-window reconciliation on restart. Small, and it is
+the difference between a watchdog that failed loudly and one whose failure looks
+like a quiet week.
+
 **The status bar and the global composer** *(never had an owner).* Both are
 specified in I.3 and belong to no step. The status bar carries the six
 deterministic states on every authenticated page; the composer reaches Jarvis
@@ -1697,6 +1736,11 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Kill the watchdog with a task running, then hang the task** → nothing recovers, which is expected — and **the health page says the watchdog is not sweeping** rather than showing a calm system. Assert on what the console claims while blind; that is the actual defect.
+- Restart it → the hung task is stalled and recovered on the **first** sweep, not skipped for having gone silent before the watchdog started.
+- The timeline for that task names the blind window rather than showing an unbroken healthy stretch.
+- **Wedge the watchdog's loop without killing the process** → still detected, because the signal is a completed sweep and not a tick.
+- Kill the worker holding the heavy lane's lease while the watchdog is down → after restart the lease is reconciled and the queue moves.
 
 ### Debug
 
@@ -1704,7 +1748,7 @@ If a resumed run "continues" but redoes work, the fields are being written and
 not read. Check the resume path before the write path — it is the same mistake
 the original checkpoint bug made.
 
-**Done when:** the four items above are implemented and tested, and no completed
+**Done when:** every item above is implemented and tested, and no completed
 step carries an unimplemented requirement added after it shipped.
 
 ---
