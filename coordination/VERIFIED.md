@@ -148,6 +148,13 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - **This closes the gap the whole coordination scheme exists to catch** — 28 rows marked `done` over a front door that had never once run. It has now run, unaided past the one deliberate grant, on a repository that did not exist an hour earlier.
   - **Every front-door bug in the original backlog is now verified fixed on the box:** the deploy-key 500 (uuid/text), root-owned project dirs, the missing per-project GitHub credential, and WhatsApp inbound never persisting.
 
+- **2026-09-03 — Box brought up to `main` (aa5ad42), and smoke-checked after.** The box was one build behind: it had `connectors.ts`, `mcp.ts` and `tools.ts` but not `connections.ts` from PR #296, so the S31 work on `main` was not actually running anywhere.
+  - Deployed with nothing in flight (`0` tasks `running`/`preparing`), **including the runner this time** — started 19:38:38 against a 19:37:57 build, checked by timestamp per the standing rule rather than assumed.
+  - After: all five containers up, `/api/health` 200, `PROGRESS.json` 200 over HTTPS, and **openclaw came through the deploy again** (51 minutes' uptime), which is now the third independent confirmation that `deploy-core.sh` does not stop it.
+  - **Console smoke over HTTPS:** `/` and `/tasks` 200; `/approvals`, `/artifacts`, `/calls` are 308s that follow to their trailing-slash form and return 200 — benign static-export routing, checked rather than assumed from the status code. `/404.html` 200.
+  - **The auth gate still holds anonymously:** `/api/projects`, `/api/inbox` and `/api/operations/services` all 401 unauthenticated.
+  - **Operational note for whoever deploys next:** the console has **no source in this repository**. `/opt/jarvis/control-center` is a built export and `scripts/deploy-control-center.sh` takes a prebuilt tarball, so the console cannot be rebuilt from `jarvis-core` alone. Worth knowing before someone assumes a console fix is a code change away.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
