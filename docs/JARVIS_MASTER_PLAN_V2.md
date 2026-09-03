@@ -281,6 +281,23 @@ the friction that stops him sending it.
 console goes through exactly the same capture, routing, conversation and queue
 path as WhatsApp.** The console is a channel, not a privileged shortcut.
 
+**The console proves who. The approval page proves what.** Both are required, and
+being on a console page supplies only the first — which is the trap here, because
+the console *is* where approvals legitimately happen, so a composer sitting on
+every console page reads like an approval surface. It is not one. *"Deploy to
+production"* typed into the composer is a **request**: it raises the approval and
+he clicks it with re-authentication, exactly as if he had said it on WhatsApp.
+IV.6 already refuses to let a natural-language grant reach Level 3; **the composer
+is the single most likely place for a well-meaning implementation to break that
+rule**, because everything about its surroundings suggests authority it does not
+carry.
+
+**What he uploads is not what he wrote.** A PDF, a screenshot or a pasted log
+arriving through the composer is content — IV.6b rule 3 — exactly as a forwarded
+WhatsApp message is (S37). The temptation is stronger here only because he
+selected the file himself, and **choosing to show Jarvis a document is not the
+same as writing its contents.**
+
 That matters more than it looks. A second input path that skips the inbox would
 have its own bugs, its own dropped messages, and its own provenance gaps — and
 the one guarantee this whole system rests on is that **every input arrives the
@@ -1839,6 +1856,8 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Type a Level 3 instruction into the composer** → it raises an approval and does **not** act, even though the session is fully authenticated and the page is the console. Then approve it properly and confirm it proceeds. **Both halves** — the first alone would pass on a composer that does nothing.
+- Upload a document containing an instruction → stored, quoted, searchable, **and not obeyed.** Same assertion as the forwarded-thread case, on the channel where it looks most like his own words.
 - **Drive a task to terminal failure and confirm it passed rung 10 first** — he was asked before it died. A task that reaches `failed_terminal` without a record of asking him is the bug this rule exists to catch.
 - Its Work detail reads as an account: attempted, observed, blocking, what would unblock. Then say *"try again with X"* → **it resumes from the checkpoint** rather than restarting.
 - **Prune a completed task's events, then open its Work detail.** It still reads as an account of what happened — phases, tests, findings, PR — rather than an empty page. Then confirm a task **without** an account is not pruned at all.
