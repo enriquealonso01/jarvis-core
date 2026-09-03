@@ -170,7 +170,21 @@ function phaseHelp(p: Phase): string {
     case "commit":
       return " — one commit, imperative subject, explaining why";
     case "push":
-      return " — push the branch";
+      /*
+       * Jarvis pushes, not the harness.
+       *
+       * This said "push the branch", and pushing is the one thing in the loop
+       * the agent has no credential for: the deploy key belongs to Jarvis and
+       * `openPullRequest` uses it. Codex would do the whole job - reproduce,
+       * fix, test, commit - then fail the push, declare itself BLOCKED, and
+       * abandon finished work at the last step. Its score then lost a point for
+       * opening no pull request, so the benchmark was measuring a plumbing
+       * mismatch and calling it engineering quality.
+       *
+       * Saying so plainly is the fix: the branch is the deliverable.
+       */
+      return " — stop here. Jarvis pushes the branch and opens the pull request; "
+        + "do not attempt to push or authenticate to the remote yourself";
     default:
       return "";
   }
