@@ -84,6 +84,33 @@ scp -q "$tmp/core.tgz" "$HOST:/tmp/jarvis-core.tgz"
 echo "==> extracting into $CORE"
 ssh "$HOST" "sudo tar -xzf /tmp/jarvis-core.tgz -C $CORE && sudo chown -R jarvis:jarvis $CORE"
 
+# Report source files the box has and the tree does not.
+#
+# The extract lays the tarball over /opt/jarvis/core; it never removes what is
+# no longer shipped. So a deploy from a branch leaves its files behind for good.
+# Found 2026-09-03: adapters.ts and connector.ts, from feat/s31-connector-interface,
+# a branch that was never merged - still on the box, still compiled into dist by
+# every build, imported by nothing.
+#
+# Dead code is the small half. The real cost is that a future `import "./connector.js"`
+# would RESOLVE, silently picking up an abandoned implementation instead of
+# failing the build the way a missing module should.
+#
+# This reports rather than deletes. Removing files from the production tree is a
+# decision, and a deploy script that quietly deletes is how the wrong thing goes
+# at the wrong moment.
+echo "==> checking for stale source on the box"
+ssh "$HOST" "ls $CORE/src/*.ts 2>/dev/null | xargs -n1 basename | LC_ALL=C sort" > "$tmp/box-src.txt" 2>/dev/null || true
+ls src/*.ts 2>/dev/null | xargs -n1 basename | LC_ALL=C sort > "$tmp/tree-src.txt" || true
+stale="$(LC_ALL=C comm -23 "$tmp/box-src.txt" "$tmp/tree-src.txt" 2>/dev/null || true)"
+if [ -n "$stale" ]; then
+  echo "    WARNING: on the box but not in this tree - left by an earlier deploy:" >&2
+  echo "$stale" | sed 's/^/      /' >&2
+  echo "    They are still compiled by every build. Remove them deliberately, not here." >&2
+else
+  echo "    none"
+fi
+
 echo "==> building"
 ssh "$HOST" "cd $CORE && sudo -u jarvis pnpm build 2>&1 | tail -2"
 
