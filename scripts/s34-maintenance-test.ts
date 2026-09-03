@@ -178,6 +178,19 @@ async function main(): Promise<void> {
     plan.approved.length === 0 && plan.refused.length === 1
       ? ok("a category nobody listed is refused, because everything unlisted is data")
       : bad("an unlisted category was approved for deletion");
+    /*
+     * The names every JavaScript object already has. `"constructor" in
+     * RECLAIMABLE` is TRUE, so an allow-list written with `in` approves
+     * `constructor`, `toString` and `__proto__` for unattended deletion - an
+     * allow-list that lets three things through is not one. This failed open
+     * until it was found by re-running the Tester's sweep over the files that
+     * landed after it.
+     */
+    const inherited = ["constructor", "toString", "__proto__", "valueOf", "hasOwnProperty"];
+    const throughTheProto = planReclaim(inherited.map((k) => ({ kind: k, bytes: 1 })));
+    throughTheProto.approved.length === 0
+      ? ok(`and so are the names every object already has: ${inherited.join(", ")}`)
+      : bad(`the prototype chain approved ${throughTheProto.approved.map((c) => c.kind).join(", ")} for deletion`);
   } finally {
     await pool.query(`DELETE FROM issues WHERE dedupe_key = 'resource.disk'`);
     await pool.query(`DELETE FROM knowledge_chunks WHERE project_id = $1`, [pid]);

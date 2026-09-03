@@ -67,6 +67,18 @@ async function main(): Promise<void> {
     stalenessFor("something.nobody.wrote") === "re-raise"
       ? ok("so the backup that has been failing for a month cannot be quiet because a row was missing")
       : bad("an unknown category is not re-raised");
+    /*
+     * And the categories every object already has. A bare index returns
+     * something TRUTHY for an inherited key, so `?? DEFAULT` never fires and
+     * this returned a FUNCTION where a Staleness is promised - which then goes
+     * into `issues.staleness` and its CHECK constraint, turning a
+     * classification into a database error while an Issue is being raised
+     * about something else.
+     */
+    ["constructor", "toString", "__proto__", "valueOf"]
+      .every((k) => stalenessFor(k) === "re-raise")
+      ? ok("including constructor, toString, __proto__ and valueOf, which are categories no one wrote either")
+      : bad(`an inherited key returned ${["constructor", "toString"].map((k) => String(stalenessFor(k)).slice(0, 20)).join(" / ")}`);
 
     console.log("");
     console.log("3. a fortnight later, the three behave differently");
