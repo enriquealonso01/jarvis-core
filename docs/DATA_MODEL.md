@@ -916,3 +916,23 @@ nothing downstream can report internal steps back to him.
 | brief_text | text | verbatim, never re-rendered — a redirect must not rewrite what he was told |
 | sent_at | timestamptz | |
 | redirected_at | timestamptz | null means he ignored it, which is a legitimate answer |
+
+## issue_candidates
+
+The count that has to exist before an Issue does. B10 gives `resource.cpu` the
+position "ui_only (Issue if sustained)", and an Issue carries its own occurrence
+count — which only helps once one exists, and whether to create one is precisely
+the decision being made. So the run-up is counted here, beside the Issue list
+rather than on it: a suppressed row in `issues` would have been less code and
+would have put the thing on the list it is being kept off.
+
+Rows are deleted on promotion, so a recurrence after the Issue is resolved starts
+a fresh episode rather than arriving already at the threshold.
+
+| column | type | notes |
+|---|---|---|
+| dedupe_key | text pk | the key the Issue would dedupe by, so promotion is a lookup |
+| category | text | |
+| occurrences | integer | this episode only |
+| first_seen_at | timestamptz | when this episode began, not the category's first ever sighting |
+| last_seen_at | timestamptz | a gap wider than SUSTAINED_WINDOW_MS restarts the count |

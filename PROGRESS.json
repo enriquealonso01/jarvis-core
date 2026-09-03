@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T20:12:28Z",
+  "updated_at": "2026-09-03T20:58:24Z",
   "current_step": "S40",
   "steps": [
     {
@@ -389,5 +389,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S40 built: briefs compose from a user-facing plan only, and the stored plan is the one execution reads. Next in my lane, from BLOCKERS on main: B10 (three unhandled failure classes need explicit notify/severity in src/notify.ts - and 'Issue + ui_only' vs 'ui_only' is a distinction the current ErrorClass type cannot express), then B8 (S32 tier-2 rung against powhttp), then B7 (S31 Done-when through Composio, whose health reads degraded)."
+  "working_on": "B10 built: the three failure classes got explicit positions on main while this branch was in flight (identical values), so what this adds is the parenthesis - 'ui_only (Issue if sustained)' - which needed a counter that exists BEFORE the Issue does. Next: the migration-hygiene guard (build/migration-guard, already written: two files share number 056 on main and it cannot be fixed by renaming, because schema_migrations keys on filename), then B8 (S32 tier-2 against powhttp, which also has to close launchFor() passing conn.config.network unvalidated into docker run --network - a connection row saying 'host' removes the sandbox's network isolation). FINDINGS NOT MINE TO FIX, for the Tester: s4-recovery-test fails 7 (its FIRST assertion fails - the task never reaches running, and the worker container does not stay up), s7-pullrequest-test 1, s18b-conformance-test 1. None can be S40 or B10: neither touches those paths."
 }
