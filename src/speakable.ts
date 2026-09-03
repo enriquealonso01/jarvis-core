@@ -25,7 +25,18 @@ const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u
  * aloud into whatever the room can hear. Email addresses too - "a at b dot com"
  * is not an instruction anybody can follow at walking pace.
  */
-const URLISH = /(?:https?:\/\/\S+|www\.\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)+\/\S*|[^\s@]+@[^\s@]+\.[a-z]{2,})/gi;
+const URLISH = new RegExp(
+  // Built with `new RegExp` from an explicit string rather than a literal.
+  // DEBUG_NOTES records this exact trap: a backslash-b written through a
+  // generator became an actual BACKSPACE character, and the resulting regex
+  // "survived grep, survived tsc, compiled, and matched nothing". A character
+  // class is legible where a control character is not.
+  "(?:https?://[^\\s]+"
+  + "|www[.][^\\s]+"
+  + "|[a-z0-9-]+(?:[.][a-z0-9-]+)+/[^\\s]*"
+  + "|[^\\s@]+@[^\\s@]+[.][a-z]{2,})",
+  "gi",
+);
 
 export type SpokenPlan = {
   /** What the phone says. Never contains an address. */
