@@ -1247,9 +1247,28 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     // S18b: hand the previous attempt's THINKING forward, not just its progress.
     const { investigationBrief, lastInvestigation } = await import("./investigation.js");
     const previousThinking = resumeFrom ? await lastInvestigation(pool, taskId) : null;
+    /*
+     * What the project already knows (S30).
+     *
+     * "so a coding task can consult what Enrique said about the project three
+     * weeks ago" - the same retrieval the console uses, so the two cannot drift
+     * into different ideas of what the project knows.
+     *
+     * Appended only when there is something to say. A project with no memories
+     * gets a byte-identical prompt to before, which is deliberate: the
+     * benchmark corpus has no memories, so its runs stay comparable with the
+     * ones recorded before this existed.
+     */
+    const { contextForTask } = await import("./knowledge.js");
+    const known = await contextForTask(pool, {
+      projectId: task.project_id,
+      title: task.title,
+      objective: task.objective ?? task.title,
+    }).catch(() => null);
+
     const objective = workflowPrompt({
       title: task.title,
-      objective: (task.objective ?? task.title).trim(),
+      objective: `${(task.objective ?? task.title).trim()}${known ?? ""}`,
       agentsMd,
       resumeFrom,
       completed: done,
