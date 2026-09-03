@@ -744,7 +744,7 @@ The boundaries that still hold inside the system layer:
 - It reads and changes **configuration**: instructions, connections, schedules, routing, policy. It does **not** get project *secrets*, and it does not run inside another project's worktree.
 - It never uses a project-owned auth profile, so a professional project's model account cannot be spent by a system job.
 - Everything it does is audited with the project it touched, because a layer that can reach everywhere is exactly the layer that must be reconstructable afterwards.
-- The immutable list (§59) binds it hardest: it may recommend changes to isolation, auth, audit, backups, spend ceilings or the always-confirm list, and may never make them.
+- **The immutable list (Part V, eight items) binds it hardest**, and item 8 — *the authority of system projects* — is about this layer. It may recommend changes to any of them and may never make them. Note that the list is eight, not the six usually recalled: **secret scope and the authority of system projects are the two that get dropped**, and they are the two that constrain the layer doing the dropping.
 
 Writing this down matters because S27 (configuration by conversation) and
 Maintenance both need to cross project lines, and an implementer without a
@@ -2227,6 +2227,8 @@ always-confirm list, secret scope, and the authority of the system projects.
 - "What changed in Alpha's policy last week?" answers correctly from the version history.
 - Roll a change back and confirm the previous version is restored exactly.
 - An instruction that would weaken isolation or raise a spend ceiling → refused, approval raised, nothing applied.
+- **One attempt against each of the eight items**, not against isolation twice. The two that get dropped from restatements — secret scope and the authority of system projects — are the two most likely to be unprotected in code.
+- **Add a config key nobody has classified, then try to change it → refused.** A setting nobody labelled is protected until somebody does, and this is the assertion that keeps the list from shrinking as the system grows.
 - A garbled or ambiguous instruction → one clarifying question, no partial application. **A half-applied config change is worse than none.**
 
 **Debug** If a change applies but does not show in history, the write is bypassing the versioning path. Every config write goes through one function; find the one that does not.
@@ -3297,9 +3299,9 @@ impactful by definition and still always-confirm. What changes is everything
 below: an action that IV.6 would have gated on its *type* now proceeds if nobody
 but Enrique can see it.
 
-**The immutable list (§59) is untouched.** Isolation, authentication, audit,
-backups, spend ceilings and the always-confirm list are not subject to this or
-any other convenience rule.
+**The immutable list (Part V) is untouched — all eight items**, secret scope and
+the authority of system projects included. They are not subject to this or any
+other convenience rule.
 
 ### Learning his preferences
 
@@ -4200,7 +4202,29 @@ diagnosis and safety.
 - **Professional projects**: dedicated unix user, project-owned model accounts only, no free or consumer endpoint whose terms permit training on submitted data. The Ticketflipping Anthropic subscription is used **only** for Ticketflipping.
 - **Files**: uploads scanned and quarantined; executables blocked; path traversal rejected; downloads gated through the API.
 - **Audit**: every broker decision, every approval, every config change, every model route, permanently.
-- **Immutable without approval** (§59): isolation, authentication, audit, backup, spend ceilings, the always-confirm list, secret scope, and the authority of system projects. Jarvis may recommend changes to these; it may never make them.
+- **Immutable without approval** (§59): isolation, authentication, audit, backup, spend ceilings, the always-confirm list, secret scope, and the authority of system projects. Jarvis may recommend changes to these; it may never make them. **This is the canonical list — eight items. Everywhere else refers to it rather than restating it.**
+
+### The immutable list is enforced by judgement unless something enumerates it
+
+Two problems, and they compound.
+
+**It is restated with different membership.** Three places in this plan list
+**six** items and drop *secret scope* and *the authority of system projects* —
+including §II.5's rule for the **system layer itself**, which is the one place
+item 8 exists to constrain. A reader acting on the shorter list is acting on a
+list that omits the constraint most relevant to what they are doing, and shorter
+restatements are the ones people quote.
+
+**And the list names topics, while a config change is a key.** Nothing maps
+*"isolation"* to the settings that constitute it, so deciding whether a change
+touches the list is an act of interpretation — performed, in practice, by the
+thing interpreting the instruction. That is exactly what IV.6 forbids in its own
+first paragraph: **the model does not decide whether approval is required.** A
+list enforced by meaning is enforced by whatever is reading it that day.
+
+- **The list is a set of config paths, tables and keys**, mapped once, in one place. The pipeline checks membership, not meaning.
+- **Unmapped keys default to immutable.** A setting nobody classified is protected until somebody does. The opposite default is how the list quietly shrinks as the system grows — every new feature adds settings, and none of them arrive labelled. This is S31's *"an unclassified tool is not callable"*, applied to configuration.
+- **The mapping is itself on the list.** Otherwise the way to change something protected is to edit what "protected" means, which is a shorter path than the one it guards.
 
 ## V.1 Host hardening
 
