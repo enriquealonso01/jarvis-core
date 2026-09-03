@@ -135,17 +135,16 @@ escalation pool, with generous budget: "spend as much as you need; the accounts 
 provided have limits, so don't optimise for cheapness." The account-level limits
 are the guardrail. Run it and record results in `VERIFIED.md`.
 
-## B13 — `delete_repo` scope to execute the authorized repo deletions  ·  Status: OPEN
-The repo deletions authorised in B4 (the 2 e2e repos) and B11 (the 14 s28-parity
-repos) cannot execute: `gh repo delete` returns 403 "needs the delete_repo scope",
-and the Tester correctly refuses to self-widen its own credential
-(`gh auth refresh -s delete_repo`) — Enrique's authorization to delete repos is not
-authorization for the Tester to grant itself a scope. Awaiting Enrique's method:
-either (a) grant/refresh the `delete_repo` scope on the credential the Tester uses,
-or (b) delete the repos himself. NOTE B4's order still holds: PR #1's evidence must
-be captured into the durable record BEFORE `jarvis-e2e-3e4adc11` is deleted.
+## B13 — `delete_repo` scope to execute the authorized repo deletions  ·  Status: CLEARED 2026-09-03
+Enrique granted it himself (2026-09-03): `gh auth refresh -s delete_repo` on the
+shared workstation credential. Verified authoritatively against GitHub — the token
+now reports scopes `delete_repo, gist, read:org, repo, workflow`. The Tester was
+right not to self-widen the scope; Enrique did it. The repo deletions authorised in
+B4 (2 e2e repos) and B11 (14 s28-parity repos) can now execute. **B4's order still
+holds: capture PR #1's evidence into the durable record BEFORE
+`jarvis-e2e-3e4adc11` is deleted.**
 - **CHECK:** proceed once this line reads `CLEARED`; done when all authorised repos
-  are gone.
+  are gone. (`gh api user` X-Oauth-Scopes includes `delete_repo`.)
 
 ## B14 — (add as they arise)
 The Blockers session appends new items here as agents report things only you can do.
