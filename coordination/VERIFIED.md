@@ -826,3 +826,57 @@ both viewports — and prints the number either way, because the number is the
 finding. Worth writing down because the failing assertion looked like a product
 bug and was not one, which is the same mistake I pushed back on when a monitor
 made it about S28.
+
+## S54 — deploying its own control plane — ✓ verified (2026-09-03)
+
+The module that lets Jarvis replace `jarvis-core` itself, which is the one
+capability the handover parked. Its own framing: "a bad core deploy takes down
+the API, the runner, the broker and the console, which is to say the very things
+that would notice, alert, and roll back."
+
+**Three holes found, all fail-OPEN, all fixed in PR #426.** Rule ONE of this
+file is that "a check that cannot run reports `unknown` and counts as failure",
+and `healthVerdict` honours it exactly. The three gates in front of it did not
+apply that rule to their own inputs:
+
+```
+mayPromote({ ...green, acceptanceSuitePassed: "false" })  ->  { promote: true }
+deployShapeFor({ backwardCompatible: "false" })           ->  { shape: "ordinary" }
+runnerUpdate({ requestedBy: "anything" })                 ->  { apply: true, by: "system_worker" }
+```
+
+1. `!args.acceptanceSuitePassed` is false for the strings `"false"`, `"no"`,
+   `"0"` and `"off"` — so a serialised canary result saying the suite **failed**
+   promoted the release to prod core.
+2. A truthy `backwardCompatible` meant `"false"` shipped as an ordinary deploy:
+   an automatic rollback over a migration the previous image cannot read, which
+   this file's own doc calls "an automated way to make things worse".
+3. `runnerUpdate` refused `running_task` and let **everything else** through.
+   That is the worst of the three, because it is not merely permissive — the
+   answer then **names the system worker as the actor**, so the audit row credits
+   the one caller allowed to make the change. It is now an allow-list, for the
+   same reason `restorerSurvives` is one twenty lines above it: a deny-list of
+   one is right about the caller somebody thought of.
+
+**What held.** `healthVerdict` is genuinely fail-closed: a missing result, an
+explicit `unknown`, and a bogus value are all unhealthy, all six VII.5 checks
+are considered, and the sentence says which could not be run. `restorerSurvives`
+fails closed on every junk location and correctly rules out `inside_compose` and
+`inside_api`. `rollback` has no value that includes the database. A **ready**
+non-backward-compatible migration still does not auto-promote — readiness lets
+it ship alone, not automatically. A broken change that also touches `auth` is
+reported as *broken* rather than *awaiting approval*, so he is never asked to
+approve something already failing. `isControlSurface` rejects `constructor`,
+`__proto__`, `"AUTH"` and a trailing space.
+
+**Checked:** `scripts/s54-selfdeploy-probe.ts` — 45/10 before, **55/0 after, run
+on the box** in the API container against deployed source. The Builder's own
+`s54-selfdeploy-test` is **27/0**, unchanged. No production callers yet, so the
+fix landed before anything depended on the old behaviour.
+
+**Note on the pattern.** This is the third module this loop where the guard
+itself was the hole: S50's `mayDial(NaN)` dialled forever, S48's `correctedTo`
+carried prose across the isolation boundary, and here the promotion gate read a
+failure as a pass. In each case the surrounding design was sound and the input
+validation was the gap — the modules are careful about what they *do* and
+trusting about what they are *given*.
