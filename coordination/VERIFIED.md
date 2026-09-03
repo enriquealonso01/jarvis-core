@@ -570,3 +570,65 @@ ssh jarvis-netcup 'cd /opt/jarvis/deploy && sudo docker compose --profile opencl
 ```
 
 `--accept-capabilities` is required, not optional: without it the install refuses with `Plugin "jarvis-bridge" requires capability consent`. Confirm afterwards that the log shows `[jarvis-bridge] registering before_dispatch, message_received, before_agent_run`.
+
+## S47 — the desktop connector's boundary — ✓ verified (2026-09-03)
+
+Probed adversarially rather than read, because the file calls itself "the widest
+boundary in the plan" and there is no OS underneath it: one user account holding
+his personal files, TicketFlipping's source, his browser sessions and his keys.
+
+**Two holes found, both fixed in PR #411, both in the mechanisms the file names
+as load-bearing.**
+
+1. **The never-list was case-sensitive.** `path.resolve` normalises the "two
+   dots" the comment warns about and leaves the letters alone, so
+   `.SSH/id_rsa` came back `{allowed: true, code: "ok"}` against a list spelled
+   `.ssh`. On Linux those are two directories; on Windows — which is what the
+   workstation this file is about actually runs — they are one directory holding
+   one key, and macOS is the same by default. The file's mechanism TWO promises
+   "a project that declares ~/.ssh is still refused"; that promise was being
+   kept only for one spelling. Now folded to lower case, and backslashes folded
+   with them.
+
+2. **`constructEnvironment` filtered declared variables with a two-entry
+   denylist** (`k === "HOME" || k === "PATH"`). So a declared `Path` overwrote
+   the constructed `PATH` on that same platform — and `LD_PRELOAD`,
+   `NODE_OPTIONS`, `BASH_ENV`, `PYTHONSTARTUP`, `GIT_SSH_COMMAND` all do exactly
+   what the comment blocks `PATH` for. The function's own doc calls a denylist
+   "a list of the variables somebody remembered" and the filter beside it was
+   one. `NEVER_DECLARABLE` now names them, case-insensitively, and its comment
+   says plainly that it is still a list and will still be incomplete — there is
+   no allowlist available here, because projects declare variables of their own
+   naming.
+
+**What held, unchanged:** traversal (nine spellings), declaration-cannot-buy-past
+the never-list, default-deny with no declared paths, `outside_allowlist` kept
+distinct from `no_desktop_access`, sibling paths with a shared prefix
+(`dev/alpha-secrets` is not inside `dev/alpha`), all six never-read facilities,
+`captureFor("")` falling to the *safe* side (screen, `retain: false`), and
+`reachableNow` refusing a cached answer.
+
+**Checked:** `scripts/s47-desktop-boundary-probe.ts` — 36/11 before, **51/0
+after, run on the box** inside the API container against deployed source. The
+Builder's own `s47-desktop-test` is **32/0**, unchanged by the fix. No
+production callers yet, so the fix landed before anything depended on the old
+behaviour.
+
+### Operational correction — `scripts/suite.sh` runs LOCALLY, not on the box
+
+Worth writing down because it changes what a suite result means. `suite.sh` and
+every `sN-*.sh` wrapper run `docker compose -f deploy/compose.dev.yaml`, and
+this machine's docker context is `desktop-linux` — Docker Desktop on Windows.
+So a green suite is a **local fixture**, which is the exact thing the standing
+brief says never to verify with.
+
+`suite.sh` solved staleness in *time* (is this image built from current source?)
+and left staleness in *place* (is this the machine the code will run on?)
+unaddressed, which is easy to miss because the output looks identical either
+way. The S47 numbers above are therefore reported twice on purpose: 51/0 in the
+dev runner, and 51/0 again on the box.
+
+Anything that touches a database, a container boundary, a filesystem or a
+network path must be re-run on the box before it goes in this file. A pure
+function is the one case where the local number is *evidence* — but it is still
+not the claim.
