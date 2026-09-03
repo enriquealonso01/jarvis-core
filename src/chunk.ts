@@ -100,8 +100,32 @@ function chunkProse(text: string): Chunk[] {
       out.push(chunk(body, out.length, s.start, title, "prose"));
       continue;
     }
-    // Too long even as a section: split on blank lines, carrying overlap.
-    const paras = body.split(/\n\s*\n/);
+    /*
+     * Too long even as a section: split on blank lines, carrying overlap.
+     *
+     * And when a "paragraph" is itself enormous, split it again on line
+     * boundaries. Prose with no blank lines - which is most text extracted from
+     * a PDF - otherwise produces exactly ONE chunk however long the document
+     * is, and the plan names that failure directly: a whole 40-page document as
+     * one chunk will defeat any ranker. Found by the every-type suite, where a
+     * 400-line PDF came back as a single 18,000-character chunk and the
+     * sentence at the end of it stopped being retrievable.
+     */
+    const paras = body.split(/\n\s*\n/).flatMap((para) => {
+      if (approxTokens(para) <= TARGET_TOKENS * 2) return [para];
+      const out2: string[] = [];
+      let acc = "";
+      for (const line of para.split("\n")) {
+        if (acc && approxTokens(acc + line) > TARGET_TOKENS) {
+          out2.push(acc);
+          acc = line;
+        } else {
+          acc = acc ? `${acc}\n${line}` : line;
+        }
+      }
+      if (acc) out2.push(acc);
+      return out2;
+    });
     let buf = "";
     let bufOffset = s.start;
     for (const p of paras) {
