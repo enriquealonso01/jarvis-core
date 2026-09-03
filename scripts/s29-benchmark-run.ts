@@ -171,7 +171,16 @@ async function main(): Promise<void> {
   await fs.writeFile(path.join(dir, "AGENTS.md"),
     `# ${c.id}\n\n## How to test\n    node --test\n`);
   await run("git", ["add", "-A"], { cwd: dir });
-  await run("git", ["-c", "user.email=b@j", "-c", "user.name=Bench", "commit", "-q", "-m", c.id], { cwd: dir });
+  /*
+   * Empty is expected, not an error.
+   *
+   * The base was just reset to the previous run's seed, and the seed does not
+   * change between runs - so copying it in produces no diff at all and `git
+   * commit` exits non-zero on the second run of a case. The commit is here to
+   * guarantee the base IS the seed, and it already being so is success.
+   */
+  await run("git", ["-c", "user.email=b@j", "-c", "user.name=Bench", "commit", "-q",
+    "--allow-empty", "-m", c.id], { cwd: dir });
   const p = await loadProject(pool, pid);
   const mat = await materialiseDeployKey(pool, p!);
   if ("error" in mat) throw new Error(mat.error);
