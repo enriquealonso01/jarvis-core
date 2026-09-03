@@ -55,7 +55,8 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s29-ranking-test s29-teardown-cycle-test
         s18b-selfwatch-test s18b-conformance-test s18b-datamodel-test
         s5-isolation-test s7-pullrequest-test s26-onboarding-test s27-config-test
-        s37-untrusted-test voice-create-test progress-endpoint-test"
+        s37-untrusted-test voice-create-test progress-endpoint-test
+        debug-notes-index-test"
 
 # Suites deliberately NOT in the sweep, and why. Each needs something the sweep
 # cannot give it, and a suite that cannot pass here would train everyone to
