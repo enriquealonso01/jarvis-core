@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T19:17:33Z",
+  "updated_at": "2026-09-03T19:26:18Z",
   "current_step": "S35",
   "steps": [
     {
@@ -170,9 +170,9 @@
       "id": "S18b",
       "title": "The retrofit sweep",
       "stage": 3,
-      "state": "done",
+      "state": "in_progress",
       "pr": 77,
-      "evidence": "Five items complete (66 assertions). The step now lists ten; watchdog self-observation, Work-detail silence and action-page replay were added after completion. Reopened per its standing rule."
+      "evidence": "Five items complete (66 assertions). The step now lists ten; watchdog self-observation, Work-detail silence and action-page replay were added after completion. Reopened per its standing rule. ACTION PAGE RE-ISSUE IS BUILT, one of the three items added to this register after it was marked done. It was reached by way of S36: that step says 'Build: nothing new' and its PRECONDITION is that this register is empty at the moment of the freeze, so checking the register was the work rather than a preliminary to it - 'a freeze performed over an open retrofit register seals the debt in with everything else, and nothing after a freeze goes looking for it'. There was no re-issue path at all: an expired link simply refused. THE DELIVERY CHANNEL IS THE AUTHENTICATION, which is why the plan's clause 'delivered to WhatsApp rather than rendered on the page' is the load-bearing half rather than a presentation detail. Whoever holds an expired link is not necessarily him - a two-hour token that has since lapsed may have been forwarded, screenshotted, or left in a browser somebody else uses - so rendering the replacement would hand a fresh two hours to whoever asked, while sending it to WhatsApp hands it to the person who owns the number. The endpoint returns an acknowledgement and nothing else, and the suite asserts the new token appears nowhere in the WHOLE response body rather than checking the field a token would obviously live in, since a leak through some other key would pass the narrow version. A NEW REQUEST RATHER THAN AN EXTENSION: extending would revive the exact token sitting in whatever place it expired in, so a new row means every copy of the old link stays dead - asserted directly. A CONSUMED link is finished and is not re-issued; a LIVE one is not replaced, so asking for another is refused rather than quietly minting a second valid link. The message is queued through S33's closed list as auth_handoff, which was already a reason Jarvis may open a conversation, so it inherits the quiet-hours hold and the batching instead of inventing a second way to reach him. scripts/s18b-reissue-test.ts, 12 assertions. Sabotaged five ways: render the link on the page (2 red, including THE NEW TOKEN WAS RENDERED ON THE PAGE), extend the old request instead of replacing it (4 red), queue outside the closed list (3 red), and make a consumed request report itself as expired so the guard lets it through (1 red). ONE OF THOSE EXPOSED MY OWN SUITE: the extend sabotage left no new row and the test threw on reading its id, so it reported one failure and crashed before the three assertions that matter most - a test that stops at the first problem hides the rest of them. Guarded, and the same sabotage now reports four failures cleanly. WHAT REMAINS ON THIS REGISTER, and it should not be marked done until it is empty: silence on the Work detail (the console reading heartbeat separately from task events - the server already emits both, so the remaining half is console-side), and the status bar and global composer, which are console work in jarvis-control-center rather than this repository. Watchdog self-observation has its own suite and appears built."
     },
     {
       "id": "S19",
@@ -386,5 +386,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S35: the export gate and its passphrase are built; producing the archive and restoring on a second machine are box-side."
+  "working_on": "S18b: the action-page re-issue is built; what is left on the register is console-side work in the other repository."
 }
