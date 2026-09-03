@@ -90,11 +90,22 @@ export async function testConnection(pool: pg.Pool, slugOrId: string): Promise<C
       detail = ok ? "NVIDIA accepted the key" : `NVIDIA answered ${res.status}`;
     } else if (c.slug === "composio") {
       const cred = await readJsonCredential(pool, c.credential_id);
-      const res = await fetch("https://backend.composio.dev/api/v1/apps", {
+      /*
+       * v3. This probed /api/v1/apps until 2026-09-03, when that endpoint began
+       * answering 410 "upgrade to v3 APIs" - so the health check was asking a
+       * retired endpoint, and the last stored result said healthy about an API
+       * that no longer exists. A health check pinned to a version the vendor
+       * has withdrawn reports on the wrong thing.
+       */
+      const res = await fetch("https://backend.composio.dev/api/v3/toolkits", {
         headers: { "x-api-key": cred.api_key },
       });
       ok = res.ok;
-      detail = ok ? "Composio accepted the key" : `Composio answered ${res.status}`;
+      detail = ok
+        ? "Composio accepted the key"
+        : res.status === 401
+          ? "Composio rejected the key (401) - it needs replacing"
+          : `Composio answered ${res.status}`;
     } else if (c.slug === "telnyx") {
       const cred = await readJsonCredential(pool, c.credential_id);
       const res = await fetch("https://api.telnyx.com/v2/phone_numbers?page[size]=1", {

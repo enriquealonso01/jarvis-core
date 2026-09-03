@@ -8,6 +8,36 @@ unblocked, finish it before starting anything new.
 
 ---
 
+## The Composio API key is rejected, and S31 cannot finish without one
+
+- **Step:** S31 (Composio and MCP)
+- **Blocked on:** a working Composio API key. Only you can issue one.
+- **What is happening:** the stored key is rejected outright. Against the
+  current API, `GET /api/v3/toolkits` answers
+  `401 {"code":801,"slug":"APIKey_InvalidAPIKey"}` — it names the key as
+  `ck_**HreH`, so the request shape and the `x-api-key` header are right and the
+  key itself is not accepted. It is 23 characters, which looks like an older
+  key format.
+- **How it surfaced, and the part worth reading:** the connection was recorded
+  **healthy**, tested 2026-09-01. It was not healthy. Both the adapter and
+  `conntest.ts` were probing `/api/v1/apps`, and Composio has since retired v1
+  and v2 — both now answer `410 "This endpoint is no longer available. Please
+  upgrade to v3 APIs."` So the health check was asking a withdrawn endpoint, and
+  the last stored answer described an API that no longer exists. A health check
+  pinned to a vendor version the vendor has removed reports on the wrong thing.
+- **What I fixed without you:** the adapter and the health check now use v3, and
+  a 401 is reported as "Composio rejected the key — it needs replacing" rather
+  than a bare status code. I re-ran the check, so the connection now reads
+  `degraded` with that reason instead of a stale `healthy`.
+- **What I need you to do:** issue a current Composio API key and store it. Once
+  it is in, `scripts/s31-composio-live.ts` is the check — it already passes
+  everything except the vendor call.
+- **What is NOT blocked by this:** the gate itself. The live run proves the
+  broker path end to end — cross-project access denied, an unclassified action
+  refused, and three denials audited naming the project that asked. Only the
+  vendor call fails, and it fails with a clear reason.
+
+
 ## The nightly backup has reported failure for two days, and the backups are fine
 
 - **Step:** operational, found 2026-09-03 while checking whether S30 knowledge
