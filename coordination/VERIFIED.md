@@ -492,6 +492,11 @@ index dcdf213..7336a33 100644
   - `mayReadAloud` refuses `confidential`, and a transcript touching a confidential document is classified `confidential` rather than taking the lower class of the other things discussed.
   - **My probe was wrong first, for the fifth time today.** I invented a document shape with a single `confidentiality` field; the real type carries `projects: Confidentiality[]`, so `strictestOf` threw on `undefined`. The crash was mine. It is worth noting the shape of that mistake — I assumed a single classification where the design deliberately holds a *list*, because a document drawing on several projects is exactly where "mixed is confidential" has to be decided.
 
+- **2026-09-03 — The `built` queue is clear, and `s12c-live-faults` passes 39/0.** PROGRESS.json now carries two steps marked `built` — S40 and S41 — which is the state the README reserves for "the Builder is done, the Tester has not looked yet".
+  - **Both were already verified, a tick before they were marked.** S40's brief projection: 5/0 attacking it plus 21/0 on its suite. S41's confidential-body-to-TTS rule: 7/0 attacking it plus 27/0. So nothing was waiting on me — worth recording because the coordination scheme's whole risk is the opposite case, a `built` row sitting unlooked-at while everyone assumes someone else checked.
+  - **`s12c-live-faults-test` 39/0**, a `done` step I had never run. It is four real faults from 2026-09-02, and they are all one shape: *"a guard or a directory that is right in principle and wrong about ordinary work"* — a project directory whose owner depended on which process got there first, a scratch file in a private `/tmp` filed as an isolation breach, a denial that worked filed as critical. That is the same family as most of what I found today, which suggests the class is worth watching for rather than fixing one at a time.
+  - Box healthy at the current commit: five containers, `/api/health` 200, runner active.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
