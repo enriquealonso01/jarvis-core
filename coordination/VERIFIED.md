@@ -980,3 +980,77 @@ falls back to CommonJS. Naming it **`/tmp/x.mts`** forces ESM and it runs. This
 is the difference between a probe that reports a product failure and one that
 reports my own plumbing — the same instrument class that cost six wrong answers
 earlier in this loop.
+
+## Full regression sweep after this loop's nine `src/` changes (2026-09-03)
+
+I said last tick that I had not re-verified the other suites against this loop's
+fixes and would not claim them green. This closes that.
+
+**All 124 suites run.** Everything this loop touched is green:
+
+```
+s44-capability-test  28    s46-handoff-test  21    s47-desktop-test  32
+s48-selfreview-test  26    s50-outbound-test 28    s54-selfdeploy-test 27
+s49-browservoice-test 24   s51-homemap-test  24    s45-system-scope-test 18
+```
+
+And all seven of my probes, once they could be read at all: **298 assertions,
+0 failures** (`gate-input-sweep` 23, `s46-handoff-probe` 31,
+`s47-desktop-boundary-probe` 51, `s48-selfreview-probe` 50,
+`s50-outboundtask-probe` 39, `s54-selfdeploy-probe` 55,
+`s49-browservoice-probe` 49).
+
+### My own oversight, found by running the sweep rather than trusting it
+
+Adding the probes to `sweep.sh` last tick was half the job. `sweep.sh` parses a
+line matching `==== N passed, N failed ====` and every probe printed
+`pass=N fail=N`, so all six reported **"NO SUMMARY — the suite did not finish"**.
+A probe the sweep cannot read is a probe that is not in the sweep, which is what
+adding them was meant to fix. Fixed in PR #434.
+
+Worth recording twice over: my first attempt to verify that fix used
+`SWEEP_SKIP_BUILD=1` and still reported NO SUMMARY, because the runner image
+predated the edit — the exact staleness `suite.sh` was written to prevent, hit
+while fixing a different oversight.
+
+### ✗ The sweep cannot currently be green, and it is not my changes
+
+Fourteen suites fail. **I confirmed these are pre-existing**, not regressions
+from this loop: `s3c-context-test` fails identically at `86464a3`, the commit
+before my first fix (9 passed / 13 failed there). The failing set is almost
+entirely live-stack integration —
+`s1-harness`, `s2-task-create`, `s3c-context`, `s4-drain`, `s4-recovery`,
+`s11-recovery`, `s13-home`, `s15-console`, `s17-artifacts`, `s18-search`,
+`s18b-conformance`, `s6-workflow`, `progress-endpoint` — and none of them touch
+`desktop`, `handoff`, `selfreview`, `outboundtask`, `selfdeploy` or
+`capability`.
+
+### ✗ `no-test-litter-test` — a suite that guarantees the sweep fails
+
+`s12-isolation-test` creates `s12-alpha-<stamp>` and `s12-beta-<stamp>` and
+**never removes them**. Nothing else does either — it is the only file in
+`scripts/` that mentions those slugs. 20 accumulated in a single hour of sweep
+runs today. `no-test-litter-test` runs LAST in `sweep.sh`, so it fails on any
+sweep that includes the isolation suite: **a fully green sweep is currently
+unreachable**, which is worse than the litter, because a suite everyone knows
+fails is a suite nobody reads.
+
+**I attempted the fix and stopped deliberately.** The obvious teardown —
+`DELETE FROM projects WHERE id = ANY($1)`, copying
+`confidential-eligibility-test` — fails on a foreign key from `issues`. And
+**29 tables carry a foreign key to `projects`**: `active_project`,
+`activity_events`, `approvals`, `artifacts`, `audit_events`,
+`auth_profile_allowlists`, `briefs`, `browser_actions`, `browser_sessions`,
+`channel_allowlist`, `config_versions`, `connection_project_allowlist`,
+`connections`, `conversations`, `inbox_events`, `issues`, `knowledge_chunks`,
+`memory_items`, `objections`, `onboarding_sessions`, `outbound_calls`,
+`project_instructions_versions`, `routing_overrides`, `schedules`,
+`sender_project_binding`, `task_grants`, `tasks`, `unprompted_messages`.
+
+Hand-writing that list into one test is precisely the pattern this loop has
+spent its time finding — a list that is right about the tables somebody
+remembered, and silently wrong about the next one added. The right shape is a
+shared teardown that **discovers** the referencing tables from `pg_constraint`
+and deletes in dependency order, or `ON DELETE CASCADE` in a migration. Either
+is real work and neither belongs in a rushed multi-table delete against the dev
+database at the end of a tick. Next.
