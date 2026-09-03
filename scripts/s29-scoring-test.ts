@@ -134,7 +134,34 @@ async function collectorChecks(): Promise<void> {
     ? ok(`reliability fell to ${(noisy.scores.tool_reliability as number).toFixed(2)}`)
     : bad("a run that failed a command scored the same as one that did not");
 
-  console.log("9. a run that recorded nothing gets no free point either");
+  console.log("9. both engines report a failed tool, not just one");
+  /*
+   * The normalised shape exists so a run reads the same whichever engine made
+   * it. Codex emitted a first-class error item; Claude reported a failed tool
+   * as a tool_result with is_error, and nothing read it - so reliability was
+   * scorable for one engine and permanently unscored for the other.
+   */
+  const { RUNTIMES } = await import("../src/runtime.js");
+  const claude = RUNTIMES.claude.normalise({
+    type: "user",
+    message: { content: [
+      { type: "tool_result", is_error: true, content: "bash: node: command not found" },
+      { type: "tool_result", is_error: false, content: "ok" },
+    ] },
+  });
+  const claudeErrors = claude.filter((e) => e.kind === "error");
+  claudeErrors.length === 1
+    ? ok(`claude reports the failure (${(claudeErrors[0] as { message: string }).message.slice(0, 34)})`)
+    : bad(`claude produced ${claudeErrors.length} error events from one failed tool`);
+
+  const codex = RUNTIMES.codex.normalise({
+    type: "item.completed", item: { type: "error", message: "command exited 1" },
+  });
+  codex.filter((e) => e.kind === "error").length === 1
+    ? ok("codex still reports its own")
+    : bad("codex stopped reporting errors");
+
+  console.log("10. a run that recorded nothing gets no free point either");
   const empty = await pool.query<{ id: string }>(
     `INSERT INTO tasks (lane, title, objective, state) VALUES ('heavy', 's29 empty', 'x', 'succeeded') RETURNING id`);
   const nothing = await collectEvidence(pool, empty.rows[0].id, {
