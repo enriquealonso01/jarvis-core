@@ -123,6 +123,21 @@ async function main(): Promise<void> {
     drift.length === 0
       ? ok("is_system and project_type say the same thing about every project")
       : bad(`they disagree about: ${drift.join(", ")}`);
+    /*
+     * The check above cannot tell "they agree" from "nothing was looked at" - a
+     * neutered detector returns an empty list and passes. So the disagreement is
+     * MANUFACTURED and the detector has to find it. Sabotage found this; the
+     * assertion was unfailable in the direction it existed to check.
+     */
+    await pool.query(`UPDATE projects SET is_system = false WHERE id = $1`, [housekeeping]);
+    const found = await markersDisagree(pool);
+    found.includes(`${SLUG}-renamed-away-from-jarvis`)
+      ? ok("and a deliberate disagreement is actually detected, so the check is not vacuous")
+      : bad("markersDisagree cannot see a project whose two markers differ");
+    await pool.query(`UPDATE projects SET is_system = true WHERE id = $1`, [housekeeping]);
+    (await markersDisagree(pool)).length === 0
+      ? ok("and it clears again once they are put back")
+      : bad("the manufactured disagreement was not cleaned up");
 
     console.log("");
     console.log("5. the boundary survives the re-labelling");
@@ -162,7 +177,16 @@ async function main(): Promise<void> {
         `INSERT INTO tasks (project_id, title, state, priority, lane, updated_at)
          VALUES ($1,$2,$3,'background','system',now())`, [housekeeping, title, state]);
     }
-    const activity = await systemActivity(pool, { since: SINCE, limit: 20 });
+    /*
+     * A task in the REAL project too, or "it reports on system work only" is
+     * asserting the absence of something that was never there - which is what it
+     * was doing until a sabotage that removed the scope filter came back green.
+     */
+    await pool.query(
+      `INSERT INTO tasks (project_id, title, state, priority, lane, updated_at)
+       VALUES ($1,$2,'succeeded','normal','heavy',now())`,
+      [mine, `${SLUG} a real piece of his work`]);
+    const activity = await systemActivity(pool, { since: SINCE, limit: 50 });
     const titles = activity.map((a) => a.what);
     titles.includes("pruned 3GB of old artifacts") && titles.includes("rotated the backup key")
       ? ok("it answers with specifics, not a count")
@@ -178,9 +202,9 @@ async function main(): Promise<void> {
     describeSystemActivity([], SINCE).includes("Nothing has run")
       ? ok("while an empty week says so plainly rather than reassuring him")
       : bad("an empty period produced a comfortable summary");
-    activity.every((a) => a.project !== `${SLUG}-real`)
-      ? ok("and it reports on system work only")
-      : bad("a real project's task appeared in the maintenance answer");
+    !activity.some((a) => a.what.includes("a real piece of his work"))
+      ? ok("and a task in one of HIS projects does not appear in the maintenance answer")
+      : bad("A REAL PROJECT'S TASK LEAKED INTO THE SYSTEM REPORT");
   } finally {
     for (const id of [mine, housekeeping].filter(Boolean)) {
       await pool.query(`DELETE FROM tasks WHERE project_id = $1`, [id]);
