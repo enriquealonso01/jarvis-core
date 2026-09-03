@@ -15,6 +15,7 @@ import { storeUpload, type StoredUpload } from "./uploads.js";
 import { taskTiming } from "./timing.js";
 import {
   githubCreatePrivateRepo,
+  githubProvisionApiCredential,
   githubProvisionDeployKey,
   githubCreatePullRequest,
   githubMergePullRequest,
@@ -1620,7 +1621,13 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     if (!owner || !repo) return reply.code(400).send({ error: "owner and repo required" });
     const result = await githubProvisionDeployKey(pool, p.id, owner, repo);
     if ("error" in result) return reply.code(502).send(result);
-    return result;
+    // A deploy key can push a branch but cannot open a pull request, so
+    // linking a repo has to mint the project's own API credential too -
+    // otherwise onboarding "succeeds" and the first real task parks at the PR
+    // step waiting on a human. The bench path already did this; this is the
+    // API path catching up.
+    const apiCredentialId = await githubProvisionApiCredential(pool, p.id, p.slug);
+    return { ...result, apiCredentialId };
   });
 
   app.post("/api/projects/:id/pull-requests", async (req, reply) => {

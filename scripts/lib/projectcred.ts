@@ -1,6 +1,5 @@
 import type pg from "pg";
-import { encryptGcm, loadMasterKey, newDek, wrapDek } from "../../src/crypto.js";
-import { readJsonCredential } from "../../src/credentials.js";
+import { githubProvisionApiCredential } from "../../src/github.js";
 
 /**
  * Give a fixture project its OWN GitHub API credential row.
@@ -13,9 +12,11 @@ import { readJsonCredential } from "../../src/credentials.js";
  * fixture provisioned a deploy key and an allowlist, forgot this, and the
  * resulting ticket sat in `waiting_for_user` looking like a real request.
  *
- * It lives here, in one place, because three suites had already grown their own
- * identical copy of it and the fourth is how the gap appeared. A fifth will now
- * import it.
+ * It lived here, in one place, because three suites had already grown their own
+ * identical copy of it and the fourth is how the gap appeared. It is now a thin
+ * wrapper over the real thing in src/github.ts: onboarding through the API has
+ * to mint this credential too, and a fixture helper and a production path that
+ * mint credentials differently is how the two drift apart.
  *
  * The row holds the same secret as the admin PAT, because a GitHub fine-grained
  * token is account-scoped and Enrique has one. That is a real limitation, and
@@ -28,29 +29,5 @@ export async function giveProjectApiCredential(
   projectId: string,
   label: string,
 ): Promise<string> {
-  const admin = await pool.query<{ c: string }>(
-    `SELECT credential_id AS c FROM auth_profiles WHERE id = 'github_personal_admin'`,
-  );
-  const adminCred = admin.rows[0]?.c;
-  if (!adminCred) throw new Error("github_personal_admin has no credential to copy");
-  const token = (await readJsonCredential(pool, adminCred)).api_key;
-  if (!token) throw new Error("github_personal_admin credential has no api_key");
-
-  const master = loadMasterKey();
-  const dek = newDek();
-  const { nonce, ciphertext } = encryptGcm(dek, Buffer.from(JSON.stringify({ api_key: token })));
-  const dekRow = await pool.query<{ id: string }>(
-    "INSERT INTO dek_keys (wrapped_key) VALUES ($1) RETURNING id",
-    [wrapDek(master, dek)],
-  );
-  const cred = await pool.query<{ id: string }>(
-    `INSERT INTO credentials (dek_id, ciphertext, nonce, fingerprint, kind, broker_only)
-     VALUES ($1, $2, $3, $4, 'api_key', false) RETURNING id`,
-    [dekRow.rows[0].id, ciphertext, nonce, `project:${label}:github`],
-  );
-  await pool.query(
-    `UPDATE projects SET github_api_credential_id = $2 WHERE id = $1`,
-    [projectId, cred.rows[0].id],
-  );
-  return cred.rows[0].id;
+  return githubProvisionApiCredential(pool, projectId, label);
 }
