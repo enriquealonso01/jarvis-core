@@ -507,20 +507,33 @@ export async function indexArtifact(
 ): Promise<{ chunks: number; skipped?: string }> {
   const r = await pool.query<{
     path: string; mime: string | null; quarantine_state: string;
-    project_id: string | null; created_at: string;
+    project_id: string | null; created_at: string; replaces: string | null;
   }>(
-    `SELECT path, mime, quarantine_state, project_id, created_at::text
-       FROM artifacts WHERE id = $1`, [artifactId]);
+    `SELECT a.path, a.mime, a.quarantine_state, a.project_id, a.created_at::text,
+            old.path AS replaces
+       FROM artifacts a
+       LEFT JOIN artifacts old ON old.id = a.supersedes_id
+      WHERE a.id = $1`, [artifactId]);
   const a = r.rows[0];
   if (!a) return { chunks: 0, skipped: "no such artifact" };
 
   if (a.quarantine_state !== "clean") {
     /*
-     * Not an error and not reported to him: a blocked file being unsearchable
-     * is the system working. Recording it as a failure would train him to
-     * ignore the ones that matter.
+     * A blocked file being unsearchable is the system working, so on its own it
+     * is not an error and is not reported: recording it as a failure would
+     * train him to ignore the ones that matter.
+     *
+     * A blocked REPLACEMENT is a different event, and the plan names it: "if
+     * supersession only touches the artifacts table, the index goes on
+     * answering from the old text and nothing in the console would ever show
+     * it". The moment this row exists, every chunk of the document it replaces
+     * is marked superseded - the flag is read from the artifacts table at query
+     * time and does not wait for anything to be indexed - and since the
+     * replacement has no chunks, the old text becomes the only thing that
+     * answers, labelled out of date, with nothing anywhere saying the new
+     * version never arrived.
      */
-    return { chunks: 0, skipped: `quarantined (${a.quarantine_state})` };
+    return notIndexed(pool, a, `quarantined (${a.quarantine_state})`, false);
   }
 
   const path = await import("node:path");
@@ -528,10 +541,7 @@ export async function indexArtifact(
   const full = path.join(artifactsRoot, a.path);
   const extracted = await extractText(full, a.mime);
 
-  if (!extracted.ok) {
-    await noteUnreadable(pool, a.project_id, a.path, extracted.reason);
-    return { chunks: 0, skipped: extracted.reason };
-  }
+  if (!extracted.ok) return notIndexed(pool, a, extracted.reason, true);
 
   const chunks = await ingestDocument(pool, {
     projectId: a.project_id,
@@ -542,27 +552,65 @@ export async function indexArtifact(
     // for "the contract from August" and mean the contract.
     sourceDate: new Date(a.created_at),
   });
+  // Extraction succeeded and produced nothing chunkable. Rare, and silent in
+  // exactly the same way, so it goes through the same door.
+  if (chunks === 0) return notIndexed(pool, a, "it produced no searchable text", true);
   return { chunks };
 }
 
 /**
- * Put an unreadable document on the timeline he actually reads.
+ * One document did not make it into the index, and somebody has to be told.
+ *
+ * Two audiences and two different messages, decided by whether this artifact
+ * replaces another:
+ *
+ *  - A document that simply cannot be read is reported when the failure is a
+ *    read failure, and not when it was refused on purpose (quarantine).
+ *  - A REPLACEMENT that did not index is always reported, quarantine included,
+ *    because it does not merely fail to add something: it retires the document
+ *    that was answering. The old chunks are marked superseded the moment this
+ *    row exists, so the corpus goes from "answering correctly" to "answering
+ *    from a version labelled out of date" with no other trace.
+ */
+async function notIndexed(
+  pool: pg.Pool,
+  a: { path: string; project_id: string | null; replaces: string | null },
+  reason: string,
+  reportPlainFailure: boolean,
+): Promise<{ chunks: number; skipped: string }> {
+  const name = (p: string) => p.split("/").pop() ?? p;
+  if (a.replaces) {
+    await note(
+      pool, a.project_id,
+      `Replacement not searchable: ${name(a.path)}`,
+      `${reason}. "${name(a.replaces)}" is still the only version that answers,`
+        + " and it is now marked superseded - so the answer is labelled out of date"
+        + " and there is nothing newer to replace it.",
+    );
+  } else if (reportPlainFailure) {
+    await note(pool, a.project_id, `Not searchable: ${name(a.path)}`, reason);
+  }
+  return { chunks: 0, skipped: reason };
+}
+
+/**
+ * Put it on the timeline he actually reads.
  *
  * A line in a container log is not visible. The activity feed is where he would
  * look for "what happened to that file I sent", and this is the only place the
  * answer exists.
  */
-async function noteUnreadable(
+async function note(
   pool: pg.Pool,
   projectId: string | null,
-  artifactPath: string,
-  reason: string,
+  title: string,
+  detail: string,
 ): Promise<void> {
   await pool
     .query(
       `INSERT INTO activity_events (project_id, kind, title, detail, actor)
        VALUES ($1, 'knowledge', $2, $3, 'jarvis')`,
-      [projectId, `Not searchable: ${artifactPath.split("/").pop()}`, reason],
+      [projectId, title, detail],
     )
     .catch(() => undefined);
 }
