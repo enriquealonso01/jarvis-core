@@ -110,6 +110,27 @@ async function main(): Promise<void> {
     // in the wiring, and a test that supplies its own list cannot see it.
     const taskId = "50bbfb35-6b4a-4603-b2f8-c1025736e90b";
     const own = path.join(WORKTREES_DIR, "unscoped", taskId.slice(0, 8));
+    /*
+     * The run may read its OWN harness auth directory, and nothing else under
+     * harness-auth. The runner hands the vendor CLI that path, so reading it is
+     * expected; the parent holds every other profile's tokens, so reading THAT
+     * is the escape this whole tripwire exists for. A live run was killed for
+     * the former after 22 tool calls of real work, which is what sent this
+     * looking.
+     */
+    {
+      const mine = "/var/lib/jarvis/harness-auth/anthropic_personal";
+      const scoped = allowedPathsFor("n1-console", taskId, mine);
+      truthy("its own auth dir is allowed", scoped.includes(mine));
+      truthy("but not the directory holding every profile",
+        !scoped.includes("/var/lib/jarvis/harness-auth"));
+      const other = escapedPath("/var/lib/jarvis/worktrees/n1-console/aaaaaaaa",
+        { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash",
+          input: { command: "cat /var/lib/jarvis/harness-auth/openai_codex_personal/auth.json" } }] } },
+        scoped);
+      truthy("and another profile's tokens are still an escape", Boolean(other));
+    }
+
     const allowed = allowedPathsFor(null, taskId);
     check("a task with no project is given its own unscoped directory", own, allowed[0]);
     check("and one WITH a project is given the project",
