@@ -22,6 +22,34 @@ export type ServiceRow = {
   gated: boolean;
 };
 
+/**
+ * Is the OpenClaw gateway actually up?
+ *
+ * This exists because of a three-hour outage nobody saw. The gateway was
+ * deliberately stopped, `restart: unless-stopped` correctly did not resurrect
+ * it - a deliberate stop is the one case that policy does not undo - and
+ * WhatsApp simply stopped receiving. The health page said nothing was wrong,
+ * because the OpenClaw row was a hardcoded string and the WhatsApp row was
+ * derived from an allowlist ROW rather than from anything being alive. An
+ * allowlist entry survives the container being dead, so health read `healthy`
+ * throughout.
+ *
+ * Any HTTP answer counts as alive, including a 404: what is being tested is
+ * that something is listening, not that a particular route exists. Only a
+ * connection error or the timeout means down. The timeout is short and the
+ * failure is swallowed because this runs inside the health endpoint, and a
+ * health check that can hang is worse than one that can be wrong.
+ */
+async function openclawReachable(): Promise<boolean> {
+  const url = process.env.JARVIS_GATEWAY_URL ?? "http://openclaw:18789";
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function registerServiceRoutes(app: FastifyInstance, pool: pg.Pool) {
   app.get("/api/operations/services", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
@@ -242,20 +270,30 @@ export function registerServiceRoutes(app: FastifyInstance, pool: pg.Pool) {
       gated: false,
     });
 
+    // Asked once and shared: both rows are really about the same container, and
+    // the WhatsApp row was the one telling the comfortable lie.
+    const gatewayUp = await openclawReachable();
     add({
       key: "openclaw",
       label: "OpenClaw",
-      state: "not_configured",
-      detail: "container profile not started; WhatsApp pairing is pending",
+      state: gatewayUp ? "healthy" : "failed",
+      detail: gatewayUp
+        ? "gateway responding"
+        : "gateway not reachable - inbound WhatsApp is not being received",
       gated: true,
     });
     add({
       key: "whatsapp",
       label: "WhatsApp",
-      state: channels.has("whatsapp") ? "healthy" : "not_configured",
-      detail: channels.has("whatsapp")
-        ? "allowlist configured"
-        : "no allowlist entry; QR pairing not done",
+      // Paired and dead is a different thing from never paired, and it is the
+      // one that costs something, so it gets its own state rather than being
+      // folded into the allowlist answer.
+      state: !channels.has("whatsapp") ? "not_configured" : gatewayUp ? "healthy" : "failed",
+      detail: !channels.has("whatsapp")
+        ? "no allowlist entry; QR pairing not done"
+        : gatewayUp
+          ? "allowlist configured; gateway responding"
+          : "allowlist configured, but the gateway is down so nothing is being received",
       gated: true,
     });
     add({
