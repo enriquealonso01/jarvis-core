@@ -517,6 +517,13 @@ index dcdf213..7336a33 100644
   - The 200-character cap is a backstop rather than a working constraint: a deliberately overlong input still produced 189 characters and ended on a clean sentence.
   - **One observation, not a defect** — the same one as S40's handoff: `what` is inserted verbatim, so a clumsy phrase reads oddly (*"skip the tests skips that"*). Caller responsibility, unenforceable by test, noted so it is not later mistaken for a bug.
 
+- **2026-09-03 — A sixth instance of the inherited-key bug, in code written after I swept for it — and this one defeated a real guard.** Re-swept because the tree has grown from ~94 to 108 source files since my last pass, and a class that recurs as new code lands is not closed by one sweep.
+  - **`runtimeFor("constructor")` returned a function** where the signature promises `AgentRuntime | null`, because `RUNTIMES[id] ?? null` never fires for an inherited key.
+  - **The consequence is not cosmetic, which is what separates this from the earlier five.** `runner.ts:1113` is `if (askedRuntime && !runtimeFor(askedRuntime))` — a guard whose entire job is rejecting a runtime that does not exist. A truthy return makes it **pass**, so a task carrying `runtime = "constructor"` would be accepted as valid and then used as a runtime object further down. `tasks.runtime` has **no CHECK constraint**, so the column can hold it. Every earlier instance needed a caller to pass a string nobody passes; this one turns a validation into a no-op.
+  - Fixed with `Object.hasOwn` and **re-verified against the redeployed code**: all five junk names return `null`, and `claude`, `fake` and `codex` still resolve. `s28-runtime` 40/0, `s21-runtime` 43/0.
+  - **The bare `in OBJ` form is now genuinely gone** — a fresh grep across all 108 files finds only comments and prose. What recurs is the *other* half of the shape: an object literal indexed by a runtime string with `?? fallback`, which reads as safe and is not. Both fail the same way; only one of them looks like a membership test.
+  - **The house rule, now stated on evidence rather than taste:** where this codebase uses an array and `Array.includes` — `SANDBOX_NETWORKS`, `GROUNDS`, `RUNTIME_IDS` — it has never had this bug. Where it uses an object literal as a set or a table, it has had it six times.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
