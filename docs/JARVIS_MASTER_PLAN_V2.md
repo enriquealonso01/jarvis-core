@@ -4992,24 +4992,35 @@ added in the same change that adds the requirement** — this table went a dozen
 requirements out of date within a night, which made it worse than no table,
 because it reads as a completeness claim.
 
+**"Where" names the section that decides it and the step that builds it**, in
+that order. A row with only a section is a requirement nobody has been asked to
+implement, and a row with only a step is a requirement with no stated reasoning —
+both are worth noticing rather than tidying away.
+
+The table also accreted **duplicate rows** as it grew: the same requirement
+listed twice, once against a section and once against a step, with neither
+mentioning the other. **A requirement with two answers has none**, and a reader
+checking coverage stops at whichever row they find first. Those are merged
+below.
+
 | Requirement (transcript msg) | Where |
 |---|---|
-| Project-scoped connections, never mixed (01, 20) | II.5, IV.4, C5 |
-| WhatsApp text + voice in (01, 15) | I.1, B3, B4 |
-| Phone calls both ways (06, 07, 15) | I.2, B6 |
+| Project-scoped connections, never mixed (01, 20) | II.5, IV.4, C5, S5, S12, S31 |
+| WhatsApp text + voice in (01, 15) | I.1, B3, B4, S37 |
+| Phone calls both ways (06, 07, 15) | I.2, B6, S19–S24 |
 | Butler voice, ElevenLabs (10–14) | I.2, VI |
 | Software engineer, issue → merged PR (02) | A3, A4, A5 |
 | Scheduled tasks (05) | II.4, VII.2 |
 | Provider-level auth, not per model (10) | VI |
 | Jarvis manages its own models (08, 09) | VI |
 | Free/subscription models first (01, 22–24) | VI |
-| Control Center with all projects + stats (15, 18) | I.3, C1, C2 |
+| Control Center with all projects + stats (15, 18) | I.3, C1, C2, S13, S15 |
 | Queue that never loses input (15) | 0.3, II.4, B2 |
 | Watchdog for stuck agents (15) | II.3, A6 |
 | API-key request by link (15, 17, 18) | C4 |
-| Weekly self-improvement scan (17) | VII.4 |
-| Maintenance project (17) | VII.2 |
-| Change instructions from WhatsApp (17) | B8 |
+| Weekly self-improvement scan, one-tap approve (17) | VII.4, S34 |
+| Maintenance that heals the system (17) | VII.2, S34 |
+| Change any project's setup from any channel (17) | B8, S27 |
 | Health page with actionable tickets (18) | I.3, C2 |
 | GitHub repo creation + per-project scoping (19, 20) | A2, PART V |
 | Dedicated Jarvis WhatsApp number (20) | I.1, B3 |
@@ -5019,25 +5030,16 @@ because it reads as a completeness claim.
 | Netcup hosting (15) | II.1 |
 | Composio for MCP connections (01) | C5 |
 | Scraping ability (01) | C7 |
-| Exportable to another machine (01) | C8 |
+| Exportable to another machine (01) | C8, VII.5, S35 |
 | Short WhatsApps, no chatter (19) | I.1, B5 |
-| Somewhere to dump everything and ask later (01) | B7, N2 |
-| Jarvis tests models and picks its own primaries (09) | A9 |
+| Somewhere to dump everything and ask later (01) | B7, N2, S30 |
+| Jarvis tests models and picks its own primaries (09) | A9, S29 |
 | Project onboarding asks before assuming (15, 20) | B10 |
-| Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
-| Phone calls, both directions (06, 07, 15) | S19–S24 |
 | Jarvis can call me (06, 15) | S23 |
 | Five-second turn-taking on calls (01) | S20 |
-| WhatsApp voice notes (01, 15) | S37 |
 | Nothing I say is ever lost (15) | S2, S11, S37, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S29 |
-| Change any project's setup from any channel (17) | S27 |
-| Weekly scan of the AI world, one-tap approve (17) | S34 |
-| Maintenance project that heals the system (17) | S34 |
-| Dump anything, ask about it later (01) | S30, N2 |
-| Never mix connections between projects (01, 20) | S5, S12, S31 |
 | Two browser modes: agent vs scraping engine (01) | S32 |
 | Three permission levels: safe / reversible / production (01) | IV.6 |
 | One input, several projects — the five-minute memo (15) | S3 |
@@ -5051,6 +5053,11 @@ because it reads as a completeness claim.
 | The harness is disposable (01, turn 01) | II.2b, S28 |
 | Jarvis Improvement and Maintenance as system projects (17) | II.5, S34 |
 | Nothing developed on the laptop (ADR 014) | S1 |
+| Everything important behind an interface, no vendor dependency (turn 02) | II.2b, VI, S28, S31 |
+| One connector interface: composio, direct, api, native (turn 02) | IV.4, S31 |
+| A normal pool and an escalation pool per role (09) | VI.3, S29 |
+| Reviewer from a different family than the implementer (09) | VI.3, S9 |
+| Everything metered has a ceiling, not only inference (01, 20) | VI, S25 |
 
 **From `Jarvis — Thoughts & Requirements Inbox`:**
 
