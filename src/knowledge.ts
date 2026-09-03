@@ -88,11 +88,25 @@ export async function ingestDocument(
          (project_id, body, source_artifact_id, kind, locator, char_offset, chunk_index, source_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [args.projectId, c.body, args.artifactId, c.kind,
-        args.locatorPrefix ? `${args.locatorPrefix} — ${c.locator}` : c.locator,
+        prefixedLocator(args.locatorPrefix, c.locator),
         c.offset, c.index, args.sourceDate ?? null],
     );
   }
   return chunks.length;
+}
+
+/**
+ * A prefix must not smuggle a locator past the rule that drops it.
+ *
+ * `citationFor` refuses to print "whole document" as a position, because it
+ * tells a reader nothing they did not already know. Prepending a prefix to it
+ * produced "forward 0abc1234 — whole document", which sailed past that check
+ * for the only reason that matters to a string comparison: it was no longer
+ * equal to the string being checked for.
+ */
+function prefixedLocator(prefix: string | undefined, locator: string): string {
+  if (!prefix) return locator;
+  return locator && locator !== "whole document" ? `${prefix} — ${locator}` : prefix;
 }
 
 /**
@@ -114,8 +128,17 @@ async function knowledgeTier(
   const r = await pool.query<{
     id: string; body: string; locator: string | null; char_offset: number | null;
     path: string | null; rank: string; at: string | null; superseded: boolean;
+    artifact_version: number | null; artifact_project: string | null;
   }>(
     `SELECT k.id::text, k.body, k.locator, k.char_offset, a.path,
+            -- Stored paths begin with the project's uuid (uploads.ts writes
+            -- <projectId>/<sha>-<name>). It is the same uuid on every citation
+            -- in a project, so it disambiguates nothing and is unreadable.
+            a.project_id::text AS artifact_project,
+            -- S17 keeps a version number per lineage, incremented as each
+            -- replacement is recorded. The citation needs it: "page 4 of the
+            -- migration report" identifies nothing when there are three of them.
+            a.version AS artifact_version,
             /*
              * Replaced, rather than filtered out. supersedes_id points at what a
              * document REPLACED, so an artifact is superseded when some OTHER
@@ -141,17 +164,47 @@ async function knowledgeTier(
       LIMIT $3`,
     [q, projectId, limit],
   );
-  return r.rows.map((x) => ({
-    tier: "knowledge" as const,
-    id: x.id,
-    body: x.body,
-    citation: x.superseded
-      ? `${citationFor(x.path, x.locator, x.char_offset)} (superseded)`
-      : citationFor(x.path, x.locator, x.char_offset),
-    rank: Number(x.rank),
-    at: x.at,
-    superseded: x.superseded,
-  }));
+  return r.rows.map((x) => {
+    /*
+     * The version is printed only when this document is part of a lineage -
+     * it has replaced something, or something has replaced it. A lone document
+     * is always v1, and "terms.md v1" on every citation is noise that teaches a
+     * reader to stop looking at the part that matters when it is not.
+     */
+    const version = x.superseded || (x.artifact_version ?? 1) > 1 ? x.artifact_version : null;
+    const cite = citationFor(shownPath(x.path, x.artifact_project), x.locator, x.char_offset, version);
+    return {
+      tier: "knowledge" as const,
+      id: x.id,
+      body: x.body,
+      citation: x.superseded ? `${cite} (superseded)` : cite,
+      rank: Number(x.rank),
+      at: x.at,
+      superseded: x.superseded,
+    };
+  });
+}
+
+/**
+ * The part of a stored path worth showing someone.
+ *
+ * `uploads.ts` stores a clean file at `<projectId>/<sha12>-<name>`, so a
+ * citation read straight from the column opens with a uuid: "3cea1a00-62d1-...
+ * /a3f2c1d4e5b6-migration-report.pdf". The uuid is identical for every artifact
+ * in the project, so it separates nothing and costs a reader the whole line.
+ *
+ * Only that exact prefix is removed, matched against the artifact's own
+ * project_id rather than guessed from the shape of the string - a heuristic
+ * here would eventually eat a real directory. The `<sha12>-` on the filename is
+ * left ALONE deliberately: it is ugly, but two unrelated uploads of the same
+ * name differ only by it, and trading that away for a tidier line would make
+ * two different documents cite identically - the exact failure this function
+ * was just changed to fix.
+ */
+function shownPath(stored: string | null, projectId: string | null): string | null {
+  if (!stored) return null;
+  const prefix = projectId ? `${projectId}/` : null;
+  return prefix && stored.startsWith(prefix) ? stored.slice(prefix.length) : stored;
 }
 
 /**
@@ -160,13 +213,29 @@ async function knowledgeTier(
  * "somewhere in this PDF" is not a citation. The locator is what the chunker
  * recorded - a heading, a speaker, a symbol - and the offset is the fallback
  * when there is no better name for the position.
+ *
+ * Two rules beyond that, both from the plan:
+ *
+ *  - **It names the version.** "Page 4 of the migration report" is not a
+ *    citation when there are three migration reports. `version` is S17's
+ *    per-lineage counter, passed in only when this document is one of several.
+ *  - **It does not apologise for a name it has.** A chunk with no artifact is
+ *    named by its locator - a forward's locator already reads "forward
+ *    0abc1234" - and prefixing that with "a dumped document" adds nothing. The
+ *    fallback is for a chunk with neither an artifact nor a usable locator.
  */
-function citationFor(path: string | null, locator: string | null, offset: number | null): string {
+function citationFor(
+  path: string | null,
+  locator: string | null,
+  offset: number | null,
+  version: number | null,
+): string {
   const where = locator && locator !== "whole document" ? locator : null;
-  const source = path ?? "a dumped document";
-  if (where) return `${source} — ${where}`;
-  if (offset !== null && offset > 0) return `${source} — character ${offset}`;
-  return source;
+  const source = path === null ? null : version !== null ? `${path} v${version}` : path;
+  if (source && where) return `${source} — ${where}`;
+  if (where) return where;
+  if (source) return offset !== null && offset > 0 ? `${source} — character ${offset}` : source;
+  return offset !== null && offset > 0 ? `a dumped document — character ${offset}` : "a dumped document";
 }
 
 async function memoryTier(
