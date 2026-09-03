@@ -16,13 +16,46 @@ export type ErrorClass = {
   retryable: boolean;
   limit: number | null;
   notify: NotifyLevel;
+  /**
+   * How many times this has to happen before it is worth an Issue.
+   *
+   * B10 assigns `resource.cpu` "ui_only, Issue if sustained", and that sentence
+   * does not fit in `notify` alone: whether he is TOLD and whether an Issue is
+   * OPENED are separate questions, and one class wants different answers to
+   * them. Machines are briefly busy; a busy machine is not a defect, and an
+   * Issue per spike is a list nobody reads. A machine that has been busy for a
+   * quarter of an hour is a different claim.
+   *
+   * Absent means 1 — open it the first time — which is what every class here
+   * did before this field existed, so the default changes nothing and errs
+   * toward raising rather than swallowing.
+   */
+  issueAfter?: number;
 };
+
+/**
+ * A gap longer than this ends the episode and the count starts again.
+ *
+ * Sustained means it KEPT happening, so the window is measured from the last
+ * occurrence rather than the first. Measured from the first, a class that fired
+ * once an hour for a day would eventually cross any threshold and report itself
+ * as sustained, which is the opposite of what the word is doing here.
+ */
+export const SUSTAINED_WINDOW_MS = 15 * 60 * 1000;
 
 export const ERROR_CLASSES: Record<string, ErrorClass> = {
   "model.rate_limit": { severity: "medium", retryable: true, limit: 5, notify: "ui_only" },
   "model.outage": { severity: "high", retryable: true, limit: 5, notify: "whatsapp_degraded" },
   "model.removed": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
   "provider.degraded": { severity: "high", retryable: true, limit: 5, notify: "whatsapp_degraded" },
+  /*
+   * B10: "severity warning, notify Issue + ui_only". Something Jarvis depends on
+   * is not answering. It goes on the console and into the Issue list, and it
+   * does NOT reach his phone: the task parks as waiting_for_user, so the thing
+   * that needs him will announce itself through its own route rather than
+   * through an outage report he can do nothing with.
+   */
+  "dependency.unavailable": { severity: "medium", retryable: true, limit: 4, notify: "ui_only" },
   "provider.cred_expired": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
   // A model ID the provider no longer serves. Unlike a quota window this never
   // recovers on its own — the route has to be re-pinned by a person — so it is
@@ -41,11 +74,26 @@ export const ERROR_CLASSES: Record<string, ErrorClass> = {
   "queue.restart": { severity: "medium", retryable: false, limit: null, notify: "none" },
   "resource.disk": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
   "resource.ram": { severity: "high", retryable: false, limit: null, notify: "ui_only" },
+  /*
+   * B10: "severity warning, notify ui_only (Issue if sustained)". The
+   * parenthesis is the whole design - see `issueAfter`. Three reports inside a
+   * quarter of an hour with no quiet gap is an episode; one spike is a machine
+   * doing its job.
+   */
+  "resource.cpu": { severity: "medium", retryable: true, limit: 3, notify: "ui_only", issueAfter: 3 },
   "resource.io": { severity: "medium", retryable: true, limit: 3, notify: "ui_only" },
   "db.error": { severity: "critical", retryable: true, limit: 5, notify: "whatsapp_blocker" },
   "artifact.corrupt": { severity: "medium", retryable: false, limit: null, notify: "ui_only" },
   "model.malformed_tool": { severity: "medium", retryable: true, limit: 3, notify: "none" },
   "agent.loop": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
+  /*
+   * B10 (Enrique, 2026-09-03): "fires in prod -> severity error, notify Issue +
+   * WhatsApp". An agent repeating itself in production is burning budget on
+   * nothing and will not stop on its own - failures.ts parks the task rather
+   * than retrying it - so it is worth interrupting him for. It is a degradation
+   * and not a blocker: nothing is waiting on an action from him.
+   */
+  "agent.repeat": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
   "notification.delivery": { severity: "medium", retryable: true, limit: 8, notify: "ui_only" },
   "backup.failure": { severity: "critical", retryable: true, limit: 3, notify: "whatsapp_blocker" },
   "maintenance": { severity: "low", retryable: false, limit: null, notify: "ui_only" },
@@ -169,11 +217,14 @@ export async function raiseIssue(
     evidence?: Record<string, unknown>;
     severityOverride?: "critical" | "high" | "medium" | "low";
     notifyOverride?: NotifyLevel;
+    now?: Date;
   },
 ): Promise<{ issueId: string | null; created: boolean; notified: boolean }> {
   const cls = classify(args.category);
   const severity = args.severityOverride ?? cls.severity;
   const evidence = JSON.stringify(args.evidence ?? {});
+  const level = args.notifyOverride ?? cls.notify;
+  const now = args.now ?? new Date();
 
   const updated = await pool.query<{ id: string }>(
     `UPDATE issues
@@ -185,6 +236,41 @@ export async function raiseIssue(
   if (updated.rows[0]) {
     // Already open and already notified once; repetition is a count, not a page.
     return { issueId: updated.rows[0].id, created: false, notified: false };
+  }
+
+  /*
+   * "Issue if sustained." Nothing is counting yet at this point - the Issue that
+   * would carry an occurrence count is exactly what has not been created - so
+   * the count lives beside the Issue list rather than in it. Putting a
+   * suppressed row in `issues` would have been less code and would have put the
+   * thing on the list it is being kept off.
+   *
+   * He is still TOLD each time, at the class's own level. The two dimensions are
+   * independent: suppressing the notification along with the Issue would make a
+   * busy machine completely silent until it had been busy for a quarter of an
+   * hour, which is worse than the noise it was avoiding.
+   */
+  const threshold = cls.issueAfter ?? 1;
+  if (threshold > 1) {
+    const episode = await noteCandidate(pool, args.dedupeKey, args.category, now);
+    if (episode.occurrences < threshold) {
+      const queued = await enqueueNotification(pool, {
+        level,
+        messageType: "status",
+        body: args.title,
+        objectType: "issue_candidate",
+        /*
+         * Keyed by occurrence, not by dedupe key. The Issue path keys on
+         * `issue:<dedupeKey>` because an Issue is notified once; here there is
+         * deliberately one message per occurrence, and the shared key would let
+         * ON CONFLICT DO NOTHING swallow every report after the first - leaving
+         * the console silent for precisely the run-up this branch exists to
+         * describe.
+         */
+        idempotencyKey: `candidate:${args.dedupeKey}:${episode.occurrences}`,
+      });
+      return { issueId: null, created: false, notified: queued !== null };
+    }
   }
 
   const inserted = await pool.query<{ id: string }>(
@@ -208,7 +294,15 @@ export async function raiseIssue(
   );
   const issueId = inserted.rows[0].id;
 
-  const level = args.notifyOverride ?? cls.notify;
+  /*
+   * The episode has been promoted to an Issue, which now carries the count
+   * itself. Leaving the candidate would mean the next occurrence after this
+   * Issue is resolved arrives already at the threshold.
+   */
+  if (threshold > 1) {
+    await pool.query(`DELETE FROM issue_candidates WHERE dedupe_key = $1`, [args.dedupeKey]);
+  }
+
   const notified = await enqueueNotification(pool, {
     level,
     messageType: level === "whatsapp_blocker" ? "blocker" : "status",
@@ -223,6 +317,41 @@ export async function raiseIssue(
 
   sseBroadcast("issue.updated", { id: issueId });
   return { issueId, created: true, notified: notified !== null };
+}
+
+/**
+ * Record one occurrence of something not yet worth an Issue, and say how many
+ * this episode is now up to.
+ *
+ * The window is applied to the GAP since the last occurrence. A quiet spell
+ * longer than `SUSTAINED_WINDOW_MS` ends the episode and the count restarts, so
+ * "sustained" keeps meaning what the word means rather than degrading into
+ * "eventually happened this many times".
+ */
+export async function noteCandidate(
+  pool: pg.Pool,
+  dedupeKey: string,
+  category: string,
+  now = new Date(),
+): Promise<{ occurrences: number; firstSeenAt: Date }> {
+  const r = await pool.query<{ occurrences: number; first_seen_at: Date }>(
+    `INSERT INTO issue_candidates (dedupe_key, category, occurrences, first_seen_at, last_seen_at)
+     VALUES ($1, $2, 1, $3, $3)
+     ON CONFLICT (dedupe_key) DO UPDATE
+       SET occurrences = CASE
+             WHEN issue_candidates.last_seen_at
+                  < $3::timestamptz - ($4 || ' milliseconds')::interval THEN 1
+             ELSE issue_candidates.occurrences + 1 END,
+           first_seen_at = CASE
+             WHEN issue_candidates.last_seen_at
+                  < $3::timestamptz - ($4 || ' milliseconds')::interval THEN $3
+             ELSE issue_candidates.first_seen_at END,
+           last_seen_at = $3,
+           category = $2
+     RETURNING occurrences, first_seen_at`,
+    [dedupeKey, category, now, String(SUSTAINED_WINDOW_MS)],
+  );
+  return { occurrences: r.rows[0].occurrences, firstSeenAt: r.rows[0].first_seen_at };
 }
 
 /**
