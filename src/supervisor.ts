@@ -1,3 +1,4 @@
+import { audit } from "./audit.js";
 import crypto from "node:crypto";
 import type pg from "pg";
 import { ARTIFACTS_DIR, BROWSERS_DIR, WORKTREES_DIR } from "./paths.js";
@@ -774,10 +775,15 @@ export async function runTool(
       `UPDATE onboarding_sessions SET status = 'finalized', project_id = $2, updated_at = now() WHERE id = $1`,
       [sess.rows[0].id, inserted.rows[0].id],
     );
-    await pool.query(
-      `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-       VALUES ('supervisor', 'project.create', $1, $2, $3)`,
-      [a.slug, inserted.rows[0].id, JSON.stringify({ name: a.name, type: a.project_type })],
+    await audit(
+      pool, {
+        actor: "supervisor",
+        action: "project.create",
+        target: a.slug,
+        projectId: inserted.rows[0].id,
+        outcome: "allowed",
+        extra: { name: a.name, type: a.project_type },
+      },
     );
 
     /*
@@ -825,11 +831,16 @@ export async function runTool(
       } else {
         committed = put.commit_sha;
       }
-      await pool.query(
-        `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-         VALUES ('supervisor', 'project.instructions_commit', $1, $2, $3)`,
-        [a.slug, inserted.rows[0].id,
-         JSON.stringify({ outcome: commitError ? "failed" : "committed", commit_sha: committed, error: commitError })],
+      await audit(
+        pool, {
+          actor: "supervisor",
+          action: "project.instructions_commit",
+          target: a.slug,
+          projectId: inserted.rows[0].id,
+          outcome: commitError ? "failed" : "allowed",
+          reason: commitError,
+          extra: { commit_sha: committed },
+        },
       );
     }
 

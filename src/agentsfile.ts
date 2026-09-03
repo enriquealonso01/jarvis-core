@@ -151,7 +151,22 @@ export function renderAgentsMd(
  * image.
  */
 export function templateFromDoc(doc: string): string | null {
-  const section = doc.split("## Project AGENTS.md (managed repos)")[1];
+  /*
+   * Line endings are not content.
+   *
+   * The fence regex wants a newline after the fence marker, and a Windows
+   * checkout hands this file over with CRLF because git converts on checkout.
+   * So the match failed, this returned null, and S26 reported that the doc had
+   * lost its AGENTS.md block - on a machine where the block was plainly still
+   * there. The byte-identical comparison in that suite would have failed for
+   * the same reason even if the fence had matched, since every line would
+   * differ by a carriage return.
+   *
+   * Normalised here rather than in .gitattributes: the parser is what has to
+   * be robust, and it should read the same file the same way on any machine.
+   */
+  const text = doc.replace(/\r\n/g, "\n");
+  const section = text.split("## Project AGENTS.md (managed repos)")[1];
   if (!section) return null;
   const fence = section.match(/```markdown\n([\s\S]*?)```/);
   return fence ? fence[1] : null;
