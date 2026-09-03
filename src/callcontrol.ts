@@ -657,6 +657,42 @@ export async function finalizeCall(pool: pg.Pool, ccid: string, reason: string):
       "UPDATE calls SET transcript_artifact_id = $2 WHERE call_control_id = $1",
       [ccid, artifact.id],
     );
+    /*
+     * S41: the transcript is a copy, and it outlives the call.
+     *
+     * "A call where a confidential document was discussed produces a transcript
+     * CONTAINING THAT DISCUSSION, stored under ordinary retention, indexed by
+     * S30, and reachable by any future recall - including by voice. That is a
+     * leak inside Jarvis rather than to a vendor, and it is the sort that
+     * compounds."
+     *
+     * So the artifact is stamped with the strictest classification of anything
+     * discussed. `calls.discussed_projects` is the evidence and is EMPTY today -
+     * nothing yet records what a call touched - which means strictestOf([])
+     * gives `restricted`. That is the fail-closed answer S41 asks for: "a call
+     * whose subject nobody recorded is not a call to read back aloud on the
+     * strength of that absence." It gates SPEECH, not the console, so the
+     * transcript stays readable where he can already see everything.
+     *
+     * Never allowed to cost him the transcript: a stamping failure is reported
+     * and the artifact stands, because an unstamped transcript is a smaller
+     * problem than a lost one, and the read side treats NULL as unstamped rather
+     * than as normal.
+     */
+    const discussed = await pool.query<{ ids: string[] }>(
+      "SELECT discussed_projects AS ids FROM calls WHERE call_control_id = $1",
+      [ccid],
+    ).catch(() => ({ rows: [] as { ids: string[] }[] }));
+    const { stampTranscript } = await import("./recall.js");
+    await stampTranscript(pool, {
+      callControlId: ccid,
+      transcriptArtifactId: artifact.id,
+      discussedProjectIds: discussed.rows[0]?.ids ?? [],
+    }).catch((err) => {
+      console.error("call transcript could not be classified:",
+        err instanceof Error ? err.message : err);
+      return null;
+    });
   }
 
   /*
