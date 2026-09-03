@@ -7,7 +7,7 @@
  * refusals: too few runs, too few cases, and a gap inside the suite's own
  * measured noise.
  */
-import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankingReproduces, routeOrderFrom, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
+import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankBySolving, rankingReproduces, routeOrderFrom, solveRates, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
 
 let passes = 0;
 let fails = 0;
@@ -146,6 +146,46 @@ function main(): void {
   unmeasuredOnly.length === 0
     ? ok("one measured engine implies no reordering at all")
     : bad("a single-engine ranking moved routes");
+
+  console.log("");
+  console.log("7. solving is a proportion, and a proportion carries sampling error");
+  /*
+   * Scores here are bimodal - solved runs cluster near 1.00, unsolved near
+   * 0.70 - so a mean describes the MIX rather than either cluster. What
+   * actually differs between engines is how often they land in the solving
+   * one, and that is a proportion from a dozen runs, which is noisier than a
+   * mean makes it look.
+   */
+  const solvedRuns = (h: string, solved: number, total: number): BenchRow[] =>
+    Array.from({ length: total }, (_, i) => ({
+      harness: h,
+      suite: CASES[i % CASES.length],
+      overall: i < solved ? 1 : 0.7,
+      scores: { hidden_tests: i < solved ? 1 : 0 },
+    }));
+
+  const rates = solveRates([...solvedRuns("claude", 7, 12), ...solvedRuns("codex", 3, 10)]);
+  rates[0].solved === 7 && Math.abs(rates[0].rate - 7 / 12) < 1e-9
+    ? ok("the rate is solved over runs, counted from the withheld suite")
+    : bad(`rate was ${JSON.stringify(rates[0])}`);
+
+  const real = rankBySolving([...solvedRuns("claude", 7, 12), ...solvedRuns("codex", 3, 10)]);
+  !real.ok && real.reason.includes("sampling noise")
+    ? ok(`tonight's own numbers are refused: ${real.ok ? "" : real.reason.slice(-46)}`)
+    : bad("a 28-point gap on 12 and 10 runs was called a win");
+  !real.ok && typeof real.needed === "number" && real.needed > 20
+    ? ok(`and it says how many runs would settle it: ${real.ok ? "" : real.needed}`)
+    : bad("no usable estimate of the runs needed");
+
+  const decisive = rankBySolving([...solvedRuns("claude", 28, 30), ...solvedRuns("codex", 6, 30)]);
+  decisive.ok && decisive.winner === "claude" && decisive.sigma > 2
+    ? ok(`a gap well outside sampling error is called, at ${decisive.ok ? decisive.sigma.toFixed(1) : ""} sigma`)
+    : bad(`a decisive difference was not called: ${decisive.ok ? "" : decisive.reason}`);
+
+  const tied = rankBySolving([...solvedRuns("claude", 15, 30), ...solvedRuns("codex", 15, 30)]);
+  !tied.ok
+    ? ok("and identical rates over thirty runs each are still not a ranking")
+    : bad("two identical engines were ordered");
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);

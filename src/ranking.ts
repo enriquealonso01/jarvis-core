@@ -231,3 +231,123 @@ export function routeOrderFrom(
   });
   return changes;
 }
+
+/**
+ * Ranking by how often an engine SOLVES, not by its average score.
+ *
+ * The mean was the wrong summary and the data said so. Scores here are cleanly
+ * bimodal: a run that passes the withheld suite lands at 0.96-1.00, one that
+ * fails it lands at 0.67-0.74, and in 22 runs nothing has landed between. An
+ * average over two clusters describes neither of them - it moves with the
+ * MIX, so "claude 0.85, codex 0.75" is really "claude solved more often",
+ * laundered through a decimal that invites comparison to a threshold.
+ *
+ * So the question is a proportion: of the runs an engine made, how many
+ * actually fixed the bug. And a proportion from ten-odd runs carries sampling
+ * error large enough to swallow the difference, which the mean-based band of
+ * 0.072 was only ever approximating by eye.
+ *
+ * The refusal is therefore computed rather than judged: two proportions are
+ * ordered only when the gap exceeds twice the standard error of their
+ * difference. When it does not, the suite says how many runs per engine WOULD
+ * settle it, which turns "needs more data" from a shrug into a number.
+ *
+ * This is a normal approximation and it is honest about being one: with a
+ * handful of runs per engine it is indicative, not a p-value, and it is used
+ * only to decide whether to keep quiet.
+ */
+export type SolveRate = {
+  harness: string;
+  runs: number;
+  solved: number;
+  rate: number;
+  cases: string[];
+};
+
+/** Did this run pass the tests it never saw? That is the only thing that counts here. */
+function solved(row: BenchRow): boolean {
+  return row.scores.hidden_tests === 1;
+}
+
+export function solveRates(rows: BenchRow[]): SolveRate[] {
+  const by = new Map<string, BenchRow[]>();
+  for (const r of rows) {
+    if (r.overall === null) continue;
+    by.set(r.harness, [...(by.get(r.harness) ?? []), r]);
+  }
+  const out: SolveRate[] = [];
+  for (const [harness, list] of by) {
+    const n = list.length;
+    const s = list.filter(solved).length;
+    out.push({
+      harness,
+      runs: n,
+      solved: s,
+      rate: n === 0 ? 0 : s / n,
+      cases: [...new Set(list.map((r) => r.suite))].sort(),
+    });
+  }
+  return out.sort((a, b) => b.rate - a.rate);
+}
+
+/** Standard error of the difference between two independent proportions. */
+function seOfDifference(a: SolveRate, b: SolveRate): number {
+  const va = (a.rate * (1 - a.rate)) / Math.max(1, a.runs);
+  const vb = (b.rate * (1 - b.rate)) / Math.max(1, b.runs);
+  return Math.sqrt(va + vb);
+}
+
+/**
+ * Runs per engine needed for the observed gap to clear two standard errors.
+ *
+ * Solves n from |p1 - p2| = 2 * sqrt((p1q1 + p2q2) / n). Assumes the observed
+ * rates are the true ones, which they are not - so it is a scale, not a
+ * promise: it answers "another handful or another hundred?"
+ */
+function runsNeeded(a: SolveRate, b: SolveRate): number | null {
+  const diff = Math.abs(a.rate - b.rate);
+  if (diff === 0) return null;
+  const spread = a.rate * (1 - a.rate) + b.rate * (1 - b.rate);
+  return Math.ceil((4 * spread) / (diff * diff));
+}
+
+export function rankBySolving(rows: BenchRow[]):
+  | { ok: true; winner: string; order: SolveRate[]; difference: number; sigma: number }
+  | (Refusal & { order: SolveRate[]; needed?: number | null }) {
+  const s = solveRates(rows);
+  if (s.length < 2) {
+    return { ok: false, reason: "only one harness has results; nothing to rank", order: s };
+  }
+  const thin = s.filter((h) => h.runs < MIN_RUNS_PER_HARNESS);
+  if (thin.length) {
+    return {
+      ok: false,
+      order: s,
+      reason: `not enough runs: ${thin.map((h) => `${h.harness} has ${h.runs} of ${MIN_RUNS_PER_HARNESS}`).join(", ")}`,
+    };
+  }
+  const narrow = s.filter((h) => h.cases.length < MIN_CASES);
+  if (narrow.length) {
+    return {
+      ok: false,
+      order: s,
+      reason: `not enough cases: ${narrow.map((h) => `${h.harness} ran ${h.cases.length} of ${MIN_CASES}`).join(", ")}`,
+    };
+  }
+
+  const [first, second] = s;
+  const difference = first.rate - second.rate;
+  const se = seOfDifference(first, second);
+  const sigma = se === 0 ? Infinity : difference / se;
+  if (sigma < 2) {
+    return {
+      ok: false,
+      order: s,
+      needed: runsNeeded(first, second),
+      reason: `${first.harness} solves ${first.solved}/${first.runs} and ${second.harness} `
+        + `${second.solved}/${second.runs}, a gap of ${(difference * 100).toFixed(0)} points at only `
+        + `${sigma.toFixed(2)} standard errors - inside sampling noise`,
+    };
+  }
+  return { ok: true, winner: first.harness, order: s, difference, sigma };
+}
