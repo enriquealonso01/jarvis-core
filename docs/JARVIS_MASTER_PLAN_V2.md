@@ -1735,6 +1735,22 @@ so neither goes stale when a table grows.
 internal posts on their request id. It is the smallest of the five sources and
 the easiest to skip, which is why it is written down.
 
+**Silence on the Work detail** *(S14 shipped before II.3 drew the distinction).*
+S14 shows *"Live updates paused"* after 5s of SSE silence. **II.3 already
+established that silence is not death** — a six-minute test run emits no agent
+events, which is why the watchdog reads child-process state before calling
+anything stuck. The console never learned it, so a healthy task running its test
+suite renders as a broken connection, and after the second time that happens he
+stops believing the banner.
+
+The two silences are different and the contract already separates them: IV.5's
+event set includes `heartbeat`. **Heartbeat missing → the transport is gone, and
+the banner is right. Heartbeat arriving with no task events → the task is
+working and quiet**, which is a different sentence and, at that moment, the more
+useful one: *"running tests · 4m12s"* is exactly the *"what is it doing right
+now"* the requirements asked for, delivered precisely when nothing appears to be
+happening. The mechanism exists; the console is not reading it.
+
 **Watchdog self-observation** *(S11 shipped before II.3 asked who watches the
 watchdog).* The sweep-completion record, the health signal derived from it, the
 host-timer backstop, and blind-window reconciliation on restart. Small, and it is
@@ -1754,6 +1770,7 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Run a task through a long test suite and watch the console.** No paused banner — it says what the task is doing and for how long. Then **kill the SSE connection** and confirm the banner *does* appear. Both halves: a banner that never appears is as wrong as one that always does.
 - **Kill the watchdog with a task running, then hang the task** → nothing recovers, which is expected — and **the health page says the watchdog is not sweeping** rather than showing a calm system. Assert on what the console claims while blind; that is the actual defect.
 - Restart it → the hung task is stalled and recovered on the **first** sweep, not skipped for having gone silent before the watchdog started.
 - The timeline for that task names the blind window rather than showing an unbroken healthy stretch.
