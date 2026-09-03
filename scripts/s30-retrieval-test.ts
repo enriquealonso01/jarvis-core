@@ -70,7 +70,18 @@ async function main(): Promise<void> {
   console.log("3. re-ingesting replaces, rather than competing with itself");
   await ingestDocument(pool, {
     projectId: pid, artifactId: contract, kind: "prose",
-    text: "# Refund window\nThe client may request a refund within thirty days of delivery.",
+    /*
+     * Deliberately the RICHER document, so it ranks higher on the query than
+     * the version that replaces it. Without that, "the current version answers
+     * first" passes on relevance alone and proves nothing about the ordering
+     * rule - which is what happened the first time: sabotaging the ordering
+     * left the assertion green.
+     */
+    text: [
+      "# Refund window",
+      "The client may request a refund within thirty days of delivery.",
+      ...Array.from({ length: 30 }, (_, n) => `Refund window clause ${n + 1}: the refund window applies to every order.`),
+    ].join("\n"),
   });
   const after = await pool.query<{ n: string }>(
     `SELECT count(*) AS n FROM knowledge_chunks WHERE source_artifact_id = $1`, [contract]);
@@ -81,7 +92,7 @@ async function main(): Promise<void> {
     : bad("two generations of chunks are both in the index, so the document says two things");
 
   console.log("");
-  console.log("4. a superseded document does not answer");
+  console.log("4. the current version answers, and the replaced one is offered as replaced");
   const v2 = await artifact("contracts/acme-v2.md", contract);
   await ingestDocument(pool, {
     projectId: pid, artifactId: v2, kind: "prose",
@@ -90,13 +101,22 @@ async function main(): Promise<void> {
   const now = await retrieve(pool, { q: "refund window", projectId: pid });
   const live = now.tiers.find((t) => t.tier === "knowledge")?.hits ?? [];
   live.length > 0 ? ok("the current version answers") : bad("nothing answered at all");
-  live.every((h) => !h.citation.includes("acme-v1"))
-    ? ok("and the replaced version does not, so the answer is not fluently out of date")
-    : bad("the superseded version answered - a citation from the document that was replaced");
-  const history = await retrieve(pool, { q: "refund window", projectId: pid, includeSuperseded: true });
-  (history.tiers.find((t) => t.tier === "knowledge")?.hits ?? []).some((h) => h.citation.includes("acme-v1"))
-    ? ok("but it is still reachable when history is asked for deliberately")
-    : bad("the old version is unreachable even on request, so nothing can compare versions");
+  /*
+   * Both halves, which is what the plan asks for and what the first version of
+   * this got wrong. It asserted the replaced document must not appear at all -
+   * silently dropped - and the rule is that the CURRENT version answers while
+   * the old one is offered AS superseded. Dropping it means nobody can see what
+   * changed; ranking it first means the answer is confidently out of date.
+   */
+  live[0] && !live[0].superseded && live[0].citation.includes("acme-v2")
+    ? ok("the current version answers first")
+    : bad(`the first hit was ${live[0]?.citation}`);
+  live.some((h) => h.superseded && h.citation.includes("acme-v1"))
+    ? ok("and the replaced version is offered, labelled as superseded")
+    : bad("the replaced version was silently dropped, so nothing can compare versions");
+  live.filter((h) => h.superseded).every((h) => h.citation.includes("(superseded)"))
+    ? ok("with the label in the citation, where a reader will actually see it")
+    : bad("a superseded hit is not marked in its citation");
 
   console.log("");
   console.log("5. tiers are kept apart, and say which is which");

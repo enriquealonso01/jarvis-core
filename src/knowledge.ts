@@ -33,6 +33,15 @@ export type Hit = {
   citation: string;
   rank: number;
   at: string | null;
+  /**
+   * This chunk comes from a document that has been replaced.
+   *
+   * Offered rather than dropped, and never first. The plan asks for both
+   * halves: the current version answers, and the old one is visible AS old -
+   * because silently dropping it means nobody can see what changed, and
+   * silently ranking it means the answer is confidently out of date.
+   */
+  superseded?: boolean;
 };
 
 export type Retrieved = {
@@ -98,13 +107,21 @@ async function knowledgeTier(
   q: string,
   projectId: string | null,
   limit: number,
-  includeSuperseded: boolean,
 ): Promise<Hit[]> {
   const r = await pool.query<{
     id: string; body: string; locator: string | null; char_offset: number | null;
-    path: string | null; rank: string; at: string | null;
+    path: string | null; rank: string; at: string | null; superseded: boolean;
   }>(
     `SELECT k.id::text, k.body, k.locator, k.char_offset, a.path,
+            /*
+             * Replaced, rather than filtered out. supersedes_id points at what a
+             * document REPLACED, so an artifact is superseded when some OTHER
+             * artifact points at it. Ordering puts current chunks first; the old
+             * one is still offered, labelled, so a reader can see what changed.
+             */
+            (k.source_artifact_id IS NOT NULL AND EXISTS (
+               SELECT 1 FROM artifacts newer WHERE newer.supersedes_id = k.source_artifact_id
+             )) AS superseded,
             ts_rank_cd(k.search, websearch_to_tsquery('english', $1))::text AS rank,
             COALESCE(k.source_date, k.created_at)::text AS at
        FROM knowledge_chunks k
@@ -115,20 +132,22 @@ async function knowledgeTier(
         -- document REPLACED, so an artifact is superseded when some OTHER
         -- artifact points at it. (No backticks in here: this whole query is a
         -- template literal, and a backtick would end it.)
-        AND ($4 OR k.source_artifact_id IS NULL OR NOT EXISTS (
-              SELECT 1 FROM artifacts newer WHERE newer.supersedes_id = k.source_artifact_id))
-      ORDER BY ts_rank_cd(k.search, websearch_to_tsquery('english', $1)) DESC,
+      ORDER BY superseded ASC,
+               ts_rank_cd(k.search, websearch_to_tsquery('english', $1)) DESC,
                COALESCE(k.source_date, k.created_at) DESC
       LIMIT $3`,
-    [q, projectId, limit, includeSuperseded],
+    [q, projectId, limit],
   );
   return r.rows.map((x) => ({
     tier: "knowledge" as const,
     id: x.id,
     body: x.body,
-    citation: citationFor(x.path, x.locator, x.char_offset),
+    citation: x.superseded
+      ? `${citationFor(x.path, x.locator, x.char_offset)} (superseded)`
+      : citationFor(x.path, x.locator, x.char_offset),
     rank: Number(x.rank),
     at: x.at,
+    superseded: x.superseded,
   }));
 }
 
@@ -308,8 +327,6 @@ export async function retrieve(
     q: string;
     projectId?: string | null;
     limit?: number;
-    /** Only for showing history deliberately; never the default. */
-    includeSuperseded?: boolean;
   },
 ): Promise<Retrieved> {
   const q = args.q.trim();
@@ -318,7 +335,7 @@ export async function retrieve(
   const projectId = args.projectId ?? null;
 
   const [knowledge, projectMemory, globalMemory, activity] = await Promise.all([
-    knowledgeTier(pool, q, projectId, limit, args.includeSuperseded === true),
+    knowledgeTier(pool, q, projectId, limit),
     projectId ? memoryTier(pool, q, projectId, limit, false) : Promise.resolve([]),
     memoryTier(pool, q, null, limit, true),
     activityTier(pool, q, projectId, limit),
