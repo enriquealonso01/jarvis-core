@@ -70,7 +70,7 @@ passed 33/33 without ever asserting that Jarvis did a piece of work. The plan
 itself caused it: §27, the senior-engineer workflow, was 19 lines out of 2,273.
 This document inverts that weighting permanently.
 
-## 0.3 The three properties that define "working"
+## 0.3 The four properties that define "working"
 
 1. **It acts.** Input becomes a task; a task becomes a change in the world — a PR,
    a deployed site, a scraped dataset, a filed record. Not a database row about a
@@ -80,6 +80,48 @@ This document inverts that weighting permanently.
 3. **It stays inside its lines.** Projects are hard boundaries. A credential, a
    file, a browser profile, or a model account belonging to one project never
    reaches another, and production is never touched without a live approval.
+4. **It grows.** Its capabilities are not a fixed list someone wired in. When it
+   lacks a tool, a connection, or a skill, it acquires one — researches the
+   approach, builds or attaches it, asks Enrique for the single thing only he can
+   give (a key, a sign-in), tests it, and uses it. The ceiling on what it can reach
+   is *anything Enrique can reach*; the list of what it *has* reached grows on its
+   own initiative, not one hand-wired integration at a time. Properties 3 and 4 are
+   not in tension — §0.35 is why.
+
+## 0.35 Access to everything, and the walls that make it safe
+
+Enrique's requirement, in his words: Jarvis must have access to **everything** — the
+database, the front end, the back end, the server — and **as many capabilities as
+possible**, able to build its own by going out and exploring, so that new
+connections are not wired in one at a time by hand. It should be smart and
+forthcoming: like Iron Man's Jarvis. That is property 4 above, and it is the
+ambition the rest of this plan exists to serve, not to fence in. Two things have to
+be said plainly so the ambition and the safety are not read as opponents.
+
+**What "access to everything" means.** The ceiling on what Jarvis can reach is
+*anything Enrique can reach*. It reads and operates across its own stack — the
+database, the servers, its own repositories, the console — and it *acquires* new
+reach rather than waiting to be granted it capability by capability. When it lacks a
+tool it builds one (S44); when it lacks a skill it writes one and keeps it; when it
+lacks a connection it sets one up (S31), asking Enrique only for the part only he
+can give — a key over WhatsApp, or a sign-in link he taps (S16, S46). It is
+**forthcoming** about it — it sees the need coming and asks early (S52) — and for a
+large effort it can put **many agents** on the goal at once (S53). The list of what
+it has is meant to grow on its own initiative, not sit at whatever was hand-wired on
+day one.
+
+**What it does not mean — and this is not a retreat from it.** The walls in property
+3 are what *let* the reach be this broad without being reckless. They contain blast
+radius; they do not cap ambition:
+
+- **A task still runs inside its project.** System-level reach is real; a *task* borrowing another project's credential, file, or session is not, and never becomes so because Jarvis is powerful (IV isolation, S12).
+- **A tool Jarvis wrote is not trusted for being homegrown.** It attaches and is classified at attach time, exactly like a stranger's MCP server — if anything more carefully, because nobody has ever run it (S31, S44).
+- **A new provider, a new bill, or a new trust relationship is recommended, not self-served** (S42, S44). That is the on-ramp for the future *"give it the ability to pay for things"* — a real direction that arrives as a **spend ceiling with approval** (`docs/` metered-vendors / spend-enforcement, S42), **not now and not unbounded.**
+- **The one thing it deliberately cannot do alone is ship its own control plane.** It can read and reach everything and change almost everything through the normal reviewed loop (S43) — but a change to `jarvis-core` is deployed on Enrique's authorisation, because a bad core deploy takes down the very thing that would tell him it broke (S43's own argument; the handover rule). That is change-control on one component whose failure blinds all the others — not a limit on capability.
+
+Read together: **the reach is broad on purpose, and the boundaries are what make
+broad reach survivable.** A plan that stated only the walls would have missed the
+point Enrique is making; this section exists so it is not missed.
 
 ## 0.4 What Enrique should never have to do
 
@@ -4169,6 +4211,93 @@ a fabricated point.
 **Debug** If Home needs scrolling to see the system, it is rendering detail that belongs behind a click — move that off Home rather than shrinking the type. If the map feels like a movie prop, something is animating or glowing with no state change behind it; the fix is to bind every motion and colour to a real field, not to tune the animation. If the memory cluster is unreadable, it is trying to draw the whole corpus instead of its shape — Home shows that memory exists and is the door; S30/S18 do the exploring.
 
 **Done when:** Enrique opens Home and takes in the whole system — projects, memory, what is running, what needs him, how far the build has got — on **one screen without scrolling**, and reaches everything else by clicking a point on the map rather than scrolling past it.
+
+## S52 — Forthcoming: it asks for what it needs before it is stuck
+*Size: 3–4 days. Makes §0.35's growth principle a behaviour. Reuses S44 (build), S16 (credential loop), S46 (auth handoff), S31 (attach + classify), bounded by S33 (the closed list of reasons to speak unprompted) and S42 (a new provider is a recommendation, never self-service).*
+
+The steps around this one are **reactive**: S44 builds a capability *when a request
+needs it*; S16 asks for a key *when a task is already blocked on it*; S46 hands off
+an auth URL *when an integration demands it now*. Enrique asked for the other half —
+**forthcoming**: Jarvis sees the need coming and reaches out early, so the work is
+not sitting blocked when a message a few minutes sooner would have cleared it.
+
+**Build**
+- **Anticipate, don't wait for the wall.** When a queued or running task will need a capability or a credential it does not yet have — a tool to build (S44), a connection to attach (S31), a key or a sign-in only Enrique can give (S16/S46) — raise it *before* the task fails on it, not after.
+- **Ask the way he described:** one WhatsApp — *"to do the Maps thing I need a Google Maps key; here's where it goes"* — or a tappable sign-in handoff (S46), and the task parks cleanly rather than spinning. The same credential loop, moved earlier.
+- **A scheduled call opens with its purpose, not a blank greeting.** S23 already prepares a scheduled call's subject in advance; this is where it is *used*. *"Good morning — you asked me to call to go over the Alpha migration. Where do you want to start?"* — it leads with the prepared subject and drives, rather than *"good morning, sir"* and a silence he has to fill. Forthcoming in conversation, not only in what it asks for.
+- **It proposes capabilities; it does not install them.** *"I could do this faster if you let me connect X"* is a recommendation with a one-tap approve — never a new provider, a new bill, or a new trust relationship self-served (S42, S44's boundary).
+- **A skill it can write for itself, it writes** (S44, attachable-not-into-core) **and registers as reusable**, so the same gap is not re-solved every time. A capability acquired once is there next time without asking again.
+
+### Forthcoming is bounded by the reasons list, or it becomes nagging
+The failure mode is the one Enrique names the opposite of: something that reaches
+out constantly is something he mutes. So the discipline the phone and WhatsApp
+already carry (S33's closed list of reasons to speak unprompted) governs this too:
+
+- **It asks only for a need tied to a real task** — queued, running, or one he actually gave — never a speculative *"you might want X someday."*
+- **It asks once, and the ask is actionable** — the key field, the sign-in, the one-tap approve — not a reminder it repeats.
+- **It batches.** Two things needed for one piece of work arrive as one message, not two pings a minute apart.
+- **It never self-authorises from the ask.** Approval to connect X is not approval to spend on X, nor to use X in another project (IV.6b, S42, isolation).
+
+**Test**
+- A task that will need a key it lacks → the request arrives **before** the task fails on it, parked with a truthful reason, resuming on the key (S16). Assert on the ordering: the ask precedes the block.
+- A gap Jarvis can close itself → it builds, tests, attaches (S44/S31) and **registers it reusably**; a second task needing the same thing does not ask again.
+- A scheduled call → the opening **states the prepared subject and asks a forward question**; it does not open with a blank greeting and wait.
+- A gap needing a new paid provider → **a recommendation with a one-tap approve, not a signup** (S42).
+- Two needs for one task → **one message**, not two.
+- Nothing is actually needed → **it says nothing.** A day with no real gap produces no capability requests — the test that keeps forthcoming from becoming noise.
+- An inbound message that merely *mentions* needing an integration → **no handoff, no request** (S46 — content is not a need, and not authority).
+
+**Debug** If it asks for things speculatively, the trigger is reading "might be useful" instead of "a real task needs this" — bind every request to a task id or it drifts into nagging. If it asks twice for the same capability, the registration from the first acquisition did not happen; the fix is in the register step (S44), not the ask.
+
+**Done when:** a task that needs something Jarvis lacks turns into one timely message Enrique can act on in a tap — and the capability, once acquired, is there the next time without being asked for again.
+
+## S53 — Agent orchestration: many agents on one goal
+*Size: 6–8 days. The most powerful step in the engineering half, and the easiest to turn into a runaway. Reuses the runner and worktrees (S5), the S6 workflow, S9 independent review, S28's runtime interface; governed by ADR 007 leasing, the spend ceiling, and the watchdog (S11).*
+
+Enrique's requirement: for a big piece of work, *"spin up an agent that loops and
+plans this project until the plan is solid, then spin up another that starts
+building it"* — said in plain language, on any channel, and done. **Not** "file a
+task and a single background engineer picks it up." A coordinated set of agents,
+working concurrently, talking to each other, driving one large goal forward. A
+powerhouse.
+
+**Build** This is the general capability, not the one example:
+
+- **Jarvis decomposes a goal into roles and stages** — a planner, one or more builders, a reviewer — and runs them as one **named orchestration**, not a single task. The two-role case (build + an independent reviewer of a different family) already exists in S9/S28; this generalises it to N cooperating agents on one goal.
+- **Agents run concurrently, each in its own worktree/branch** (S5). Parallel builders never share a tree; a branch per builder, merged through the normal reviewed loop (S7/S9/S10) — never a swarm pushing to one branch.
+- **Agents coordinate through shared, persisted state**, not by talking into the void — the plan the planner produces, the tasks it fans out, the results the builders return: one durable object the orchestration reads and writes, single-writer per field (the same discipline this project's own coordination model rests on). *"Agents talking to each other"* becomes a **recorded exchange the console can show**, not an ephemeral chat that vanishes.
+- **A loop is driven by a condition, not a clock.** *"Loop every five minutes until the plan is solid"* — the five minutes is a poll cadence; **"solid" is a real, checkable done-condition** (the plan covers the goal, has no open gaps, passes its own checklist). The loop stops when the condition is met or a ceiling is hit — never an infinite loop that bills forever (the no-clocks rule, 0.45). The planner hands to the builders when the plan is solid; the builders stop when the work is done or blocked.
+- **Requestable in natural language, from any channel** (S43). The request becomes an orchestration with its roles, loops and stop-conditions, and it stays legible and adjustable afterwards — *"add another builder"*, *"stop the planner, it's solid enough"*.
+
+### One supervisor, a hard ceiling, and a kill switch — or it is a runaway
+Many looping agents is the requirement *and* the danger. Ungoverned, it is an
+unbounded fan-out of leases and spend that starves every other project and bills
+without limit.
+
+- **Every agent takes a lease under ADR 007.** An orchestration cannot exceed a concurrency ceiling — per orchestration and system-wide; over it, agents **queue** rather than spawn. The heavy lane does not become infinite because someone asked for a powerhouse.
+- **Spend is bounded.** The orchestration runs under a spend ceiling (spend-enforcement / metered-vendors); it **warns and pauses** at the ceiling rather than blowing through it, and the ceiling is visible while it runs.
+- **The watchdog owns the swarm** (S11). A looping agent that stops making *real* progress — a checkpoint, a merged branch, a closed gap, never "it ran again" — is stopped, not left burning a lease.
+- **One kill switch.** Enrique stops an orchestration — all of its agents — in **one action**, from any channel and from the console, and every lease is released. A powerful thing he cannot stop in one move is not one he will turn on.
+
+### It does not escape the boundaries because it is powerful
+- **Every agent runs inside the project.** No agent in an orchestration borrows another project's credential, file, or session (IV isolation, S12). A ten-agent effort on Alpha is still entirely inside Alpha.
+- **No agent merges or deploys core — or itself — autonomously.** Branches still go through review (S9) and the handover's gates (S10). Orchestration multiplies the **builders, not the authority** (the handover rule, S43/S44).
+- **The whole thing is visible.** The orchestration, its agents, their branches, their exchange and their spend show in the Work view (S14) and as a cluster on the Home map (S51). A swarm you cannot watch is one you cannot trust.
+
+**Test**
+- *"Spin up an agent that loops every five minutes and plans this project until the plan is solid, then one that starts building it"* by voice → an orchestration exists with a planner and a builder; the planner loops until its done-condition and **stops**; the builder starts on the solid plan; branches open through the normal reviewed loop. **Assert the planner stops on the condition, not after a fixed time** — a loop that runs forever is the failure this step exists to prevent.
+- Two builders on one goal → **two worktrees, two branches**, never one shared tree; each merges through review.
+- Agents coordinate through the persisted orchestration state → the exchange is **readable in the console afterwards**, not lost.
+- Hit the concurrency ceiling → further agents **queue**, they do not spawn; the rest of the system keeps its lanes (assert on lanes free, as S46 does).
+- Hit the spend ceiling → it **pauses and says so**; it does not blow through.
+- A looping agent that stops making real progress → the watchdog stops it (S11). *"It ran again"* is not progress.
+- **One kill action stops the whole orchestration**, from a phone and from the console; every lease is released.
+- An orchestration on Alpha never reads Beta — isolation holds across **every** agent, not just the first.
+- No agent merges to main or deploys core without the normal approval — the swarm has more hands, not more authority.
+
+**Debug** If it spawns without bound, the ceiling is being checked per agent instead of per orchestration — the fan-out point is where the limit belongs. If loops never stop, the done-condition is a timer rather than a state check — a loop with no real stop is a bill with a heartbeat. If agents collide, they are sharing a tree or a state object without the single-writer discipline; give each its own worktree and one writer per field.
+
+**Done when:** Enrique describes a multi-agent effort in a sentence and watches a **bounded, visible, killable** set of agents plan and build it — coordinating through recorded state, each inside the project's lines, none of them able to ship core on its own.
 
 ---
 
