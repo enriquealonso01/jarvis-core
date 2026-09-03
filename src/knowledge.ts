@@ -185,6 +185,12 @@ async function memoryTier(
             m.created_at::text AS at
        FROM memory_items m
       WHERE to_tsvector('english', m.body) @@ websearch_to_tsquery('english', $1)
+        /*
+         * Live memories only. A superseded preference is kept for the audit -
+         * he asked for it to be dropped, or replaced it - and answering from it
+         * would be answering with a rule he has already withdrawn.
+         */
+        AND m.superseded_at IS NULL
         AND (${scope})
       ORDER BY 4 DESC, m.created_at DESC LIMIT ${limitParam}`;
   const r = global
