@@ -134,11 +134,21 @@ export async function invoke(
   const decision = await authorise(pool, args);
 
   if (!decision.allowed) {
+    /*
+     * Denials go through the broker`s own denial path rather than this module`s
+     * audit helper. Reusing it is the same principle as reusing the gate: every
+     * refusal in the system is recorded one way, and cross-project probing
+     * raises its Issue whether it came through a connector or anywhere else.
+     * The connection is named so a reviewer can find the refusal beside the
+     * calls that succeeded - without it the row is addressed to the capability
+     * and the connection it was aimed at is not in the record at all.
+     */
     await recordDenial(pool, {
       denial: decision,
       capability: `connector.${args.action}`,
       projectId: args.projectId,
       taskId: args.taskId ?? null,
+      connectionSlug: args.connectionSlug,
     });
     return { ok: false, code: decision.code, reason: decision.reason };
   }

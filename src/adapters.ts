@@ -133,10 +133,18 @@ export const composioAdapter: Adapter = {
     const key = String(cred.api_key ?? "");
     if (!key) throw new Error("composio credential holds no api_key");
 
-    if (action === "apps.list") {
-      const res = await fetchWithTimeout("https://backend.composio.dev/api/v1/apps", {
-        headers: { "x-api-key": key },
-      });
+    /*
+     * v3. Checked against the live API on 2026-09-03: /api/v1/apps and
+     * /api/v2/actions/... both answer 410 "This endpoint is no longer
+     * available. Please upgrade to v3 APIs." The adapter and the health check
+     * were both still calling v1, and the connection was recorded healthy from
+     * a test run before the endpoint was retired - so the stored health said
+     * yes about an API that had stopped answering.
+     */
+    const base = "https://backend.composio.dev/api/v3";
+
+    if (action === "toolkits.list") {
+      const res = await fetchWithTimeout(`${base}/toolkits`, { headers: { "x-api-key": key } });
       if (!res.ok) throw new Error(`Composio answered ${res.status}`);
       return await res.json();
     }
@@ -144,11 +152,11 @@ export const composioAdapter: Adapter = {
     const [, name] = action.split(".");
     if (!name) throw new Error(`composio action must be <app>.<action>, got ${action}`);
     const res = await fetchWithTimeout(
-      `https://backend.composio.dev/api/v2/actions/${encodeURIComponent(name)}/execute`,
+      `${base}/tools/execute/${encodeURIComponent(name)}`,
       {
         method: "POST",
         headers: { "x-api-key": key, "content-type": "application/json" },
-        body: JSON.stringify({ input: input ?? {} }),
+        body: JSON.stringify({ arguments: input ?? {} }),
       },
     );
     if (!res.ok) throw new Error(`Composio answered ${res.status}`);
