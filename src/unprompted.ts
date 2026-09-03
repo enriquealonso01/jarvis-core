@@ -114,7 +114,17 @@ export function mayOpenConversation(reason: string, now = new Date()): SendVerdi
  * A function rather than a comment, so the rule is something a test can hold
  * and a future quiet-hours change has to walk past deliberately.
  */
-export function mayReply(): { send: true; why: string } {
+export function mayReply(_now = new Date()): { send: true; why: string } {
+  /*
+   * The parameter is accepted and ignored, and both halves are deliberate.
+   *
+   * Ignored, because the answer does not depend on the hour - that IS the rule.
+   * Accepted, because a rule about 02:00 has to be testable AT 02:00: with no
+   * clock in the signature the suite can only ask at whatever time it happens
+   * to run, and a version that started consulting quiet hours would pass every
+   * afternoon. Found exactly that way - the sabotage that made replies obey
+   * quiet hours went green because the suite ran at 14:00.
+   */
   return { send: true, why: "he started this conversation, and quiet hours govern only what Jarvis starts" };
 }
 
