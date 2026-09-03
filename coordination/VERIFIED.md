@@ -510,6 +510,13 @@ index dcdf213..7336a33 100644
   - `s42-impact-test` passes alongside it.
   - **Worth naming the contrast with today's other findings.** The bugs I fixed were deny-lists and near-true comments — `in` against an object, a fallback for strangers applied to family, "nothing came from the document's text" when one sentence had. This file is the same author writing the other way: the governing question is asked directly rather than via a table keyed by tool name, and the comment explains *why* there is no such table — *"the same service holds both"* a private repository and one others depend on, and a table would collapse them into one wrong answer.
 
+- **2026-09-03 — S42's objection path: 10/0 attacking it on the box, 23/0 on its suite.** The premise is that *"a system that only ever objects on rules will quietly do the harmful-but-authorised thing every time"* — so the failures worth hunting are objecting twice, blocking, or not recognising a ground.
+  - **`isGround` rejects `constructor`, `__proto__`, `toString`, `""` and `DATA_LOSS`**, accepting only the three real grounds. Array plus `Array.includes` again — the third module today built the safe way, against five I had to fix that used `in` on an object. The pattern is now consistent enough to be worth stating as the house rule rather than a coincidence.
+  - **"Says something once" is real.** The same `(project, action, ground)` fingerprints identically, a different ground is a different objection, and `projectId: null` does not collide with a project — so a global objection and a project one are not confused for each other.
+  - **The non-blocking rule is encoded in the sentence, not just asserted about it.** Both renderings end `— doing it now.`: *"…is not recoverable afterwards — doing it now."* There is no branch where the objection waits for an answer, because the text itself commits to proceeding. That is a nicer guarantee than a comment saying it does not block.
+  - The 200-character cap is a backstop rather than a working constraint: a deliberately overlong input still produced 189 characters and ended on a clean sentence.
+  - **One observation, not a defect** — the same one as S40's handoff: `what` is inserted verbatim, so a clumsy phrase reads oddly (*"skip the tests skips that"*). Caller responsibility, unenforceable by test, noted so it is not later mistaken for a bug.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
