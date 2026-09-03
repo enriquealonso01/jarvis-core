@@ -138,6 +138,22 @@ class ClaudeLikeRuntime implements AgentRuntime {
     const calls = claudeToolCalls(raw);
     if (calls.length) out.push({ kind: "tool", calls });
 
+    /*
+     * A tool that failed, reported the way this stream reports it.
+     *
+     * Codex emits a first-class error item and Claude does not: a failed tool
+     * arrives as a `tool_result` block with `is_error: true` inside a user
+     * message. Nothing read it, so `task_events` recorded Claude's successes
+     * and never its failures - and S29 scores tool reliability from exactly
+     * that difference, which meant the dimension could be scored for one engine
+     * and never for the other. The normalised shape exists so a run is legible
+     * identically whichever engine produced it; this is that promise for the
+     * half of it that had been left out.
+     */
+    for (const failure of claudeToolFailures(raw)) {
+      out.push({ kind: "error", message: failure });
+    }
+
     if (raw.type === "assistant") {
       const text = claudeText(raw);
       if (text) out.push({ kind: "output", text });
@@ -362,4 +378,27 @@ export async function runtimeAvailable(
         ? { available: true, detail: out.trim() }
         : { available: false, detail: `${rt.binary} is not installed on this host` }));
   });
+}
+
+/**
+ * The text of every failed tool result in a Claude-shaped event.
+ *
+ * `is_error` sits on the tool_result block, not on the message, so a message
+ * can carry a successful result and a failed one together.
+ */
+export function claudeToolFailures(event: Record<string, unknown>): string[] {
+  const message = event.message as { content?: unknown } | undefined;
+  const content = Array.isArray(message?.content) ? (message.content as unknown[]) : [];
+  const out: string[] = [];
+  for (const block of content) {
+    const b = block as { type?: string; is_error?: boolean; content?: unknown };
+    if (b.type !== "tool_result" || b.is_error !== true) continue;
+    const text = typeof b.content === "string"
+      ? b.content
+      : Array.isArray(b.content)
+        ? (b.content as { text?: string }[]).map((c) => c.text ?? "").join(" ")
+        : "";
+    out.push(text.trim().replace(/\s+/g, " ").slice(0, 500) || "a tool call failed");
+  }
+  return out;
 }

@@ -1231,6 +1231,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     // keeps the first three hundred in order and then says out loud that it
     // stopped, with the transcript still holding the rest.
     let toolsRecorded = 0;
+    let errorsRecorded = 0;
     let toolCalls_total = 0;
     let lastTool: string | null = null;
 
@@ -1392,16 +1393,31 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
           // says so through the harness, rather than failing the run here.
           if (!key || !("sshCommand" in key)) return null;
 
+          /*
+           * Every step says so when it fails.
+           *
+           * These were `.catch(() => undefined)` - the same silent swallow that
+           * hid a stale worktree base earlier - and when a run then could not
+           * push, there was nothing to read: the key was either never copied or
+           * copied somewhere else, and the log could not say which. A setup step
+           * that fails quietly turns into an agent reporting "SSH key access is
+           * unavailable" twenty minutes later.
+           */
           const ssh = path.join(runHome, ".ssh");
-          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(() => undefined);
+          const keyAt = path.join(ssh, "id_ed25519");
+          const say = (what: string) => (err: unknown) =>
+            console.error(`run home: ${what} failed: ${err instanceof Error ? err.message : err}`);
+          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(say("mkdir"));
           // 0600 from the start: ssh refuses a key any wider, and a chmod after
           // the write leaves a window where it is readable.
-          await fs.copyFile(key.keyFile, path.join(ssh, "id_ed25519")).catch(() => undefined);
-          await fs.chmod(path.join(ssh, "id_ed25519"), 0o600).catch(() => undefined);
+          await fs.copyFile(key.keyFile, keyAt).catch(say(`copy ${key.keyFile}`));
+          await fs.chmod(keyAt, 0o600).catch(say("chmod"));
           await fs.copyFile(
             path.join(JARVIS_ROOT, "home", ".ssh", "known_hosts"),
             path.join(ssh, "known_hosts"),
-          ).catch(() => undefined);
+          ).catch(say("copy known_hosts"));
+          const placed = await fs.stat(keyAt).then((st) => st.size > 0).catch(() => false);
+          console.log(`run home ${runHome}: key ${placed ? "in place" : "MISSING"}`);
           return key.sshCommand;
         })()
       : null;
@@ -1430,6 +1446,29 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         //
         // Written as it happens rather than at the end: a run that crashes at
         // minute thirty must still leave thirty minutes of visible work behind.
+        /*
+         * Failures, kept rather than dropped.
+         *
+         * Both runtimes already normalise `{ kind: "error" }` and the runner
+         * threw them away, so `task_events` recorded a run's successes and
+         * nothing else: a clean run and one that failed half its commands were
+         * indistinguishable afterwards. S29's `tool_reliability` could not be
+         * scored at all - and a dimension every run passes measures nothing.
+         *
+         * Capped with the same budget as tool calls: a harness stuck in a retry
+         * loop must not be able to fill the table with its own noise.
+         */
+        for (const failure of normalised.filter((e) => e.kind === "error")) {
+          if (errorsRecorded >= MAX_TOOL_EVENTS) break;
+          errorsRecorded += 1;
+          void pool
+            .query(
+              `INSERT INTO task_events (task_id, type, name, summary) VALUES ($1, 'error', $2, $3)`,
+              [taskId, "harness_error", (failure as { message: string }).message.slice(0, 500)],
+            )
+            .catch(() => undefined);
+        }
+
         for (const call of normalised.flatMap((e) => (e.kind === "tool" ? e.calls : []))) {
           if (toolsRecorded >= MAX_TOOL_EVENTS) {
             if (toolsRecorded === MAX_TOOL_EVENTS) {

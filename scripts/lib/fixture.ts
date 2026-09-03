@@ -50,6 +50,21 @@ async function referencing(
   return r.rows;
 }
 
+
+const idColumns = new Map<string, boolean>();
+
+/** Does this table have an `id` column to recurse on? Asked once per table. */
+async function hasIdColumn(pool: pg.Pool, table: string): Promise<boolean> {
+  const hit = idColumns.get(table);
+  if (hit !== undefined) return hit;
+  const r = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM information_schema.columns
+      WHERE table_name = $1 AND column_name = 'id'`, [table]);
+  const has = Number(r.rows[0]?.n ?? 0) > 0;
+  idColumns.set(table, has);
+  return has;
+}
+
 /**
  * Delete rows, and whatever depends on them, depth first.
  *
@@ -70,20 +85,31 @@ async function deleteRows(
 ): Promise<void> {
   if (!values.length || depth > 4) return;
 
-  const mine = await pool.query<{ id: string }>(
-    `SELECT id FROM ${table} WHERE ${column} = ANY($1)`, [values],
-  ).catch(() => null);
-  const ids = mine?.rows.map((r) => r.id) ?? [];
-
-  if (ids.length) {
-    for (const child of await referencing(pool, table)) {
-      await deleteRows(pool, child.table, child.column, ids, removed, depth + 1);
+  /*
+   * Asked of the catalog, not of a failed query.
+   *
+   * This used to `SELECT id` and swallow the error for tables that have no
+   * `id`. Inside a transaction that is fatal: one failed statement aborts the
+   * whole thing and every later statement returns "current transaction is
+   * aborted". A tolerated failure and a real one look identical to Postgres, so
+   * the tolerated one has to stop being a failure.
+   */
+  if (await hasIdColumn(pool, table)) {
+    const mine = await pool.query<{ id: string }>(
+      `SELECT id FROM ${table} WHERE ${column} = ANY($1)`, [values],
+    );
+    const ids = mine.rows.map((r) => r.id);
+    if (ids.length) {
+      for (const child of await referencing(pool, table)) {
+        await deleteRows(pool, child.table, child.column, ids, removed, depth + 1);
+      }
     }
   }
 
-  const r = await pool.query(`DELETE FROM ${table} WHERE ${column} = ANY($1)`, [values])
-    .catch(() => null);
-  if (r?.rowCount) removed[table] = (removed[table] ?? 0) + r.rowCount;
+  // Not caught: a delete that fails must roll the teardown back rather than
+  // leaving the project stripped of half its rows.
+  const r = await pool.query(`DELETE FROM ${table} WHERE ${column} = ANY($1)`, [values]);
+  if (r.rowCount) removed[table] = (removed[table] ?? 0) + r.rowCount;
 }
 
 export type Teardown = {
@@ -98,13 +124,40 @@ export async function teardownFixtureProject(
 ): Promise<Teardown> {
   const removed: Record<string, number> = {};
 
+  /*
+   * All of it, or none of it.
+   *
+   * Without a transaction a teardown that cannot delete the project still
+   * deletes everything pointing AT it first - and leaves the project standing,
+   * stripped. That is what happened to the seeded `alpha-web` and
+   * `alpha-mobile`: an earlier version could not get past a foreign key, and
+   * the projects survived with their auth_profile_allowlists rows gone. Every
+   * heavy task on them then parked with "not allowlisted", which reads exactly
+   * like the S12b fixture gap and is nothing of the sort.
+   *
+   * A half-deleted project is worse than an undeleted one, because it looks
+   * fine until something tries to use it.
+   */
+  const client = await pool.connect();
+  const tx = {
+    query: (text: string, values?: unknown[]) => client.query(text, values as never),
+  } as unknown as pg.Pool;
   const refs = await referencing(pool, "projects");
-  for (const ref of refs) {
-    await deleteRows(pool, ref.table, ref.column, [projectId], removed);
+  try {
+    await client.query("BEGIN");
+    for (const ref of refs) {
+      await deleteRows(tx, ref.table, ref.column, [projectId], removed);
+    }
+    const self = await client.query(`DELETE FROM projects WHERE id = $1`, [projectId]);
+    if (self.rowCount) removed.projects = (removed.projects ?? 0) + self.rowCount;
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error(`teardown rolled back for ${projectId}: ${err instanceof Error ? err.message : err}`);
+    for (const k of Object.keys(removed)) delete removed[k];
+  } finally {
+    client.release();
   }
-  const self = await pool.query(`DELETE FROM projects WHERE id = $1`, [projectId])
-    .catch(() => null);
-  if (self?.rowCount) removed.projects = (removed.projects ?? 0) + self.rowCount;
 
   /*
    * Prove it, from the same catalog. A teardown that says it worked because it
