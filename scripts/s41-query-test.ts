@@ -90,7 +90,23 @@ async function main(): Promise<void> {
     mine.length === 2
       ? ok("both documents written that day are found, and the nine-day-old one is not")
       : bad(`found ${mine.length} from two days ago: ${mine.map((d) => d.title).join(", ")}`);
-    !mine.some((d) => d.artifactId === old) ? ok("the older document is outside the window") : bad("an old document was returned");
+    /*
+     * Scoped to ONE project, and that is not tidiness. Asked across all
+     * projects, this rides on a LIMIT: with the window widened to 1970 the
+     * nine-day-old fixture is simply pushed past the limit by real rows, and the
+     * assertion passes while the window is broken. Scoped, nothing can crowd it
+     * out - `scraping` and `old` are the only two documents in this project, and
+     * one of them is outside the day.
+     */
+    const inProject = await findDocuments(pool, {
+      when: "two days ago", now: NOW, projectId: normal, limit: 20,
+    });
+    inProject.length === 1 && inProject[0].artifactId === scraping
+      ? ok("within one project, only that day's document comes back")
+      : bad(`the window returned ${inProject.length}: ${inProject.map((d) => d.title).join(", ")}`);
+    !inProject.some((d) => d.artifactId === old)
+      ? ok("and the nine-day-old one is outside it")
+      : bad("an old document was returned");
     /*
      * Newest first. Two matches for "two days ago" means the later one, and a
      * recall that silently returns the earlier is wrong in the way hardest to
@@ -145,7 +161,7 @@ async function main(): Promise<void> {
      * Titles come off filenames, so one ending in "report" plus a kind of
      * "report" says it twice. Someone driving hears a mistake, not a stutter.
      */
-    !/report report/i.test(spoken.text)
+    !new RegExp("\\breport report\\b", "i").test(spoken.text)
       ? ok("and it does not say the kind twice when the title already ends in it")
       : bad(`stuttered: ${spoken.text}`);
     const normalDoc = (await findDocuments(pool, { about: "scraping", now: NOW }))[0];
