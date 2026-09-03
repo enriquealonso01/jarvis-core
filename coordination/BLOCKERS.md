@@ -27,5 +27,24 @@ pass. (History: earlier the message was delivered to the phone but never persist
 the gateway ran a stale copy of the bridge.)
 - **CHECK:** on the box, `docker ps --format '{{.Names}} {{.Status}}' | grep openclaw` shows it `Up`, AND a test WhatsApp message to the number appears as a new `inbox_events` row with `channel='whatsapp'`.
 
-## B3 — (add as they arise)
+## B3 — Onboarding engine-grant policy (decision)  ·  Status: CLEARED 2026-09-03
+Raised by the Monitor so the last BROKEN front-door item could close honestly: a
+brand-new API-onboarded project has NO engine allowlisted, so its first task sits
+in `waiting_for_provider` forever. The question was whether that is a bug or the
+plan working.
+Ruling (Enrique, 2026-09-03): **onboarding does NOT auto-grant engines.** Granting
+an engineering auth-profile (`anthropic_personal` / `openai_codex_personal` /
+`cursor_personal`, role `senior_engineer`) to a new project stays a **deliberate
+onboarding step** — fail-closed per S12b and the "no automatic paid API
+enablement" non-negotiable. No plan change; the Tester must NOT implement
+auto-grant.
+Consequence: the front door is **working as designed**. The "onboard with zero
+manual steps" bar is retired. The engine grant is a legitimate onboarding step,
+not "manual patching."
+- **CHECK:** none for Enrique — this is a recorded ruling. The front door is
+  VERIFIED (by the Tester, in `VERIFIED.md`) when a fresh API-onboarded project,
+  after the deliberate engine grant, takes a plain-English `/api/inbox` bug to a
+  real PR on the box.
+
+## B4 — (add as they arise)
 The Blockers session appends new items here as agents report things only you can do.
