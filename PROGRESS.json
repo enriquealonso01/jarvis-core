@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "e2d66e86986d2ffdfef8c1376a0039a51a80fc80",
+  "plan_sha": "e5923eadde17adee33d9fdd2c5acd3c7c67e62ea",
   "total_steps": 51,
-  "updated_at": "2026-09-03T06:28:38Z",
+  "updated_at": "2026-09-03T12:05:00Z",
   "current_step": "S29",
   "steps": [
     {
@@ -172,7 +172,7 @@
       "stage": 3,
       "state": "partial",
       "pr": 77,
-      "evidence": "Five items complete (66 assertions). The step now lists eight; watchdog self-observation was added after completion. Reopened per its standing rule: done means empty right now, not closed."
+      "evidence": "Five items complete (66 assertions). The step now lists nine; watchdog self-observation and Work-detail silence were added after completion. Reopened per its standing rule: done means empty right now, not closed."
     },
     {
       "id": "S19",
