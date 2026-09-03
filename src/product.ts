@@ -8,6 +8,7 @@ import { splitAuthorship } from "./untrusted.js";
 import { voiceNoteToText, untranscribableNotice, type VoiceNote } from "./voicenote.js";
 import { checksum } from "./supervisor.js";
 import { sseAdd, sseBroadcast, sseHeartbeat } from "./sse.js";
+import { reconcileSweepIncident, sweepHealth } from "./selfwatch.js";
 import { internalIdempotency, requestRawBody, verifyInternalHmac } from "./hmac.js";
 import { verifyTelnyxWebhook } from "./telnyx.js";
 import { storeUpload, type StoredUpload } from "./uploads.js";
@@ -1336,6 +1337,20 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
   app.get("/api/health-incidents", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;
+
+    /*
+     * The reader raises it, not the component.
+     *
+     * "A component must not be the sole author of its own liveness." A stopped
+     * watchdog cannot report that it stopped, so whatever renders health checks
+     * the sweep record itself, on the way to rendering it. This is one of two
+     * independent readers - a host timer outside the container is the other,
+     * because this one lives in a container that could be stopped by the same
+     * thing.
+     */
+    const health = await sweepHealth(pool, "watchdog").catch(() => null);
+    if (health) await reconcileSweepIncident(pool, health, "api").catch(() => undefined);
+
     const r = await pool.query(
       `SELECT id, service, severity, opened_at, closed_at, summary
        FROM health_incidents ORDER BY opened_at DESC LIMIT 100`,
@@ -1343,6 +1358,12 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     return {
       incidents: r.rows,
       open: r.rows.filter((i: { closed_at: Date | null }) => !i.closed_at).length,
+      /*
+       * Reported even when healthy. VII.1: absence of data must never render as
+       * absence of problems, and a console that shows nothing about the
+       * watchdog is exactly how a stopped one looks like a calm week.
+       */
+      watchdog: health,
     };
   });
 

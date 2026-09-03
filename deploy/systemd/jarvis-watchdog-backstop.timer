@@ -1,0 +1,13 @@
+[Unit]
+Description=Check the watchdog every few minutes
+
+[Timer]
+# Two minutes: the staleness limit is five, so a real stall is noticed within
+# roughly one limit rather than one timer period after it.
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=jarvis-watchdog-backstop.service
+
+[Install]
+WantedBy=timers.target
