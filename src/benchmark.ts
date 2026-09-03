@@ -282,3 +282,112 @@ export async function caseIsFailable(
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
 }
+
+/**
+ * Is this case gradeable in both directions?
+ *
+ * `caseIsFailable` asked only whether the hidden tests fail against the seed,
+ * and a file that cannot even be loaded fails beautifully. slug-trailing-dash
+ * shipped a CommonJS seed while the harness writes `"type": "module"`, so its
+ * hidden suite died on `require is not defined` - every run of that case scored
+ * hidden_tests 0 no matter what the agent wrote, and the corpus check called it
+ * a good case because it had watched it go red.
+ *
+ * A dimension that always fails measures exactly as much as one that always
+ * passes: nothing. So a case must now clear both directions - red on the seed
+ * FOR AN ASSERTION, and green against a known-good fix kept beside it. The fix
+ * is not shown to the agent; it exists so the corpus can prove the target is
+ * reachable before anyone is scored against it.
+ */
+export async function caseIsGradeable(
+  c: BenchmarkCase,
+  run: (cwd: string) => Promise<{ passed: boolean; output: string }>,
+): Promise<{ gradeable: boolean; detail: string }> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+
+  const build = async (from: "seed" | "fix"): Promise<string> => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), `bench-${c.id}-${from}-`));
+    await fs.mkdir(path.join(tmp, "src"), { recursive: true });
+    await fs.mkdir(path.join(tmp, "test"), { recursive: true });
+    for (const f of await fs.readdir(path.join(c.dir, from))) {
+      await fs.copyFile(path.join(c.dir, from, f), path.join(tmp, "src", f));
+    }
+    for (const f of await fs.readdir(path.join(c.dir, "hidden"))) {
+      await fs.copyFile(path.join(c.dir, "hidden", f), path.join(tmp, "test", f));
+    }
+    await fs.writeFile(path.join(tmp, "package.json"), JSON.stringify({ type: "module" }));
+    return tmp;
+  };
+
+  const hasFix = await fs
+    .stat(path.join(c.dir, "fix"))
+    .then((s) => s.isDirectory())
+    .catch(() => false);
+  if (!hasFix) {
+    return { gradeable: false, detail: "no fix/ beside the case, so nothing proves the hidden tests can pass" };
+  }
+
+  const seedDir = await build("seed");
+  const fixDir = await build("fix");
+  try {
+    const onSeed = await run(seedDir);
+    if (onSeed.passed) {
+      return { gradeable: false, detail: "the hidden tests PASS against the seed - the case proves nothing" };
+    }
+    /*
+     * Red for the right reason.
+     *
+     * A load error, a syntax error or a missing export all produce a red run
+     * that says nothing about the bug. Counting failed TESTS does not separate
+     * them: node reports a file that could not be loaded as one failing test,
+     * so "# fail 1" appears whether an assertion decided it or the file never
+     * ran. This was written that way first and a CommonJS seed sailed through
+     * it. What actually distinguishes the two is the thrown error - an
+     * assertion failure raises AssertionError, a broken module does not.
+     */
+    if (LOAD_ERROR.test(onSeed.output)) {
+      return {
+        gradeable: false,
+        detail: `the hidden tests failed on the seed without running: ${firstError(onSeed.output)}`,
+      };
+    }
+    if (!/AssertionError/.test(onSeed.output)) {
+      return {
+        gradeable: false,
+        detail: `nothing asserted its way to red on the seed: ${firstError(onSeed.output)}`,
+      };
+    }
+
+    const onFix = await run(fixDir);
+    if (!onFix.passed) {
+      return {
+        gradeable: false,
+        detail: `the hidden tests fail against the known-good fix too: ${firstError(onFix.output)}`,
+      };
+    }
+    return { gradeable: true, detail: "red on the seed by assertion, green on the reference fix" };
+  } finally {
+    await fs.rm(seedDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs.rm(fixDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * Failures that happen before any test runs.
+ *
+ * Kept as one list because the question is always the same: did this file
+ * execute? A module that could not be parsed, resolved or loaded says nothing
+ * about the bug the case is built around.
+ */
+const LOAD_ERROR = /SyntaxError|ReferenceError|Cannot find module|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM|is not defined/;
+
+/** The first line that looks like a reason, for a message a person can act on. */
+function firstError(output: string): string {
+  const line = output
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => /Error|error:|not defined|Cannot find/.test(l));
+  return (line ?? output.split("\n")[0] ?? "no output").slice(0, 160);
+}

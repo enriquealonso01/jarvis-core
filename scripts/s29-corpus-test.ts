@@ -8,13 +8,23 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { loadCases, caseIsFailable } from "../src/benchmark.js";
+import { loadCases, caseIsFailable, caseIsGradeable } from "../src/benchmark.js";
 
 const run = promisify(execFile);
 let fails = 0;
 let passes = 0;
 const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
+
+/** Whether the suite passed, and what it printed - the output decides WHY it failed. */
+async function nodeTestVerbose(cwd: string): Promise<{ passed: boolean; output: string }> {
+  return await run("node", ["--test"], { cwd, timeout: 60_000 })
+    .then((r) => ({ passed: true, output: `${r.stdout}${r.stderr}` }))
+    .catch((e: { stdout?: string; stderr?: string }) => ({
+      passed: false,
+      output: `${e.stdout ?? ""}${e.stderr ?? ""}`,
+    }));
+}
 
 /** True when the suite passed. */
 async function nodeTest(cwd: string): Promise<boolean> {
@@ -64,6 +74,47 @@ async function main() {
   !alwaysPasses.failable
     ? ok("a seed the hidden tests pass against is reported as not failable")
     : bad("the failability check cannot tell a passing seed from a failing one");
+
+  console.log("5. every case is gradeable in BOTH directions");
+  /*
+   * Red on the seed is half a case. slug-trailing-dash shipped a CommonJS seed
+   * while the harness writes "type": "module", so its hidden suite died on
+   * `require is not defined` before a single test ran - and assertion 3 called
+   * that a good case, because it had watched it go red. Every run of that case
+   * scored hidden_tests 0 whatever the agent wrote.
+   */
+  for (const c of cases) {
+    const g = await caseIsGradeable(c, nodeTestVerbose);
+    g.gradeable ? ok(`${c.id}: ${g.detail}`) : bad(`${c.id}: ${g.detail}`);
+  }
+
+  console.log("6. a case that fails without running is not gradeable");
+  const broken = { ...cases[0], id: "broken", dir: cases[0]?.dir ?? "" };
+  const loadError = await caseIsGradeable(broken, async () => ({
+    passed: false,
+    output: "ReferenceError: require is not defined in ES module scope",
+  }));
+  !loadError.gradeable && loadError.detail.includes("without running")
+    ? ok("a suite that dies before any test runs is rejected, not counted as red")
+    : bad("a load error was accepted as proof the case fails");
+
+  // Red by assertion in both directions: the seed gate is satisfied, so the
+  // only thing left to reject it is that the reference fix cannot pass either.
+  const unreachable = await caseIsGradeable(broken, async () => ({
+    passed: false,
+    output: "AssertionError [ERR_ASSERTION]: expected 3 to equal 4",
+  }));
+  !unreachable.gradeable && unreachable.detail.includes("known-good fix")
+    ? ok("and a case its own reference fix cannot pass is rejected")
+    : bad("a case that nobody can pass was accepted");
+
+  const noAssertion = await caseIsGradeable(broken, async () => ({
+    passed: false,
+    output: "# fail 1",
+  }));
+  !noAssertion.gradeable && noAssertion.detail.includes("nothing asserted")
+    ? ok("and red with no assertion behind it is rejected - a failed test count is not a reason")
+    : bad("a red run with no assertion was accepted as a genuine failure");
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);

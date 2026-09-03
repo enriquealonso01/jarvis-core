@@ -1,6 +1,6 @@
-const { test } = require("node:test");
-const assert = require("node:assert/strict");
-const { slugify } = require("../src/slugify.js");
+import test from "node:test";
+import assert from "node:assert/strict";
+import { slugify } from "../src/slugify.js";
 
 // The reported case.
 test("no trailing dash", () => assert.equal(slugify("Hello World!"), "hello-world"));
