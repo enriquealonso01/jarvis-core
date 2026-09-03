@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "8e2fb3011f60be80802f4b0e242b94503bf4d9c5",
   "total_steps": 51,
-  "updated_at": "2026-09-03T14:25:00Z",
+  "updated_at": "2026-09-03T08:15:02Z",
   "current_step": "S29",
   "steps": [
     {
@@ -172,7 +172,7 @@
       "stage": 3,
       "state": "partial",
       "pr": 77,
-      "evidence": "Five items complete (66 assertions). The step now lists nine; watchdog self-observation and Work-detail silence were added after completion. Reopened per its standing rule: done means empty right now, not closed."
+      "evidence": "Five items complete (66 assertions). The step now lists nine; watchdog self-observation and Work-detail silence were added after completion. Reopened per its standing rule: done means empty right now, not closed. Item six of nine, Silence on the Work detail, is built and deployed. One correction to how the plan describes it: it says a healthy task running its test suite renders as a broken connection, and that half is already fixed - the console listens for the server's two-second heartbeat, so `live` stays true and the paused banner does not appear. What was actually missing is the useful sentence. With the stream alive and the task silent the banner read 'Live - caught up 5m ago', which is true and tells you nothing; it now reads 'running tests - 4m12s'. The quiet threshold is measured rather than chosen: gaps between events inside real heavy runs on this box cluster at 12-18 seconds with a tail at 31, 34 and 74, so a 20s cut would sit inside the ordinary distribution and flicker several times a run - the same defect in the other direction - while 30s clears it. The transport check stays first, because if the stream is gone the phase this would report cannot be trusted either. Ten assertions cover both halves (jarvis-control-center tests/live-status.test.ts); sabotaging the quiet detection so every silence reads as live failed the three working assertions. Deployed and present in the shipped work-page chunk. NOT claimed: seen rendered in a browser - there is no browser here."
     },
     {
       "id": "S19",
