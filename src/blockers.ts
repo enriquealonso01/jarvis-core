@@ -131,6 +131,8 @@ const SETUP_ACTIONS: {
   message: string;
   profileId?: string;
   connectionSlug?: string;
+  /** The channel this action is about, when it is about one (see enqueueNotification). */
+  channel?: string;
 }[] = [
   {
     dedupe: "setup.composio",
@@ -176,6 +178,8 @@ const SETUP_ACTIONS: {
   {
     dedupe: "setup.whatsapp",
     kind: "pair_channel",
+    /** The channel it is about, so it is never queued on that channel. */
+    channel: "whatsapp",
     title: "Pair WhatsApp",
     message:
       "On the VPS: docker compose --profile openclaw up -d, then open the OpenClaw QR through the Tailscale tunnel and scan it with the WhatsApp account Jarvis should use. No paid WhatsApp Business API is involved.",
@@ -217,6 +221,8 @@ export async function ensureActionRequests(pool: pg.Pool): Promise<void> {
       messageType: "blocker",
       body: `${a.title}: ${a.message}`,
       objectType: "action_request",
+      // A pairing request cannot travel on the channel being paired.
+      ...(a.channel ? { aboutChannel: a.channel } : {}),
       objectId: made.id,
       idempotencyKey: `blocker:${a.dedupe}`,
     });
