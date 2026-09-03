@@ -159,6 +159,20 @@ export function linkIsSafe(url: string): { safe: boolean; why: string } {
   if (parsed.protocol !== "https:") {
     return { safe: false, why: "a link to a confidential document must be https" };
   }
+  /*
+   * Credentials in the URL itself.
+   *
+   * `https://user:pw@host/doc` is the same failure the query-parameter check
+   * below is written for - it opens without a session - but it carries the
+   * secret in the userinfo rather than the query, so the loop never sees it.
+   * Observed passing as safe on the box before this.
+   */
+  if (parsed.username || parsed.password) {
+    return {
+      safe: false,
+      why: "the URL carries credentials in it, so it opens without a session — that is the attachment it was meant to replace",
+    };
+  }
   for (const key of ["t", "token", "key", "access_token", "sig", "signature"]) {
     if (parsed.searchParams.has(key)) {
       return {
