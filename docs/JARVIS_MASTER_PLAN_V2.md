@@ -2165,11 +2165,38 @@ without Enrique being told anything.
 
 On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.md` and versions it in `project_instructions_versions`.
 
-**Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
+### The window between "the project exists" and "the project is onboarded"
+
+Onboarding is ten questions, and N5 already decided not to ask them on the phone:
+*he talks for two minutes about a new project, Tier 2 creates it, and the
+questions arrive in a thread he reads later.* That is the right call — a
+ten-question interrogation is the opposite of what a call is for.
+
+But it opens a window nobody has specified, and **it is exactly the window in
+which he will ask for something.** *"Start a project for the AIDP thing and look
+into the pricing model"* creates a project and a request in the same breath.
+Under which model? Which credentials? Is it confidential? Every one of those is a
+question that has not been answered yet.
+
+- **An un-onboarded project is real, but restricted.** It captures, stores, holds conversations and accumulates context — nothing is lost, which is the promise that matters. It runs **no heavy work, uses no credential, and reaches no repository**, because each of those is governed by an answer that does not exist.
+- **While unanswered, the strict reading applies: confidential and professional.** The cost of being wrong in that direction is a slower answer. The cost of being wrong in the other direction is a leak, and the two are not comparable.
+- **It never silently stalls.** A task requested against an un-onboarded project queues with a truthful reason — the same shape as the workstation-is-off case in S47 — and runs the moment onboarding finishes. It does not fail, and it does not sit looking healthy while nothing happens.
+- **The remaining questions are visible and one tap away**, on the project and in Needs You. A half-created project that quietly waits is how he ends up asking why Jarvis ignored him.
+
+**And answering is not all-or-nothing.** The questions have different
+consequences: confidentiality and repository gate everything, while monitoring
+and backup preferences gate almost nothing. Ask in that order, and let the
+project become useful as soon as the gating answers exist rather than at the end
+of the questionnaire.
+
+**Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
+- **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
+- An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- The unanswered questions appear in Needs You, and answering the gating ones makes the project usable **before** the rest are answered. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
 
 **Debug** If `AGENTS.md` lands with template placeholders still in it, finalize ran before every answer was collected — the onboarding session must refuse to finalize on a missing required field rather than substituting a default. If the committed file and the database disagree, decide which is canonical now and enforce it; two sources of project policy is a bug that gets worse with time.
 
-**Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
+**Done when:** a project created by voice ends with a correct committed `AGENTS.md` — written when the thread is answered, not when the call ends — and anything asked for in between is waiting, not lost and not running ungoverned.
 
 ## S27 — Configuration by conversation
 
