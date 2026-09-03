@@ -5,6 +5,10 @@ import { startSseBridge } from "./sse.js";
 import { claimTask, runSystemTask, transitionTask } from "./jobs.js";
 import { backoffSeconds, raiseIssue } from "./notify.js";
 import { cronMatches } from "./cron.js";
+import {
+  decideFire, gatherContext, minuteOf, noteMisfire, pauseForFailures, recordRun,
+  type Overlap,
+} from "./schedule.js";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -25,44 +29,71 @@ const WORKER_ID = process.env.WORKER_ID ?? "system-1";
 const ARTIFACTS = ARTIFACTS_DIR;
 const WORKTREES = WORKTREES_DIR;
 
+/**
+ * Fire what is due, and record what was not (plan S34).
+ *
+ * The decision lives in src/schedule.ts and is pure, so the awkward cases - a
+ * box that was off for six hours, a run still in flight, a schedule that has
+ * failed twice - are tested at any clock without running this loop. What is
+ * left here is I/O.
+ */
 async function fireDueSchedules(pool: ReturnType<typeof createPool>) {
   const now = new Date();
-  const minute = new Date(now);
-  minute.setSeconds(0, 0);
+  const scheduledFor = minuteOf(now);
   const rows = await pool.query<{
-    id: string;
-    name: string;
-    project_id: string;
-    cron: string;
-    timezone: string;
-    paused: boolean;
-    overlap: string;
-  }>(`SELECT id, name, project_id, cron, timezone, paused, overlap FROM schedules WHERE paused = false`);
-  for (const s of rows.rows) {
-    if (!cronMatches(s.cron, minute, s.timezone || "America/New_York")) continue;
-    const already = await pool.query(
-      `SELECT 1 FROM schedule_runs WHERE schedule_id = $1 AND scheduled_for = $2`,
-      [s.id, minute.toISOString()],
-    );
-    if ((already.rowCount ?? 0) > 0) continue;
-    if (s.overlap === "skip") {
-      const active = await pool.query(
-        `SELECT 1 FROM tasks t JOIN schedule_runs r ON r.task_id = t.id
-         WHERE r.schedule_id = $1 AND t.state IN ('queued','preparing','running','recovering') LIMIT 1`,
-        [s.id],
-      );
-      if ((active.rowCount ?? 0) > 0) continue;
+    id: string; name: string; project_id: string; cron: string; timezone: string;
+    paused: boolean; overlap: string; failure_threshold: number | null;
+  }>(
+    `SELECT id, name, project_id, cron, timezone, paused, overlap, failure_threshold
+       FROM schedules WHERE paused = false`,
+  );
+  for (const row of rows.rows) {
+    if (!cronMatches(row.cron, scheduledFor, row.timezone || "America/New_York")) continue;
+    const s = {
+      id: row.id, name: row.name, projectId: row.project_id,
+      overlap: row.overlap as Overlap, paused: row.paused,
+      failureThreshold: row.failure_threshold,
+    };
+    const ctx = await gatherContext(pool, s.id, scheduledFor, s.failureThreshold ?? undefined);
+    const decision = decideFire(s, scheduledFor, now, ctx);
+
+    if (!decision.fire) {
+      // Recorded, including the skips: a schedule that never runs and one that
+      // was never due are the same row otherwise.
+      if (decision.result !== "already_ran") {
+        await recordRun(pool, { scheduleId: s.id, scheduledFor, result: decision.result });
+      }
+      if (decision.result === "skipped_misfire") {
+        await noteMisfire(pool, s, scheduledFor, now.getTime() - scheduledFor.getTime());
+      }
+      if (decision.result === "paused" && ctx.consecutiveFailures > 0) {
+        await pauseForFailures(pool, s, ctx.consecutiveFailures);
+      }
+      continue;
+    }
+
+    if (decision.replaces) {
+      await pool.query(
+        `UPDATE tasks SET state = 'cancelled' WHERE id = $1 AND state IN ('queued','preparing','running','recovering')`,
+        [decision.replaces]);
     }
     const task = await pool.query<{ id: string }>(
       `INSERT INTO tasks (project_id, title, objective, state, priority, lane)
        VALUES ($1, $2, $2, 'queued', 'background', 'system') RETURNING id`,
-      [s.project_id, s.name],
+      [s.projectId, s.name],
     );
-    await pool.query(
-      `INSERT INTO schedule_runs (schedule_id, task_id, scheduled_for, started_at)
-       VALUES ($1, $2, $3, now())`,
-      [s.id, task.rows[0].id, minute.toISOString()],
-    );
+    /*
+     * The insert is the lock. If a second worker - or this one after a restart
+     * mid-loop - reaches the same minute, the unique index refuses the row and
+     * `recordRun` returns false, so the task it just created is withdrawn
+     * rather than left to run twice.
+     */
+    const recorded = await recordRun(pool, {
+      scheduleId: s.id, scheduledFor, taskId: task.rows[0].id, result: "fired",
+    });
+    if (!recorded) {
+      await pool.query(`DELETE FROM tasks WHERE id = $1`, [task.rows[0].id]);
+    }
   }
 }
 
