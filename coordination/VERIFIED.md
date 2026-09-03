@@ -216,6 +216,11 @@ index dcdf213..7336a33 100644
   - **Fixed the leak** (PR #309): `deploy-core.sh` now refuses to deploy when `migrations/` has uncommitted changes, with `DEPLOY_ALLOW_DIRTY_MIGRATIONS=1` for someone who means it. Scoped to `migrations/` alone, because that is the one directory where the mistake cannot be walked back — everywhere else a dirty tree is the normal cost of iterating, which is why the script packs the tree at all. `045` has been moved out of the tree (copy kept) so it stops shipping.
   - **Not done, deliberately:** dropping `connection_actions` and `mcp_tools` and their `schema_migrations` rows is destructive work on the production database. That is Enrique's call, not mine. Until then the box keeps two dead tables — inert, but they should not be discovered by someone in six months wondering what created them.
 
+- **2026-09-03 — The deploy guard I shipped actually blocks, verified both ways.** A guard that is never tested is a comment, so I tested my own fix rather than trusting the diff.
+  - **Refuses:** dropped an untracked `migrations/999_guard_probe.sql` into the tree and ran `deploy-core.sh` — it printed the refusal, named the offending file, and **exited 1**. The exit code is the part that matters and it is easy to get wrong; my first check read `head`'s status through a pipe and reported a misleading `0`, so I re-checked the script's own status directly.
+  - **Does not false-positive:** with `migrations/` clean the script ran end to end — build, containers, runner restarted 20:03:09 against a 20:02:28 build, `/api/health` 200.
+  - **Current drift, for the record:** 50 migrations applied on the box against 46 in `main`. The gap is now four — `041_connection_actions`, `042_mcp_tools`, `044_outbox_handed_off`, `045_outbox_dropped` — and it widened by one purely because `045` was removed from the tree, which is the intended direction: nothing new can leak, and what already leaked is now counted rather than hidden.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
