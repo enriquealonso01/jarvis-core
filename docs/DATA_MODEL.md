@@ -427,3 +427,358 @@ Optional later; same as memory with source artifact. Accounted: table exists, wo
 - auth_profiles rows for boot §8.5 **plus** groq, nvidia, google_ai, elevenlabs, backup_b2 (credentials filled at Netcup bootstrap, ADR 014)
 - default schedules: Improvement weekly, Maintenance health/retention
 - no application or professional project rows
+
+---
+
+# Tables added after the first draft
+
+The schema grew from 37 tables to 57 while this file described 37 of them. These
+are the twenty that arrived since, documented from the migrations that created
+them and the code that writes them. One paragraph each: what it holds, and who
+writes it — the second half is the one that is hard to recover later.
+
+## task_events
+
+The timeline of a heavy run: one row per phase entered, tool call made, review
+finding, or error. Written by the runner as a run proceeds, and read by the Work
+detail, by `collectEvidence` when a benchmark scores a run, and by the console
+to answer "what is it doing right now".
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| task_id | uuid | |
+| at | timestamptz | |
+| type | text | phase / tool / review / error |
+| name | text | the phase name, tool name, or error class |
+| summary | text | one line, capped at 500 characters |
+| artifact_id | uuid | when the event produced a file |
+
+`type = 'error'` arrived in migration 037: both runtimes report a failed tool and
+the runner dropped them, so a clean run and one that failed half its commands
+were indistinguishable.
+
+## task_context
+
+Mid-run context: something Enrique said after a task started, waiting to be
+handed to the agent at its next checkpoint boundary. Written by the router when
+a message lands on a running task; cleared by the runner when it delivers.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| task_id | uuid | |
+| inbox_event_id | uuid | where it came from |
+| conversation_id | uuid | |
+| body | text | |
+| created_at | timestamptz | |
+| delivered_at | timestamptz | null until the agent has seen it |
+| delivered_attempt | integer | which attempt received it |
+| attached_state | text | the task state when it was attached |
+
+Pulled rather than pushed: a process mid-model-call has nowhere to receive a
+signal, so the runner reads this at its own checkpoint.
+
+## activity_events
+
+The human-readable feed: the handful of moments a person would want to read,
+rather than every state change. Written by `transitionTask` for the states worth
+mentioning, and by anything else that wants a line on the timeline.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| project_id | uuid | nullable for system-wide events |
+| at | timestamptz | |
+| kind | text | |
+| subject_id | uuid | the task, issue or conversation |
+| title | text | |
+| detail | text | |
+| actor | text | who caused it |
+| href | text | where to go to see it |
+
+Deliberately not a log of the state machine — `task_transitions` already is that,
+and nobody scrolls it.
+
+## active_project
+
+Which project the console is currently pointed at. One row. Written by the
+console when the operator switches project, read by anything that needs a
+default.
+
+| column | type |
+|---|---|
+| id | uuid pk |
+| project_id | uuid |
+| set_by | text |
+| set_at | timestamptz |
+
+## sender_project_binding
+
+Which project a given sender on a given channel is talking about, so a WhatsApp
+message does not need to name its project every time. Written during onboarding
+and by explicit rebinding; read by the router.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| channel | text | whatsapp / sms / console |
+| sender | text | the E.164 number or console user |
+| project_id | uuid | |
+| enabled | boolean | a binding is disabled rather than deleted |
+| created_at | timestamptz | |
+
+## calls
+
+One row per phone call, inbound or outbound, keyed by the Telnyx call control
+id. Holds the live state of the call state machine, the deadline the worker
+sweeps against, and the artifacts produced. Written by the call runtime on every
+webhook.
+
+| column | type | notes |
+|---|---|---|
+| call_control_id | text pk | Telnyx |
+| call_leg_id | text | |
+| from_e164 | text | |
+| conversation_id | uuid | |
+| state | text | ringing / greeting / listening / thinking / speaking / closing |
+| deadline_at | timestamptz | swept from the worker, so a deadline survives an API restart |
+| deadline_leg | text | which leg the deadline belongs to |
+| turns | integer | |
+| silence_prompts | integer | |
+| transcript_artifact_id | uuid | |
+| started_at, state_at, ended_at | timestamptz | |
+| end_reason | text | |
+| pending_text, pending_since | text, timestamptz | speech heard but not yet answered |
+| speaking_marker | text | the marker Telnyx echoes when playback finishes |
+| barge_ins | integer | |
+| summary | text | |
+| recording_artifact_id | uuid | |
+
+Persisted rather than held in a module-level map, because a restart mid-call
+would otherwise erase the call.
+
+## call_turns
+
+One row per exchange within a call: what was heard, what was answered, and where
+the time went. Written by the call runtime; read by the latency work and by S24
+call review.
+
+| column | type | notes |
+|---|---|---|
+| id | bigint pk | |
+| call_control_id | text | |
+| n | integer | turn number within the call |
+| heard | text | |
+| started_at | timestamptz | |
+| ack_ms, model_ms, tts_ms, total_ms | integer | the latency breakdown |
+| tool_started_at, tool_ended_at | timestamptz | |
+| answer_text | text | |
+| answered_at | timestamptz | |
+| handover_task_id | uuid | when the turn created work |
+| inbox_event_id | uuid | |
+| outcome | text | |
+| ack_text | text | the immediate acknowledgement, before the real answer |
+| answered_by | text | tier1 / desk — added in migration 035 |
+
+## call_speech
+
+The raw utterances of a call, both directions, in order. Written by the call
+runtime as transcription and playback happen; the transcript artifact is built
+from these.
+
+| column | type | notes |
+|---|---|---|
+| id | bigint pk | |
+| call_control_id | text | |
+| turn_id | bigint | null for speech outside a turn |
+| kind | text | heard / said |
+| text | text | |
+| at | timestamptz | |
+
+## call_transitions
+
+The call state machine, one row per hop, mirroring `task_transitions`. Written
+by the call runtime whenever the state changes.
+
+| column | type | notes |
+|---|---|---|
+| id | bigint pk | |
+| call_control_id | text | |
+| at | timestamptz | |
+| from_state, to_state | text | |
+| cause | text | |
+| event_type | text | the Telnyx webhook that caused it |
+
+## outbound_calls
+
+The queue of reasons Jarvis wants to ring Enrique, and what happened to each.
+Written by the reasons sweep in the worker; read by `placeCall`.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| reason | text | one of the six sanctioned reasons |
+| subject | text | |
+| issue_id, task_id, project_id, schedule_id | uuid | whichever applies |
+| state | text | wanted / placing / placed / done / blocked |
+| blocked_reason | text | quiet hours, no number, provider refusal |
+| retry_after | timestamptz | |
+| call_control_id | text | once placed |
+| wanted_at, placed_at, ended_at | timestamptz | |
+| attempts | integer | `placeCall` refuses a row with attempts above zero |
+
+## escalations
+
+Every time a task moved up a pool rather than sideways, keyed by task shape so a
+shape that always escalates is visible without reading a log. Written by
+recovery rung 8; read by the benchmark.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| task_id | uuid | |
+| shape | text | what kind of task this was |
+| from_profile, to_profile | text | |
+| cause | text | |
+| at | timestamptz | |
+
+## model_policy
+
+A single row holding the standing rules: whether only
+open-weights models may be used, the monthly ceiling, the autonomy level, and
+the soft ceiling with the month it was last warned about. Written by the console
+and by configuration-by-conversation.
+
+| column | type | notes |
+|---|---|---|
+| id | boolean pk | always true — one row, enforced by the type |
+| open_weights_only | boolean | |
+| monthly_ceiling_usd | numeric | |
+| autonomy | text | |
+| updated_at | timestamptz | |
+| soft_ceiling_usd | numeric | |
+| soft_notified_month | date | so one warning is sent per month, not per call |
+
+## model_usage
+
+One row per model call: who was asked, in what role, for which
+task or conversation, and what it cost. Written by the supervisor and the
+runtime wrapper; read by the spend ceiling and the daily digest.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| at | timestamptz | |
+| provider, model_id | text | |
+| role | text | supervisor / task / reviewer / utility / stt / tts / embeddings |
+| conversation_id, task_id | uuid | |
+| input_tokens, output_tokens, cached_tokens | integer | |
+| cost_usd | numeric | null for a subscription, which is not metered |
+| transport | text | how the call was made |
+
+## quota_observations
+
+What a subscription said about itself, when it said it. Written whenever a
+provider reports a limit or a reset, and by the estimator when it has to guess.
+Read by routing, which treats quota as an input rather than a reason to stop
+(ADR 017).
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| at | timestamptz | |
+| auth_profile_id | text | |
+| kind | text | what sort of observation |
+| status | text | |
+| remaining_pct | numeric | |
+| estimated | boolean | true when this is inference, not a provider statement |
+| resets_at | timestamptz | |
+| detail | text | |
+| task_id | uuid | the run that produced the observation |
+
+`estimated` matters: an inferred remaining percentage and a reported one must
+never be read as the same fact.
+
+## oauth_device_flows
+
+An in-flight device-code login: the code to show, where to enter it, and how
+often to poll. Written when a login starts, updated by polling, and deleted or
+marked terminal when it resolves.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| auth_profile_id | text | |
+| device_code, user_code | text | |
+| verification_uri, verification_uri_complete | text | |
+| interval_seconds | integer | provider-specified poll interval |
+| started_at, expires_at, last_polled_at | timestamptz | |
+| state | text | pending / approved / denied / expired |
+| detail | text | |
+
+## reauth_events
+
+When a session was re-authenticated. Written by the API on a successful step-up;
+read by anything that needs to know how recently the operator proved who they
+are.
+
+| column | type |
+|---|---|
+| id | uuid pk |
+| session_id | text |
+| at | timestamptz |
+
+## internal_requests
+
+Idempotency for internal HMAC-signed posts: the request id, the route, and the
+response that was returned the first time. Written by the internal-request
+guard; a replay returns the stored response rather than acting twice.
+
+| column | type | notes |
+|---|---|---|
+| request_id | text pk | |
+| route | text | |
+| at | timestamptz | |
+| response | jsonb | replayed verbatim |
+
+## resource_metrics
+
+Host CPU, memory, disk and load, sampled every five minutes. Written by the
+worker; read by the resource classes in the taxonomy and by System Health.
+
+| column | type |
+|---|---|
+| id | bigint pk |
+| at | timestamptz |
+| cpu_busy_pct | numeric |
+| memory_used_pct | numeric |
+| disk_used_pct | numeric |
+| disk_free_bytes | bigint |
+| load1 | numeric |
+
+## component_sweeps
+
+One row per component that sweeps, recording the last COMPLETED sweep rather
+than a tick. Written by the worker after its watchdog sweep returns; read by the
+API and by a host timer outside the container, because a component must not be
+the sole author of its own liveness.
+
+| column | type | notes |
+|---|---|---|
+| component | text pk | |
+| last_completed_at | timestamptz | written after the sweep, never before |
+| sweeps | bigint | monotonic, so a component that finished once and stopped is visible |
+| owner | text | which process, so a change of hand shows |
+| updated_at | timestamptz | |
+
+## schema_migrations
+
+Which migration files have been applied. Written by the migration runner inside
+the same transaction that applies the file, so a half-applied migration is not
+recorded as done.
+
+| column | type |
+|---|---|
+| filename | text pk |
+| applied_at | timestamptz |
