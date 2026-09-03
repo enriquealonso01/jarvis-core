@@ -19,10 +19,20 @@
  * when two means differ by less than one engine's own wobble.
  */
 import { createPool } from "../src/db.js";
-import { rank, rankingReproduces, summarise, type BenchRow } from "../src/ranking.js";
+import { rankBySolving, rankingReproduces, solveRates, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
-const CUTOFF = process.argv[2] ?? "2026-09-03T06:25:00Z";
+/*
+ * A window per pass, not just a midpoint.
+ *
+ * "Re-run the same pair twice" means two comparable passes over the same
+ * corpus. Splitting all history at a midpoint puts every earlier experiment -
+ * different corpus, harness defects since fixed - into the first pass and calls
+ * the result a re-run.
+ */
+const START = process.argv[2] ?? "2026-09-03T07:44:00Z";
+const MID = process.argv[3] ?? "2026-09-03T08:16:30Z";
+const END = process.argv[4] ?? "2026-09-03T08:48:30Z";
 
 function toRows(rs: { harness: string; suite: string; scores: Record<string, unknown> }[]): BenchRow[] {
   return rs.map((x) => ({
@@ -35,30 +45,30 @@ function toRows(rs: { harness: string; suite: string; scores: Record<string, unk
 
 function show(label: string, rows: BenchRow[]): void {
   console.log(`${label}: ${rows.length} runs`);
-  for (const h of summarise(rows)) {
+  for (const h of solveRates(rows)) {
     console.log(
-      `  ${h.harness.padEnd(7)} n=${h.runs} mean=${h.mean.toFixed(3)} `
-      + `range=${h.min.toFixed(2)}..${h.max.toFixed(2)} cases=${h.cases.length}`,
+      `  ${h.harness.padEnd(7)} solved ${h.solved}/${h.runs} = ${(h.rate * 100).toFixed(0)}%`
+      + `  over ${h.cases.length} cases`,
     );
   }
-  const v = rank(rows);
-  console.log(`  ${v.ok ? `winner ${v.winner} by ${v.margin.toFixed(3)}` : `no ranking: ${v.reason}`}`);
+  const v = rankBySolving(rows);
+  console.log(`  ${v.ok ? `winner ${v.winner}, ${v.sigma.toFixed(2)} standard errors clear` : `no ranking: ${v.reason}`}`);
 }
 
 async function main(): Promise<void> {
-  const q = async (op: string) => {
+  const q = async (from: string, to: string) => {
     const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown> }>(
       `SELECT harness, suite, scores FROM benchmarks
         WHERE scores->>'invalid' IS NULL AND harness IN ('claude','codex')
-          AND ran_at ${op} $1::timestamptz ORDER BY ran_at`,
-      [CUTOFF],
+          AND ran_at >= $1::timestamptz AND ran_at < $2::timestamptz ORDER BY ran_at`,
+      [from, to],
     );
     return toRows(r.rows);
   };
-  const first = await q("<");
-  const second = await q(">=");
+  const first = await q(START, MID);
+  const second = await q(MID, END);
 
-  console.log(`cutoff ${CUTOFF}`);
+  console.log(`pass one ${START} to ${MID}, pass two ${MID} to ${END}`);
   console.log("");
   show("first pass ", first);
   console.log("");

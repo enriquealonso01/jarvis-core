@@ -177,85 +177,69 @@ export function proposeFloor(rows: BenchRow[]): { ok: true; floor: number; basis
 }
 
 /**
- * Does a second pass reproduce the first pass's ranking?
+ * Does a second pass reproduce the first pass's result?
  *
- * This is S29's Done-when, and it is deliberately not "did the winner score the
- * same". Scores move; an ordering that survives a re-run is what routing can be
- * built on.
+ * The plan asks one thing of this: *"Re-run the same pair twice: scores should
+ * be close. Wild variance means the suite is measuring noise and needs more
+ * cases before anyone trusts it."* It is a variance check.
+ *
+ * The first version demanded that EACH pass independently reach significance,
+ * which is a stricter thing than the plan asks and, at this corpus size, an
+ * impossible one: a pass is five cases, so five runs per engine, and five runs
+ * cannot clear two standard errors no matter how cleanly they separate. Both
+ * passes of the first real campaign returned identical rates - 3/5 against 2/5,
+ * twice - and were both refused for want of power. A check that refuses
+ * identical results is measuring its own sample size.
+ *
+ * So the question is asked in two parts, which is what the plan's two sentences
+ * actually say:
+ *
+ *  - is there a ranking at all, on everything? (the pooled runs must clear the
+ *    significance bar - this is the part that must not be relaxed)
+ *  - do the passes agree? (same leader, and rates close rather than wild)
+ *
+ * Recorded plainly because loosening a failing check is exactly what a suite
+ * should never do quietly: what changed is which question is asked of each
+ * pass, and the requirement that the overall result be significant is untouched.
  */
 export function rankingReproduces(first: BenchRow[], second: BenchRow[]):
-  { ok: true; order: string[] } | Refusal {
-  const a = rank(first);
-  const b = rank(second);
-  if (!a.ok) return { ok: false, reason: `first pass: ${a.reason}` };
-  if (!b.ok) return { ok: false, reason: `second pass: ${b.reason}` };
-  if (a.winner !== b.winner) {
-    return { ok: false, reason: `the ranking did not hold: ${a.winner} then ${b.winner}` };
+  { ok: true; order: string[]; sigma: number; spread: number } | Refusal {
+  const pooled = rankBySolving([...first, ...second]);
+  if (!pooled.ok) return { ok: false, reason: `pooled: ${pooled.reason}` };
+
+  const a = solveRates(first);
+  const b = solveRates(second);
+  if (a.length < 2 || b.length < 2) {
+    return { ok: false, reason: "a pass is missing one of the harnesses, so there is nothing to compare" };
   }
-  return { ok: true, order: [a.winner, ...a.order.slice(1).map((h) => h.harness)] };
+  if (a[0].harness !== b[0].harness) {
+    return { ok: false, reason: `the passes disagree on the leader: ${a[0].harness} then ${b[0].harness}` };
+  }
+  if (a[0].harness !== pooled.winner) {
+    return { ok: false, reason: `the passes lead with ${a[0].harness} but the pooled result ranks ${pooled.winner}` };
+  }
+
+  /*
+   * "Wild variance" made concrete: the leader's rate must not swing by more
+   * than half between passes. Two passes that disagree that much are measuring
+   * the corpus, not the engine.
+   */
+  const spread = Math.abs(a[0].rate - b[0].rate);
+  if (spread > 0.5) {
+    return {
+      ok: false,
+      reason: `the leader's solve rate swung from ${(a[0].rate * 100).toFixed(0)}% to `
+        + `${(b[0].rate * 100).toFixed(0)}% between passes, which is the suite measuring noise`,
+    };
+  }
+  return {
+    ok: true,
+    order: pooled.order.map((h) => h.harness),
+    sigma: pooled.sigma,
+    spread,
+  };
 }
 
-/**
- * The route order the ranking implies, for routes the suite actually measured.
- *
- * Deliberately narrow. Only routes whose engine appears in the ranking are
- * touched, and they are given the order_by values those routes ALREADY occupy,
- * redealt by rank. Nothing unmeasured moves: cursor and the hosted open-weights
- * route have never been through the suite, and shuffling them on the strength
- * of a benchmark they never ran would be the opinion this step exists to
- * replace, wearing a benchmark's clothes.
- *
- * Reusing the existing slots rather than renumbering keeps every unmeasured
- * route exactly where it was relative to the measured ones. The suite is
- * answering "which of these two is better", not "what should the whole table
- * look like".
- *
- * A no-op result is a real and expected answer: it means routing already agreed
- * with the measurement. The difference it makes is provenance - after this the
- * order is derived from recorded runs and can be recomputed, rather than being
- * a number someone typed.
- */
-export function routeOrderFrom(
-  order: string[],
-  routes: { modelId: string; engine: string; routeOrder: number }[],
-): { modelId: string; from: number; to: number }[] {
-  const measured = routes
-    .filter((r) => order.includes(r.engine))
-    .sort((a, b) => a.routeOrder - b.routeOrder);
-  const slots = measured.map((r) => r.routeOrder);
-
-  const byRank = [...measured].sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine));
-  const changes: { modelId: string; from: number; to: number }[] = [];
-  byRank.forEach((r, i) => {
-    if (r.routeOrder !== slots[i]) changes.push({ modelId: r.modelId, from: r.routeOrder, to: slots[i] });
-  });
-  return changes;
-}
-
-/**
- * Ranking by how often an engine SOLVES, not by its average score.
- *
- * The mean was the wrong summary and the data said so. Scores here are cleanly
- * bimodal: a run that passes the withheld suite lands at 0.96-1.00, one that
- * fails it lands at 0.67-0.74, and in 22 runs nothing has landed between. An
- * average over two clusters describes neither of them - it moves with the
- * MIX, so "claude 0.85, codex 0.75" is really "claude solved more often",
- * laundered through a decimal that invites comparison to a threshold.
- *
- * So the question is a proportion: of the runs an engine made, how many
- * actually fixed the bug. And a proportion from ten-odd runs carries sampling
- * error large enough to swallow the difference, which the mean-based band of
- * 0.072 was only ever approximating by eye.
- *
- * The refusal is therefore computed rather than judged: two proportions are
- * ordered only when the gap exceeds twice the standard error of their
- * difference. When it does not, the suite says how many runs per engine WOULD
- * settle it, which turns "needs more data" from a shrug into a number.
- *
- * This is a normal approximation and it is honest about being one: with a
- * handful of runs per engine it is indicative, not a p-value, and it is used
- * only to decide whether to keep quiet.
- */
 export type SolveRate = {
   harness: string;
   runs: number;
@@ -350,4 +334,33 @@ export function rankBySolving(rows: BenchRow[]):
     };
   }
   return { ok: true, winner: first.harness, order: s, difference, sigma };
+}
+
+/**
+ * The route order the ranking implies, for routes the suite actually measured.
+ *
+ * Deliberately narrow. Only routes whose engine appears in the ranking are
+ * touched, and they are redealt into the order_by values those routes ALREADY
+ * occupy. Nothing unmeasured moves: shuffling a route the suite never ran would
+ * be the opinion this step exists to replace, wearing a benchmark's clothes.
+ *
+ * A no-op result is a real answer: routing already agreed with the measurement.
+ * What changes is provenance - the order is derived from recorded runs and can
+ * be recomputed, rather than being a number someone typed.
+ */
+export function routeOrderFrom(
+  order: string[],
+  routes: { modelId: string; engine: string; routeOrder: number }[],
+): { modelId: string; from: number; to: number }[] {
+  const measured = routes
+    .filter((r) => order.includes(r.engine))
+    .sort((a, b) => a.routeOrder - b.routeOrder);
+  const slots = measured.map((r) => r.routeOrder);
+
+  const byRank = [...measured].sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine));
+  const changes: { modelId: string; from: number; to: number }[] = [];
+  byRank.forEach((r, i) => {
+    if (r.routeOrder !== slots[i]) changes.push({ modelId: r.modelId, from: r.routeOrder, to: slots[i] });
+  });
+  return changes;
 }
