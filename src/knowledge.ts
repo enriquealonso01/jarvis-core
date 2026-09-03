@@ -325,3 +325,84 @@ export function answerFrom(retrieved: Retrieved, searched: Tier[]): Answer {
     citations: [...new Set(hits.map((h) => h.citation))],
   };
 }
+
+/**
+ * Index one stored artifact, if it is allowed to be indexed at all.
+ *
+ * Two gates before any text is read, and the first one is a security property
+ * rather than a nicety:
+ *
+ *  - **A quarantined artifact is never indexed.** S17 refuses to serve one to a
+ *    model or a browser; indexing it would smuggle its contents into an answer
+ *    by another door, with a citation, looking entirely legitimate.
+ *  - **A document that cannot be read is reported, not skipped silently.** An
+ *    unreadable file that is stored and never mentioned is indistinguishable
+ *    from one that was indexed and had nothing to say, and the difference only
+ *    surfaces on the day somebody asks it a question.
+ */
+export async function indexArtifact(
+  pool: pg.Pool,
+  artifactId: string,
+  artifactsRoot: string,
+): Promise<{ chunks: number; skipped?: string }> {
+  const r = await pool.query<{
+    path: string; mime: string | null; quarantine_state: string;
+    project_id: string | null; created_at: string;
+  }>(
+    `SELECT path, mime, quarantine_state, project_id, created_at::text
+       FROM artifacts WHERE id = $1`, [artifactId]);
+  const a = r.rows[0];
+  if (!a) return { chunks: 0, skipped: "no such artifact" };
+
+  if (a.quarantine_state !== "clean") {
+    /*
+     * Not an error and not reported to him: a blocked file being unsearchable
+     * is the system working. Recording it as a failure would train him to
+     * ignore the ones that matter.
+     */
+    return { chunks: 0, skipped: `quarantined (${a.quarantine_state})` };
+  }
+
+  const path = await import("node:path");
+  const { extractText } = await import("./extract.js");
+  const full = path.join(artifactsRoot, a.path);
+  const extracted = await extractText(full, a.mime);
+
+  if (!extracted.ok) {
+    await noteUnreadable(pool, a.project_id, a.path, extracted.reason);
+    return { chunks: 0, skipped: extracted.reason };
+  }
+
+  const chunks = await ingestDocument(pool, {
+    projectId: a.project_id,
+    artifactId,
+    text: extracted.text,
+    kind: extracted.kind,
+    // The document's own date, not the moment it was uploaded, so S41 can ask
+    // for "the contract from August" and mean the contract.
+    sourceDate: new Date(a.created_at),
+  });
+  return { chunks };
+}
+
+/**
+ * Put an unreadable document on the timeline he actually reads.
+ *
+ * A line in a container log is not visible. The activity feed is where he would
+ * look for "what happened to that file I sent", and this is the only place the
+ * answer exists.
+ */
+async function noteUnreadable(
+  pool: pg.Pool,
+  projectId: string | null,
+  artifactPath: string,
+  reason: string,
+): Promise<void> {
+  await pool
+    .query(
+      `INSERT INTO activity_events (project_id, kind, title, detail, actor)
+       VALUES ($1, 'knowledge', $2, $3, 'jarvis')`,
+      [projectId, `Not searchable: ${artifactPath.split("/").pop()}`, reason],
+    )
+    .catch(() => undefined);
+}

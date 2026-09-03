@@ -78,6 +78,8 @@ export type StoredUpload = {
   mime: string | null;
   quarantineState: "clean" | "blocked";
   reason: string | null;
+  /** How many searchable chunks it produced. Zero is a fact worth returning. */
+  chunksIndexed: number;
 };
 
 /**
@@ -157,6 +159,21 @@ export async function storeUpload(
     ],
   );
 
+  /*
+   * Indexed on arrival (S30, scenario N2: "all stored, chunked, indexed").
+   *
+   * Deliberately after the row exists and deliberately not allowed to throw: a
+   * document that fails to index must still be stored, because losing the file
+   * is worse than losing its searchability. indexArtifact refuses quarantined
+   * files itself rather than trusting this call site to remember.
+   */
+  const { indexArtifact } = await import("./knowledge.js");
+  const indexed = await indexArtifact(pool, r.rows[0].id, ARTIFACTS).catch((err: unknown) => ({
+    chunks: 0,
+    skipped: err instanceof Error ? err.message : String(err),
+  }));
+  if (indexed.skipped) console.log(`artifact ${filename} not indexed: ${indexed.skipped}`);
+
   return {
     artifactId: r.rows[0].id,
     filename,
@@ -165,5 +182,6 @@ export async function storeUpload(
     mime: args.mimetype,
     quarantineState: scan.state,
     reason: scan.reason,
+    chunksIndexed: indexed.chunks,
   };
 }
