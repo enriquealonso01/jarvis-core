@@ -79,31 +79,30 @@ export type ExplainableFacts = {
 export function explainableFacts(doc: RecalledDocument): ExplainableFacts {
   const classification = strictestOf(doc.projects);
   /*
-   * The recommendation is a sentence, lifted verbatim out of the body by
-   * `shapeOf`'s regex, and for anything above `normal` it must not be spoken.
+   * The recommendation IS spoken, including for a confidential document, and
+   * that is deliberate - s41-voicerecall-test asserts it and explains why:
+   * "that sentence contains no confidential content and is genuinely useful".
    *
-   * This function's own contract said otherwise and was wrong. The comment on
-   * the sentence builder reads "Every clause here is metadata. Nothing in it
-   * came from the document's text", and the confidential branch of
-   * `voiceRendering` is documented as making "the confidential body never
-   * reaches the TTS request" a fact about the code. It was not: with the
-   * recommendation passed through, a confidential document was synthesised by
-   * ElevenLabs as "The Acquisition options recommends ACQUIRE_NORTHWIND_AT_4_2M."
-   * - one sentence of its content, verbatim, to a vendor ADR 005 does not let a
-   * model see.
+   * I removed it on 2026-09-03 and was wrong to. It looked like a leak, because
+   * `shapeOf` extracts this field verbatim from the body with a regex, so what
+   * lands here is whatever followed "Recommendation:" - and a document could put
+   * anything there. But an explanation stripped of it says only that a report
+   * exists and has three tradeoffs, which is the other failure this file names:
+   * "a system that explains everything at metadata level satisfies every
+   * confidentiality assertion in this file and is useless".
    *
-   * The plan's own example is the tell: "recommends option two, mostly on cost"
-   * REFERS to the conclusion rather than reading it. A reference is metadata; a
-   * quotation is content. Dropping it here is the minimal repair - the renderer
-   * already handles a null recommendation and falls back to a date clause - and
-   * choosing a derived phrasing instead is a wording decision that belongs to
-   * whoever owns the voice, not to the check that caught this.
+   * The residual concern is real and recorded in VERIFIED.md rather than fixed
+   * here: "a recommendation contains no confidential content" is an assumption
+   * about how documents are written, not a property anything enforces. Whether
+   * to constrain what `shapeOf` will lift into a speakable field is a decision
+   * for whoever owns the voice, not for a test to settle by removing the
+   * feature.
    */
   return {
     title: doc.title,
     kind: doc.kind,
     writtenAt: doc.writtenAt,
-    recommendation: classification === "normal" ? doc.recommendation ?? null : null,
+    recommendation: doc.recommendation ?? null,
     optionCount: doc.optionCount ?? null,
     tradeoffCount: doc.tradeoffCount ?? null,
     classification,
