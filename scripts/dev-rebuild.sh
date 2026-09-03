@@ -44,10 +44,34 @@ rm -f "$log"
 case " $SERVICES " in
   *" api "*)
     JARVIS_MODEL=fake $COMPOSE up -d --no-build api >/dev/null 2>&1
+    up=0
     for _ in $(seq 1 30); do
-      curl -sf -o /dev/null http://127.0.0.1:8080/api/health && break
+      # `>/dev/null` rather than curl's own `-o /dev/null`, and the difference
+      # is not style. Under MSYS_NO_PATHCONV=1 — which sweep.sh exports, and
+      # every suite with it — Git Bash stops rewriting /dev/null into a Windows
+      # path, curl is handed a filename it cannot open, and it exits 23 on a
+      # perfectly good 200. The old loop hid that (it just never broke early and
+      # fell through to "running"); making the check strict without fixing this
+      # would have failed every sweep on this platform. The redirection is the
+      # shell's job, so it works either way.
+      if curl -sf http://127.0.0.1:8080/api/health >/dev/null 2>&1; then up=1; break; fi
       sleep 1
     done
+    # The health poll used to `break` on success and simply fall out of the loop
+    # on failure, after which this script printed "rebuilt and running" and
+    # exited 0 — over an API that was crash-looping. That is the same lie this
+    # file was written to prevent, one layer along: a green result from a dead
+    # API is worse than a red one, because every suite that follows fails for a
+    # reason that has nothing to do with what it is testing.
+    #
+    # Found the hard way: a duplicate route registration crashed the API on
+    # boot, this said "rebuilt and running", and the suite reported "fetch
+    # failed" as though the assertion were at fault.
+    if [ "$up" -ne 1 ]; then
+      echo "THE API DID NOT COME UP. It is not serving /api/health after 30s." >&2
+      $COMPOSE logs api --tail 20 2>&1 | tail -20 >&2
+      exit 1
+    fi
     ;;
 esac
 echo "rebuilt and running: $SERVICES"

@@ -142,7 +142,7 @@ async function main(): Promise<void> {
 
   console.log("");
   console.log("5. classify one, and only that one becomes callable");
-  await classifyTool(pool, { connectionId: connId, name: "summarise", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "summarise", level: 1, by: "enrique" , capability: "read a document and write a summary of it" });
   const afterOne = await call("summarise");
   afterOne.ok ? ok("the classified tool runs") : bad(`still refused: ${!afterOne.ok ? afterOne.reason : ""}`);
   const stillInert = await call("delete_everything");
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
 
   console.log("");
   console.log("6. Level 3 stops for approval");
-  await classifyTool(pool, { connectionId: connId, name: "delete_everything", level: 3, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "delete_everything", level: 3, by: "enrique" , capability: "delete every record in the connected store" });
   const unapproved = await call("delete_everything");
   !unapproved.ok && unapproved.reason.includes("Level 3")
     ? ok(`classified and still stopped: "${unapproved.reason}"`)
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
   !nowRefused.ok
     ? ok("invoking it is refused through the same broker path")
     : bad("the tool still ran after its description changed");
-  await classifyTool(pool, { connectionId: connId, name: "summarise", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "summarise", level: 1, by: "enrique" , capability: "read a document and write a summary of it" });
   (await call("summarise")).ok
     ? ok("and reclassifying against the new manifest makes it callable again")
     : bad("reclassification did not restore it");

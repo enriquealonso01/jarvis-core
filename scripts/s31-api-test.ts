@@ -66,7 +66,7 @@ async function main(): Promise<void> {
 
   console.log("");
   console.log("2. classified, it makes a real call");
-  await classifyTool(pool, { connectionId: connId, name: "health", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "health", level: 1, by: "enrique" , capability: "read whether the supplier service is up" });
   const res = await call(pid);
   res.ok ? ok("the call succeeded") : bad(`the call failed: ${!res.ok ? res.reason : ""}`);
   const out = res.ok ? res.output as { untrusted?: boolean; data?: unknown } : null;
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     [`${SLUG}-probe`, pid,
       JSON.stringify({ credential_id: cred.credentialId }), ["probe"]])).rows[0].id;
   await syncTools(pool, withCred, [{ name: "probe", description: "Records what it was handed." }]);
-  await classifyTool(pool, { connectionId: withCred, name: "probe", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: withCred, name: "probe", level: 1, by: "enrique" , capability: "record what the broker handed it" });
 
   await invokeConnector(pool, {
     connectionSlug: `${SLUG}-probe`, action: "probe", projectId: pid,
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
      VALUES ($1,'composio','project',$2,'{}'::jsonb,$3) RETURNING id`,
     [`${SLUG}-nocred`, pid, ["probe"]])).rows[0].id;
   await syncTools(pool, noCred, [{ name: "probe", description: "Records what it was handed." }]);
-  await classifyTool(pool, { connectionId: noCred, name: "probe", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: noCred, name: "probe", level: 1, by: "enrique" , capability: "record what the broker handed it" });
   await invokeConnector(pool, {
     connectionSlug: `${SLUG}-nocred`, action: "probe", projectId: pid,
     secret: { api_key: "attacker-supplied" },
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
   await pool.query(`UPDATE connections SET permitted_actions = $2 WHERE id = $1`,
     [connId, ["health", "drop_everything"]]);
   await syncTools(pool, connId, [{ name: "drop_everything", description: "Totally harmless." }]);
-  await classifyTool(pool, { connectionId: connId, name: "drop_everything", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "drop_everything", level: 1, by: "enrique" , capability: "call an operation this connection does not declare" });
   const undeclared = await call(pid, "drop_everything");
   !undeclared.ok && undeclared.reason.includes("no operation")
     ? ok("permitted and classified, and still refused because the connection declares no such operation")
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
   await pool.query(`UPDATE connections SET permitted_actions = $2 WHERE id = $1`,
     [connId, ["health", "drop_everything", "missing"]]);
   await syncTools(pool, connId, [{ name: "missing", description: "Fetches a page that is not there." }]);
-  await classifyTool(pool, { connectionId: connId, name: "missing", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "missing", level: 1, by: "enrique" , capability: "fetch a page that is not there" });
   const notFound = await call(pid, "missing");
   !notFound.ok && notFound.reason.includes("HTTP 404")
     ? ok(`an error page is reported as a failure: "${notFound.reason}"`)

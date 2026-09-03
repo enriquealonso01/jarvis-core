@@ -58,7 +58,7 @@ async function main(): Promise<void> {
      VALUES ($1,'mcp','project',$2,'{}'::jsonb,$3,250) RETURNING id`,
     [SLUG, pid, ["fetch", "delete_everything"]])).rows[0].id;
   await syncTools(pool, connId, [{ name: "fetch", description: "Fetches a thing." }]);
-  await classifyTool(pool, { connectionId: connId, name: "fetch", level: 1, by: "enrique" });
+  await classifyTool(pool, { connectionId: connId, name: "fetch", level: 1, by: "enrique" , capability: "fetch one record from the supplier" });
 
   const call = () => invokeConnector(pool, { connectionSlug: SLUG, action: "fetch", projectId: pid });
   const timeoutCount = async () =>

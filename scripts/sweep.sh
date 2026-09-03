@@ -56,7 +56,7 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s18b-selfwatch-test s18b-conformance-test s18b-datamodel-test
         s5-isolation-test s7-pullrequest-test s26-onboarding-test s27-config-test
         s37-untrusted-test voice-create-test progress-endpoint-test
-        debug-notes-index-test s30-chunk-test s30-retrieval-test s30-dump-test s30-extract-test s30-index-artifact-test s30-which-tier-test s30-every-type-test s30-preference-test s30-harness-memory-test s30-restore-test s30-supersede-index-test s30-replacement-test s30-citation-test s31-connector-test s31-classify-test s31-timeout-test s31-api-test
+        debug-notes-index-test s30-chunk-test s30-retrieval-test s30-dump-test s30-extract-test s30-index-artifact-test s30-which-tier-test s30-every-type-test s30-preference-test s30-harness-memory-test s30-restore-test s30-supersede-index-test s30-replacement-test s30-citation-test s31-connector-test s31-classify-test s31-timeout-test s31-api-test s31-connections-test
         no-test-litter-test"
 
 # Suites deliberately NOT in the sweep, and why. Each needs something the sweep
