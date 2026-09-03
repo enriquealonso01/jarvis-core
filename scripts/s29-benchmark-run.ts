@@ -121,6 +121,7 @@ async function main(): Promise<void> {
    */
   let hidden: boolean | null = null;
   let own: boolean | null = null;
+  let redGreen: boolean | null = null;
   let changed: string[] = [];
   if (branch) {
     const work = `${dir}-score`;
@@ -130,6 +131,28 @@ async function main(): Promise<void> {
       own = await nodeTest(work);
       const diff = await run("git", ["diff", "--name-only", `${repo.default_branch}...${branch}`], { cwd: dir });
       changed = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+      /*
+       * Red-green, checked rather than taken on trust.
+       *
+       * A test that passes with the fix REMOVED asserts nothing about the fix.
+       * So the source is reverted to the seed while the tests the agent wrote
+       * are kept, and they are run again: they must go red. This is the only
+       * dimension that can distinguish a regression test from a test that
+       * merely describes whatever the code already does, and it was the last
+       * one being reported `null` for want of measuring rather than for want of
+       * a way to measure.
+       *
+       * Null when the agent added no test at all - there is nothing to judge,
+       * and scoring that as a failure would double-count the missing test,
+       * which `correctness` has already accounted for.
+       */
+      if (changed.some((f) => f.startsWith("test/"))) {
+        await run("git", ["checkout", repo.default_branch, "--", "src/"], { cwd: work });
+        const stillPasses = await nodeTest(work);
+        redGreen = !stillPasses;
+        await run("git", ["checkout", branch, "--", "src/"], { cwd: work }).catch(() => undefined);
+      }
+
       for (const f of await fs.readdir(path.join(c.dir, "hidden"))) {
         await fs.copyFile(path.join(c.dir, "hidden", f), path.join(work, "test", f));
       }
@@ -145,7 +168,7 @@ async function main(): Promise<void> {
     // and "it did not break what was there" are the same run here.
     regressionTestsPassed: own,
     ownTestsPassed: own,
-    redGreenVerified: null,
+    redGreenVerified: redGreen,
     filesChanged: changed,
     expectedFiles: c.expectedFiles,
     tokens: null,
@@ -162,7 +185,7 @@ async function main(): Promise<void> {
       [reg.rows[0].id, RUNTIME, c.id, JSON.stringify({ ...scored, state, evidence })]);
   }
 
-  console.log(`  state=${state} hidden=${hidden} own=${own} files=${changed.length}`);
+  console.log(`  state=${state} hidden=${hidden} own=${own} redGreen=${redGreen} files=${changed.length}`);
   console.log(`  overall=${scored.overall === null ? "null" : scored.overall.toFixed(2)}  unscored=${scored.unscored.join(",")}`);
   console.log(`  scores=${JSON.stringify(scored.scores)}`);
   console.log(`  repo: https://github.com/${repo.full_name}`);
