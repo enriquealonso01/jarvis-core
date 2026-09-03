@@ -14,6 +14,15 @@ let fails = 0;
 const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
 
+/** n runs for one harness, `solved` of them passing the withheld suite. */
+const solvedRuns = (h: string, solved: number, total: number): BenchRow[] =>
+Array.from({ length: total }, (_, i) => ({
+harness: h,
+suite: CASES[i % CASES.length],
+overall: i < solved ? 1 : 0.7,
+scores: { hidden_tests: i < solved ? 1 : 0 },
+}));
+
 const CASES = ["case-a", "case-b", "case-c"];
 
 /** n runs for one harness, cycling the cases, each scoring `overall`. */
@@ -102,24 +111,48 @@ function main(): void {
     : bad(`a floor was derived from runs that solved nothing: ${JSON.stringify(neverSolved)}`);
 
   console.log("");
-  console.log("5. the Done-when is an ordering that survives a re-run");
-  const passA = [...runs("claude", [0.90, 0.92, 0.91, 0.93]), ...runs("codex", [0.60, 0.61, 0.62, 0.60])];
-  const passB = [...runs("claude", [0.88, 0.95, 0.89, 0.94]), ...runs("codex", [0.65, 0.58, 0.63, 0.61])];
+  console.log("5. the Done-when is a result that survives a re-run");
+  /*
+   * A pass is one sweep of the corpus, so five cases means five runs per engine
+   * - never enough on its own to clear two standard errors. The check therefore
+   * asks the plan's question: is there a ranking on everything, and do the
+   * passes agree, without wild variance.
+   */
+  const passA = [...solvedRuns("claude", 12, 20), ...solvedRuns("codex", 5, 20)];
+  const passB = [...solvedRuns("claude", 13, 20), ...solvedRuns("codex", 4, 20)];
   const rep = rankingReproduces(passA, passB);
   rep.ok && rep.order[0] === "claude"
-    ? ok("the same winner on both passes reproduces, though the scores moved")
+    ? ok(`two agreeing passes reproduce, ${rep.ok ? rep.sigma.toFixed(1) : ""} sigma pooled`)
     : bad(`reproduction failed: ${rep.ok ? "" : rep.reason}`);
 
-  const flipped = [...runs("claude", [0.60, 0.61, 0.62, 0.60]), ...runs("codex", [0.90, 0.92, 0.91, 0.93])];
-  const notRep = rankingReproduces(passA, flipped);
-  !notRep.ok && notRep.reason.includes("did not hold")
-    ? ok("a flipped second pass is reported as not reproducing")
-    : bad("a reversed ranking was accepted as reproduced");
+  /*
+   * Chosen so the POOLED result is still significant while the passes disagree
+   * on the leader - otherwise the refusal comes from the pooled gate and this
+   * would assert nothing about pass agreement.
+   */
+  const lopsided = [...solvedRuns("claude", 19, 20), ...solvedRuns("codex", 3, 20)];
+  const flipped = [...solvedRuns("claude", 9, 20), ...solvedRuns("codex", 11, 20)];
+  const notRep = rankingReproduces(lopsided, flipped);
+  !notRep.ok && notRep.reason.includes("disagree on the leader")
+    ? ok("passes that disagree on the leader do not reproduce")
+    : bad(`a reversed second pass was accepted: ${JSON.stringify(notRep)}`);
 
-  const thinSecond = rankingReproduces(passA, [...runs("claude", [0.9, 0.9]), ...runs("codex", [0.5, 0.5])]);
-  !thinSecond.ok && thinSecond.reason.startsWith("second pass")
-    ? ok("and a thin second pass says which pass was thin")
-    : bad("a thin second pass was not attributed");
+  // The part that must never be relaxed: no ranking at all, no reproduction.
+  const tooClose = rankingReproduces(
+    [...solvedRuns("claude", 10, 20), ...solvedRuns("codex", 9, 20)],
+    [...solvedRuns("claude", 11, 20), ...solvedRuns("codex", 9, 20)],
+  );
+  !tooClose.ok && tooClose.reason.startsWith("pooled")
+    ? ok("and two agreeing passes that are pooled-insignificant still do not")
+    : bad("a result nobody can call was reported as reproduced");
+
+  const wild = rankingReproduces(
+    [...solvedRuns("claude", 20, 20), ...solvedRuns("codex", 2, 20)],
+    [...solvedRuns("claude", 6, 20), ...solvedRuns("codex", 2, 20)],
+  );
+  !wild.ok && wild.reason.includes("measuring noise")
+    ? ok("a leader whose rate swings wildly between passes is refused")
+    : bad(`wild variance was accepted: ${JSON.stringify(wild)}`);
 
   console.log("");
   console.log("6. the route order follows the ranking, and touches nothing else");
@@ -156,13 +189,6 @@ function main(): void {
    * one, and that is a proportion from a dozen runs, which is noisier than a
    * mean makes it look.
    */
-  const solvedRuns = (h: string, solved: number, total: number): BenchRow[] =>
-    Array.from({ length: total }, (_, i) => ({
-      harness: h,
-      suite: CASES[i % CASES.length],
-      overall: i < solved ? 1 : 0.7,
-      scores: { hidden_tests: i < solved ? 1 : 0 },
-    }));
 
   const rates = solveRates([...solvedRuns("claude", 7, 12), ...solvedRuns("codex", 3, 10)]);
   rates[0].solved === 7 && Math.abs(rates[0].rate - 7 / 12) < 1e-9
