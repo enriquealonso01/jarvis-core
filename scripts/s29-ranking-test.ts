@@ -7,7 +7,7 @@
  * refusals: too few runs, too few cases, and a gap inside the suite's own
  * measured noise.
  */
-import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankingReproduces, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
+import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankingReproduces, routeOrderFrom, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
 
 let passes = 0;
 let fails = 0;
@@ -112,6 +112,32 @@ function main(): void {
   !thinSecond.ok && thinSecond.reason.startsWith("second pass")
     ? ok("and a thin second pass says which pass was thin")
     : bad("a thin second pass was not attributed");
+
+  console.log("");
+  console.log("6. the route order follows the ranking, and touches nothing else");
+  const ROUTES = [
+    { modelId: "claude-sonnet-host", engine: "claude", routeOrder: 5 },
+    { modelId: "codex-host", engine: "codex", routeOrder: 15 },
+    { modelId: "cursor-acp-host", engine: "cursor_acp", routeOrder: 20 },
+  ];
+  const agrees = routeOrderFrom(["claude", "codex"], ROUTES);
+  agrees.length === 0
+    ? ok("an order that already matches the ranking is left alone")
+    : bad(`it rewrote ${agrees.length} route(s) that were already right`);
+
+  const flip = routeOrderFrom(["codex", "claude"], ROUTES);
+  flip.length === 2 && flip.find((c) => c.modelId === "codex-host")?.to === 5
+    && flip.find((c) => c.modelId === "claude-sonnet-host")?.to === 15
+    ? ok("a reversed ranking swaps the two measured routes into each other's slots")
+    : bad(`the swap was ${JSON.stringify(flip)}`);
+  !flip.some((c) => c.modelId === "cursor-acp-host")
+    ? ok("and the unmeasured route is never moved")
+    : bad("a route the suite never ran was reordered");
+
+  const unmeasuredOnly = routeOrderFrom(["claude"], ROUTES);
+  unmeasuredOnly.length === 0
+    ? ok("one measured engine implies no reordering at all")
+    : bad("a single-engine ranking moved routes");
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);
