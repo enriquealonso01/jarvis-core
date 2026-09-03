@@ -1393,16 +1393,31 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
           // says so through the harness, rather than failing the run here.
           if (!key || !("sshCommand" in key)) return null;
 
+          /*
+           * Every step says so when it fails.
+           *
+           * These were `.catch(() => undefined)` - the same silent swallow that
+           * hid a stale worktree base earlier - and when a run then could not
+           * push, there was nothing to read: the key was either never copied or
+           * copied somewhere else, and the log could not say which. A setup step
+           * that fails quietly turns into an agent reporting "SSH key access is
+           * unavailable" twenty minutes later.
+           */
           const ssh = path.join(runHome, ".ssh");
-          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(() => undefined);
+          const keyAt = path.join(ssh, "id_ed25519");
+          const say = (what: string) => (err: unknown) =>
+            console.error(`run home: ${what} failed: ${err instanceof Error ? err.message : err}`);
+          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(say("mkdir"));
           // 0600 from the start: ssh refuses a key any wider, and a chmod after
           // the write leaves a window where it is readable.
-          await fs.copyFile(key.keyFile, path.join(ssh, "id_ed25519")).catch(() => undefined);
-          await fs.chmod(path.join(ssh, "id_ed25519"), 0o600).catch(() => undefined);
+          await fs.copyFile(key.keyFile, keyAt).catch(say(`copy ${key.keyFile}`));
+          await fs.chmod(keyAt, 0o600).catch(say("chmod"));
           await fs.copyFile(
             path.join(JARVIS_ROOT, "home", ".ssh", "known_hosts"),
             path.join(ssh, "known_hosts"),
-          ).catch(() => undefined);
+          ).catch(say("copy known_hosts"));
+          const placed = await fs.stat(keyAt).then((st) => st.size > 0).catch(() => false);
+          console.log(`run home ${runHome}: key ${placed ? "in place" : "MISSING"}`);
           return key.sshCommand;
         })()
       : null;
