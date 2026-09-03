@@ -41,6 +41,10 @@ async function main(): Promise<void> {
   let derivedArtifact: string | null = null;
   let derivedTask = "";
   let conversationId = "";
+  let inboxCall = "";
+  let inboxArtifact: string | null = null;
+  let inboxEvent = "";
+  let conversationId2 = "";
   try {
     await pool.query(
       `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns)
@@ -145,6 +149,34 @@ async function main(): Promise<void> {
       ? ok("and the project it touched is written down as the evidence for that stamp")
       : bad(`evidence: ${JSON.stringify(evidence.ids)}`);
 
+    /*
+     * The OTHER branch of the derivation, and the more common one: a call
+     * utterance routed to a project produces an inbox event, not necessarily a
+     * task. Sabotage found this untested - the suite only ever created a task, so
+     * removing the inbox_events branch changed nothing.
+     */
+    inboxCall = `${CCID}-d`;
+    const conv2 = (await pool.query<{ id: string }>(
+      `INSERT INTO conversations (project_id, title, channel, channels, last_activity_at)
+       VALUES (NULL,$1,'phone',ARRAY['phone'],now()) RETURNING id`,
+      [`${CCID} routed`])).rows[0].id;
+    conversationId2 = conv2;
+    await pool.query(
+      `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns,
+                          conversation_id)
+       VALUES ($1,$1,'+15550000444','listening', now(), 1, $2)`, [inboxCall, conv2]);
+    inboxEvent = (await pool.query<{ id: string }>(
+      `INSERT INTO inbox_events (channel, project_id, conversation_id, raw_text)
+       VALUES ('phone',$1,$2,$3) RETURNING id`,
+      [project, conv2, `${CCID} something routed to the confidential project`])).rows[0].id;
+
+    inboxArtifact = await finalizeCall(pool, inboxCall, "hangup");
+    const routedStamp = (await pool.query<{ confidentiality: string | null }>(
+      `SELECT confidentiality FROM artifacts WHERE id = $1`, [inboxArtifact])).rows[0];
+    routedStamp?.confidentiality === "confidential"
+      ? ok("a call whose utterance was merely ROUTED to a project stamps confidential too")
+      : bad(`the inbox-event branch did not count: ${routedStamp?.confidentiality}`);
+
     console.log("");
     console.log("4. a second hangup does not write a second transcript");
     /*
@@ -169,12 +201,15 @@ async function main(): Promise<void> {
       : bad("more than one transcript artifact");
   } finally {
     await pool.query(`DELETE FROM tasks WHERE id = $1`, [derivedTask]).catch(() => undefined);
+    await pool.query(`DELETE FROM inbox_events WHERE id = $1`, [inboxEvent]).catch(() => undefined);
     await pool.query(`DELETE FROM calls WHERE call_control_id = ANY($1)`,
-      [[CCID, secondCall, derivedCall].filter(Boolean)]);
-    for (const a of [artifactId, secondArtifact, derivedArtifact].filter(Boolean)) {
+      [[CCID, secondCall, derivedCall, inboxCall].filter(Boolean)]);
+    for (const a of [artifactId, secondArtifact, derivedArtifact, inboxArtifact].filter(Boolean)) {
       await pool.query(`DELETE FROM artifacts WHERE id = $1`, [a]);
     }
-    if (conversationId) await pool.query(`DELETE FROM conversations WHERE id = $1`, [conversationId]);
+    for (const c of [conversationId, conversationId2].filter(Boolean)) {
+      await pool.query(`DELETE FROM conversations WHERE id = $1`, [c]);
+    }
     if (project) await pool.query(`DELETE FROM projects WHERE id = $1`, [project]);
   }
 
