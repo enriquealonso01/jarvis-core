@@ -7,7 +7,7 @@
  * refusals: too few runs, too few cases, and a gap inside the suite's own
  * measured noise.
  */
-import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankBySolving, rankingReproduces, routeOrderFrom, solveRates, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
+import { comparableRuns, MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankBySolving, rankingReproduces, routeOrderFrom, solveRates, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
 
 let passes = 0;
 let fails = 0;
@@ -212,6 +212,72 @@ function main(): void {
   !tied.ok
     ? ok("and identical rates over thirty runs each are still not a ranking")
     : bad("two identical engines were ordered");
+
+
+  console.log("");
+  console.log("########## only the runs that faced the current corpus ##########");
+  console.log("");
+
+  /*
+   * The scenario is the real one, from 2026-09-03. An early era where the
+   * leader looks dominant - because harness defects since fixed were costing
+   * the other engine points - followed by a later era on the full corpus where
+   * the two are much closer. Pooled, the suite certifies. It should not.
+   */
+  const at = (iso: string) => new Date(iso);
+  const era = (h: string, solved: number, total: number, suite: string, iso: string): BenchRow[] =>
+    Array.from({ length: total }, (_, i) => ({
+      harness: h, suite,
+      overall: i < solved ? 1 : 0.7,
+      scores: { hidden_tests: i < solved ? 1 : 0 },
+      ranAt: at(iso),
+    }));
+
+  const CORPUS = ["case-a", "case-b", "case-new"];
+  const early = [
+    ...era("claude", 6, 11, "case-a", "2026-09-03T05:00:00Z"),
+    ...era("codex", 2, 12, "case-a", "2026-09-03T05:00:00Z"),
+    ...era("claude", 0, 1, "case-b", "2026-09-03T05:00:00Z"),
+    ...era("codex", 0, 1, "case-b", "2026-09-03T05:00:00Z"),
+  ];
+  const late = [
+    ...era("claude", 21, 34, "case-new", "2026-09-03T09:00:00Z"),
+    ...era("codex", 13, 33, "case-new", "2026-09-03T09:00:00Z"),
+  ];
+
+  const pooled = rankBySolving([...early, ...late]);
+  pooled.ok && pooled.sigma > 2
+    ? ok(`pooling every era certifies, at ${pooled.sigma.toFixed(2)} sigma - which is the bug`)
+    : bad(`the pooled scenario does not reproduce the over-certification: ${pooled.ok ? pooled.sigma : pooled.reason}`);
+
+  const windowed = comparableRuns([...early, ...late], CORPUS);
+  windowed.length === late.length
+    ? ok(`the window keeps only the ${late.length} runs made once every case existed`)
+    : bad(`window kept ${windowed.length} runs, expected ${late.length}`);
+
+  const honest = rankBySolving(windowed);
+  !honest.ok || honest.sigma < 2
+    ? ok("and on those alone the suite declines to certify")
+    : bad(`the windowed ranking still certified at ${honest.ok ? honest.sigma.toFixed(2) : ""} sigma`);
+
+  /*
+   * A case that has left the corpus takes its runs with it: comparing engines
+   * on a case only one of them ever faced is the same contamination in another
+   * shape.
+   */
+  const withRetired = comparableRuns(
+    [...late, ...era("claude", 5, 5, "case-retired", "2026-09-03T10:00:00Z")], CORPUS);
+  withRetired.every((r) => CORPUS.includes(r.suite))
+    ? ok("runs of a case no longer in the corpus are dropped")
+    : bad("a retired case survived the window");
+
+  /*
+   * And when a current case has never been run, there is no window in which the
+   * corpus was whole - so the honest answer is nothing, not everything.
+   */
+  comparableRuns(late, [...CORPUS, "case-never-run"]).length === 0
+    ? ok("a case with no runs yet means nothing is comparable, rather than everything")
+    : bad("an unrun case did not empty the window");
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);

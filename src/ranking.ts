@@ -19,7 +19,52 @@ export type BenchRow = {
   suite: string;
   overall: number | null;
   scores: Record<string, number | null>;
+  /** When the run happened. Needed to tell one corpus generation from another. */
+  ranAt?: Date;
 };
+
+/**
+ * Only the runs that faced the corpus as it stands now.
+ *
+ * The ranking pooled every run ever recorded, and that is how it came to
+ * certify. Measured on 2026-09-03: over all 90 runs the leader was 2.63
+ * standard errors clear, but split at the point the corpus reached five cases,
+ * the EARLY runs give 6/11 against 2/12 and the later ones 21/34 against 13/33.
+ * Almost the whole margin lives in the early era - the same era whose runs were
+ * made while four harness defects, since fixed, were costing the trailing
+ * engine points: a seed that could not load, a push instruction it had no
+ * credential for, and bookkeeping files counted against its scope.
+ *
+ * So the widest window is not the most evidence, it is the most contaminated
+ * evidence, and pooling it answers a question nobody asked - how the engines
+ * compare across a corpus and a harness that no longer exist. Three times
+ * tonight a wider window was the only one that cleared the bar and the claim
+ * was withheld by hand; this puts that judgement in the code, where it applies
+ * whether or not anyone remembers to make it.
+ *
+ * The boundary is derived, not chosen: the first run of the most recently added
+ * case. Every current case had to exist for a run to be comparable, so adding a
+ * sixth case moves the window on its own and cannot be tuned after seeing the
+ * result. Runs of cases no longer in the corpus are dropped for the same
+ * reason. Rows without a timestamp are kept, so callers that do not select one
+ * behave as they did before.
+ */
+export function comparableRuns(rows: BenchRow[], corpus: string[]): BenchRow[] {
+  const current = new Set(corpus);
+  const inCorpus = rows.filter((r) => current.has(r.suite));
+  const firstRunOf = new Map<string, number>();
+  for (const r of inCorpus) {
+    if (!r.ranAt) continue;
+    const t = r.ranAt.getTime();
+    const seen = firstRunOf.get(r.suite);
+    if (seen === undefined || t < seen) firstRunOf.set(r.suite, t);
+  }
+  // Every case must have been present. If one has never run, there is no
+  // window in which the corpus was whole, so nothing is comparable yet.
+  if (firstRunOf.size < current.size) return [];
+  const boundary = Math.max(...firstRunOf.values());
+  return inCorpus.filter((r) => !r.ranAt || r.ranAt.getTime() >= boundary);
+}
 
 export type HarnessSummary = {
   harness: string;

@@ -19,7 +19,8 @@
  * when two means differ by less than one engine's own wobble.
  */
 import { createPool } from "../src/db.js";
-import { rankBySolving, rankingReproduces, solveRates, type BenchRow } from "../src/ranking.js";
+import { readdirSync } from "node:fs";
+import { comparableRuns, rankBySolving, rankingReproduces, solveRates, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
 /*
@@ -30,9 +31,18 @@ const pool = createPool();
  * different corpus, harness defects since fixed - into the first pass and calls
  * the result a re-run.
  */
-const START = process.argv[2] ?? "2026-09-03T07:44:00Z";
-const MID = process.argv[3] ?? "2026-09-03T08:16:30Z";
-const END = process.argv[4] ?? "2026-09-03T08:48:30Z";
+/*
+ * The window defaulted to three timestamps hardcoded when this script was
+ * written, so it went on reporting the same ten runs from 07:44 while three
+ * campaigns ran past it - a reproduction check frozen at the moment of its
+ * authorship, answering for evidence that had since quadrupled. It now splits
+ * the COMPARABLE window, the runs that faced the corpus as it stands, into two
+ * halves at the median run. Explicit timestamps still override, for looking at
+ * a particular pass on purpose.
+ */
+const START = process.argv[2] ?? null;
+const MID = process.argv[3] ?? null;
+const END = process.argv[4] ?? null;
 
 function toRows(rs: { harness: string; suite: string; scores: Record<string, unknown> }[]): BenchRow[] {
   return rs.map((x) => ({
@@ -56,19 +66,44 @@ function show(label: string, rows: BenchRow[]): void {
 }
 
 async function main(): Promise<void> {
-  const q = async (from: string, to: string) => {
-    const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown> }>(
-      `SELECT harness, suite, scores FROM benchmarks
+  const q = async (from: string | null, to: string | null) => {
+    const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown>; ran_at: Date }>(
+      `SELECT harness, suite, scores, ran_at FROM benchmarks
         WHERE scores->>'invalid' IS NULL AND harness IN ('claude','codex')
-          AND ran_at >= $1::timestamptz AND ran_at < $2::timestamptz ORDER BY ran_at`,
+          AND ($1::timestamptz IS NULL OR ran_at >= $1::timestamptz)
+          AND ($2::timestamptz IS NULL OR ran_at <  $2::timestamptz) ORDER BY ran_at`,
       [from, to],
     );
-    return toRows(r.rows);
+    return toRows(r.rows).map((row, i) => ({ ...row, ranAt: r.rows[i].ran_at }));
   };
-  const first = await q(START, MID);
-  const second = await q(MID, END);
 
-  console.log(`pass one ${START} to ${MID}, pass two ${MID} to ${END}`);
+  let first: BenchRow[];
+  let second: BenchRow[];
+  let window: string;
+
+  if (START && MID && END) {
+    first = await q(START, MID);
+    second = await q(MID, END);
+    window = `pass one ${START} to ${MID}, pass two ${MID} to ${END}`;
+  } else {
+    /*
+     * Split the comparable window at its median run, so both halves hold the
+     * same number of runs whatever the campaign schedule was. Splitting by TIME
+     * would put a dense campaign in one half and a quiet hour in the other, and
+     * a reproduction check whose halves differ in size mostly measures that.
+     */
+    const corpus = readdirSync("benchmarks/cases", { withFileTypes: true })
+      .filter((d) => d.isDirectory()).map((d) => d.name);
+    const rows = comparableRuns(await q(null, null), corpus);
+    const half = Math.floor(rows.length / 2);
+    first = rows.slice(0, half);
+    second = rows.slice(half);
+    const at = (r: BenchRow[]) => (r.length && r[0].ranAt ? r[0].ranAt.toISOString().slice(11, 16) : "?");
+    window = `${rows.length} runs on the current ${corpus.length}-case corpus,`
+      + ` split at the median: ${at(first)} and ${at(second)}`;
+  }
+
+  console.log(window);
   console.log("");
   show("first pass ", first);
   console.log("");

@@ -30,6 +30,7 @@ is two or three entries, and it is where the time is actually saved.
 
 - [The sweep certified images, not the tree](#the-sweep-certified-images-not-the-tree)
 - [An average over two clusters describes neither](#an-average-over-two-clusters-describes-neither)
+- [A ranking that certified because it kept every run it had ever seen](#a-ranking-that-certified-because-it-kept-every-run-it-had-ever-seen)
 - [The fetch that decided the worktree base had no credential](#the-fetch-that-decided-the-worktree-base-had-no-credential)
 - [A guard the law demands, that would have broken production](#a-guard-the-law-demands-that-would-have-broken-production)
 - [A test that left furniture in the database](#a-test-that-left-furniture-in-the-database)
@@ -1897,3 +1898,43 @@ that reads as a regression in whatever you just changed. Before believing a
 sudden broad failure, run `docker ps` and check WHO is running and with what
 environment. Suites that deviate from the fake harness are the dangerous ones to
 leave lying around.
+
+## A ranking that certified because it kept every run it had ever seen
+
+**Symptom.** Three campaigns in a row the S29 suite reported a stable
+difference between two engines and declined to certify it, and each time the
+only window clearing the bar was the widest one. Then it certified, at 2.51
+standard errors over every run ever recorded.
+
+**Cause.** The ranking query had no corpus boundary. It selected every valid
+benchmark row and pooled them, so runs made against a three-case corpus sat
+beside runs made against five, and - worse - runs made while four harness
+defects were still costing one engine points sat beside runs made after those
+defects were fixed. Split at the point the corpus reached five cases, the early
+era gave 6/11 against 2/12 and the later era 21/34 against 13/33: nearly the
+whole margin came from the contaminated half.
+
+A second copy of the same defect: s29-reproduce took its window from three
+timestamps hardcoded when it was written, so it went on reporting the same ten
+runs from 07:44 while three campaigns ran past it. A reproduction check frozen
+at the moment of its authorship agrees with itself forever.
+
+**Fix.** comparableRuns(rows, corpus) keeps only runs made once every current
+case existed, with the boundary DERIVED from the data - the first run of the
+most recently added case - so a new case moves the window by itself. Wired into
+all four S29 entry points. s29-reproduce now splits the comparable window at its
+median run. On the honest window the suite certifies at 2.02 sigma and both
+halves agree, which is a verdict that can be defended.
+
+**Lesson.** More data is not automatically better evidence. When a measurement
+spans a period in which the thing being measured, or the instrument, changed,
+the widest window is the most contaminated one - and it is also the one most
+likely to clear a threshold, which is exactly why it feels like the right one to
+use. Encode the window as a rule derived from the data, before seeing the
+result. If a judgement has to be made by hand every time the numbers come in, it
+will eventually be made in whichever direction the numbers invite.
+
+**Also worth keeping:** benchmark scores are nested. The dimension lives at
+scores->'scores'->>'hidden_tests', not scores->>'hidden_tests', and the wrong
+path returns NULL rather than an error - so a query silently reports zero rows
+and looks like an empty result set.
