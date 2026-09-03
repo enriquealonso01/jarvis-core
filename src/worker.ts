@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 const BRIDGE_SEND_URL = process.env.JARVIS_BRIDGE_SEND_URL ?? "http://openclaw:18789/jarvis/send";
 import { ARTIFACTS_DIR, HARNESS_AUTH_DIR, PROJECTS_DIR, WORKTREES_DIR } from "./paths.js";
 import { sweepCallDeadlines } from "./callcontrol.js";
+import { recordBlindWindow, recordSweep, reconcileExpiredLeases } from "./selfwatch.js";
 import { sweepOutboundCalls } from "./outbound.js";
 import { audioRetention } from "./retention.js";
 
@@ -460,12 +461,34 @@ async function main() {
   sampler.unref();
   void hostMetrics().then((h) => sampleResources(pool, h)).catch(() => undefined);
 
+  /*
+   * Coming back blind (plan II.3).
+   *
+   * A watchdog that restarts has to reconcile the window it missed rather than
+   * beginning at zero. The gap goes on the timeline because forty unwatched
+   * minutes otherwise render as forty healthy ones, and leases are reconciled
+   * on the first sweep because a worker that died during that window holds one
+   * nobody released - and on this hardware, one held lease in the heavy lane is
+   * the entire lane.
+   */
+  const blind = await recordBlindWindow(pool, "watchdog", WORKER_ID).catch(() => null);
+  if (blind !== null) console.log(`watchdog: blind window of ${blind}s before this worker started`);
+  const freed = await reconcileExpiredLeases(pool).catch(() => 0);
+  if (freed) console.log(`watchdog: released ${freed} expired lease(s) from the blind window`);
+
   console.log(`worker ${WORKER_ID} starting`);
   for (;;) {
     try {
       await detectHostLogins(pool).catch(() => undefined);
       await fireDueSchedules(pool);
       await watchdog(pool);
+      /*
+       * After it returns, never before. A sweep recorded on entry says the
+       * watchdog was called; recorded here it says the watchdog finished, and
+       * only the second one distinguishes a working component from one wedged
+       * on a database call.
+       */
+      await recordSweep(pool, "watchdog", WORKER_ID).catch(() => undefined);
       await drainOutbox(pool);
       await audioRetention(pool);
       // A leg deadline that only exists inside the request that started it dies

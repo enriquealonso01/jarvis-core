@@ -1,0 +1,15 @@
+[Unit]
+# The last reader of the watchdog's sweep record.
+#
+# Runs on the host, outside docker, because the watchdog and the API that also
+# reads it are both containers - and whatever stops one can stop the other.
+Description=Check that the watchdog is still completing sweeps
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jarvis
+WorkingDirectory=/opt/jarvis/core
+EnvironmentFile=/etc/jarvis/runner.env
+ExecStart=/usr/bin/node --import tsx scripts/watchdog-backstop.ts
