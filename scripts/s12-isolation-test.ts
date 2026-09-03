@@ -168,11 +168,85 @@ async function withoutNetwork<T>(fn: () => Promise<T>): Promise<{ value: T; call
 
 const denialOf = (d: BrokerDecision) => (d.allowed ? "ALLOWED" : d.code);
 
+/* Filled as they are created, so teardown does not depend on reaching the end. */
+const createdProjects: string[] = [];
+
+
+/**
+ * Remove a fixture project and everything that points at it.
+ *
+ * This suite created two projects on every run and deleted neither, so the box
+ * accumulated a pair per run and `no-test-litter-test` failed from then on -
+ * which made the whole sweep red for a reason that had nothing to do with the
+ * code under test. That is worse than an untidy database: a sweep that is always
+ * red is a sweep nobody reads.
+ *
+ * Ordered by the foreign keys rather than by creation order. `projects` is
+ * referenced by two dozen tables with plain (non-cascading) keys, so the parent
+ * goes last and anything that fails on the way is logged rather than allowed to
+ * abort the rest - a teardown that stops at the first obstacle leaves more behind
+ * than one that keeps going.
+ */
+const REFERENCING_PROJECT = [
+  "activity_events", "approvals", "artifacts", "audit_events", "auth_profile_allowlists",
+  "browser_actions", "browser_sessions", "channel_allowlist", "config_versions",
+  "connection_project_allowlist", "connections", "conversations", "inbox_events", "issues",
+  "knowledge_chunks", "memory_items", "objections", "onboarding_sessions", "outbound_calls",
+  "project_instructions_versions", "schedules", "task_grants", "tasks", "unprompted_messages",
+];
+
+/**
+ * Tables that point at a task with a plain key.
+ *
+ * `tasks` cannot go until these do, and the first version of this teardown went
+ * straight for `tasks` - so it worked on a project whose fixtures never ran and
+ * failed on every one that did, which is the harder case and the common one.
+ */
+const REFERENCING_TASK = [
+  "task_dependencies", "task_transitions", "task_attempts", "task_checkpoints",
+  "task_grants", "issues", "approvals", "schedule_runs", "task_events", "task_context",
+  "artifacts", "browser_actions", "call_turns", "outbound_calls", "escalations",
+  "improvement_candidates",
+];
+
+async function removeProject(id: string): Promise<void> {
+  /*
+   * task_dependencies points at tasks TWICE - once as the task and once as what
+   * it depends on - so clearing only `task_id` leaves the other side holding,
+   * and `tasks` then refuses to go. A teardown that clears one column of a
+   * two-column relationship looks complete and is not.
+   */
+  await pool.query(
+    `DELETE FROM task_dependencies
+      WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)
+         OR predecessor_id IN (SELECT id FROM tasks WHERE project_id = $1)`, [id],
+  ).catch((err) => console.error("teardown: task_dependencies:",
+    err instanceof Error ? err.message : err));
+  for (const table of REFERENCING_TASK) {
+    await pool.query(
+      `DELETE FROM ${table} WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)`, [id],
+    ).catch((err) => console.error(`teardown: ${table}:`,
+      err instanceof Error ? err.message : err));
+  }
+  for (const table of REFERENCING_PROJECT) {
+    await pool.query(`DELETE FROM ${table} WHERE project_id = $1`, [id])
+      .catch((err) => console.error(`teardown: ${table}:`,
+        err instanceof Error ? err.message : err));
+  }
+  await pool.query(
+    `DELETE FROM routing_overrides WHERE to_project = $1 OR from_project = $1`, [id],
+  ).catch(() => undefined);
+  await pool.query(`DELETE FROM projects WHERE id = $1`, [id])
+    .catch((err) => console.error("teardown: projects:",
+      err instanceof Error ? err.message : err));
+}
+
 async function main(): Promise<void> {
   await login();
 
   const alpha = await project(`s12-alpha-${STAMP}`, "personal", "normal");
   const beta = await project(`s12-beta-${STAMP}`, "professional", "confidential");
+  createdProjects.push(alpha, beta);
 
   const betaCred = await credential(BETA_SECRET);
   const betaProfile = await authProfile(`s12_beta_${STAMP}`, ["normal", "confidential"], betaCred);
@@ -380,6 +454,11 @@ main()
     fail += 1;
   })
   .finally(async () => {
+    /*
+     * Here rather than at the end of main, so the fixtures come out when main
+     * throws too - which is exactly when they used to be left behind.
+     */
+    for (const id of createdProjects) await removeProject(id);
     await pool.end().catch(() => undefined);
     process.exit(fail === 0 ? 0 : 1);
   });
