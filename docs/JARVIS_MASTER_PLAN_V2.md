@@ -2605,11 +2605,58 @@ replacing it now would be the rebuild.
 
 **Build** Restic to B2 nightly including the database dump. Monthly restore drill recorded where the console can see it. One-command encrypted export of everything — schema, rows, artifacts, re-encryptable credentials, model registry, config, OpenClaw session — and a documented restore elsewhere.
 
+### What is in it, precisely
+
+The Build line above is the database and the secrets. The manifest Enrique
+specified also carries the things that are **not rows**: project checkouts and
+their worktrees, browser profiles, connector metadata, the audit log, and a
+manifest naming what was included and at what version. A restore that brings back
+every conversation but no repositories and no browser state produces a Jarvis
+that **remembers everything and can do nothing.**
+
+The manifest matters more than it looks. It is what makes a *partial* export
+detectable — v1's backups did not contain the database and nobody noticed, and a
+list of what should be present is what turns that from a discovery into an
+assertion.
+
+### The export is the most sensitive object the system can produce
+
+Everything else in this plan defends a boundary. **The export is a boundary
+crossing with a filename**: every project's credentials, every conversation,
+every artifact, professional and personal together, in one file whose entire
+purpose is to leave the box.
+
+- **Producing one is a Level 3 action.** Under S42 it is the maximum external impact available — not *"can someone else see this document"* but *"can someone else have all of it"*. Re-auth in the console, and **never satisfiable by voice**; the handover's rule was written for exactly this shape.
+- **No task can trigger an export, and Jarvis never initiates one.** An injected agent with an export tool and any egress at all is the entire system in one request. This is a control Enrique operates, not a capability the system grants itself.
+- **It does not land in `artifacts/`.** An export in the artifact store is every credential in the system sitting behind the ordinary download gate, indexed by S30 and offered up by search. It is written where nothing else reads, and its existence is audited.
+
+### The key cannot travel in the archive
+
+The manifest puts `.env.encrypted` beside `encrypted-secrets/`, which makes the
+question unavoidable: **encrypted with what?**
+
+- If it is the broker's machine key, the archive cannot be opened on the new machine and the portability is a fiction.
+- If that key is *inside* the archive, **the encryption is decoration.**
+
+So the export is encrypted under a **passphrase Enrique supplies at export time,
+and that passphrase is the only thing that does not travel with it.** On import,
+credentials are decrypted with it once and immediately re-encrypted under the new
+machine's key — ADR 008's envelope scheme already works this way; what it lacks
+is a defined path *across* machines.
+
+**If he loses the passphrase, the archive is lost.** That is the correct trade,
+and it belongs in one line at export time rather than in a discovery afterwards.
+
 **Test** L15: restore into a clean directory and verify projects, conversations, tasks, issues, schedules, a decrypted canary credential, and the model registry. **Then restore onto a different machine and boot it** — that is the transferability Enrique asked for in his first message, and a restore that has only ever been tested in place has not been tested.
+- **Import with the source machine switched off.** Not disconnected — off. Any step that reaches back to the old box means the export is not portable, and this is the only scenario that matters: the reason to hold one is that the box is gone.
+- The archive contains repositories, browser profiles, connector metadata and the audit log. Check the manifest against the extracted tree, **and the tree against reality** — a manifest that agrees with itself proves nothing.
+- Attempt an export from a task, and by voice → refused both times. Then complete one from the console with re-auth, so the test proves a **gate** rather than a wall.
+- Open the archive with the passphrase, then confirm no key inside it would have done. **Encryption whose key ships alongside it is what this test exists to catch.**
+- After import, a credential works on the new machine **and the old ciphertext no longer decrypts there** — which is the difference between re-encryption and a copy.
 
 **Debug** v1's backups did not contain the database and it went unnoticed. Assert on the dump's size and on a known row, not on the exit code.
 
-**Done when:** a full restore runs on a second machine and Jarvis comes up with its memory intact.
+**Done when:** a full restore runs on a second machine **with the first one switched off**, and Jarvis comes up with its memory, its repositories and its credentials intact.
 
 ## S36 — Full acceptance
 *Size: 2 days.*
