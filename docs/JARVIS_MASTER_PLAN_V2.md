@@ -2295,6 +2295,26 @@ without Enrique being told anything.
 
 On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.md` and versions it in `project_instructions_versions`.
 
+### Projects end, and nothing owns the ending
+
+The requirements ask for a record of *"which ones I'm actually working on, which
+ones I'm not, and are outdated or are shut down."* The plan has onboarding and it
+has computed dormancy. **Nothing owns the end**, and by now several things depend
+on there being one: a generated deploy key to revoke (IV.4), browser sessions to
+clear (S32), connections to close, schedules to stop.
+
+**Dormant and retired are not the same state, and merging them is the trap.**
+Dormancy is *computed* from inactivity (S15) — which is exactly why it must never
+trigger cleanup. **A fortnight's holiday would revoke his access to everything he
+was not using.** Dormancy is an observation. Retirement is a decision, and only a
+decision does anything.
+
+- **Retiring runs the revocations**: the deploy key revoked at GitHub, browser sessions cleared, connections closed, schedules disabled, no new tasks accepted. Everything the last few sections said had to reach the far side happens here, in one place, rather than being remembered separately six times.
+- **Retiring is not deleting.** Conversations, artifacts, memory and the audit all stay. *"What did we decide about Beta?"* is a question he will ask about a **finished** project more often than a live one — **the corpus outlives the project**, which is also why Maintenance may not reclaim it (S34).
+- **The classification survives.** A retired confidential project's material is still confidential. Nothing about ending work downgrades what it contained.
+- **Un-retiring is ordinary.** He changes his mind; credentials come back through the normal handoff (S46) rather than being restored from anywhere. **Nothing that was revoked is un-revoked** — that is the difference between a revocation and a pause.
+- **Deleting is separate, rare, and Level 3.** It is the one operation that destroys what this system promises not to lose, so it gets what the export gets: re-authentication, and **a plain statement of what will be destroyed before the click rather than a confirmation after it.**
+
 ### The window between "the project exists" and "the project is onboarded"
 
 Onboarding is ten questions, and N5 already decided not to ask them on the phone:
@@ -2322,6 +2342,9 @@ of the questionnaire.
 **Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
 - **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
 - An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- **Let a project go dormant, then confirm nothing was revoked.** Its credentials, sessions and schedules are untouched — dormancy is an observation. Then retire it explicitly and confirm all four revocations happened **at the provider**.
+- Ask a question answerable from a retired project's documents → **still answered.** Retiring is not deleting, and this is the assertion that keeps it that way.
+- Un-retire → it works again after a handoff, and nothing revoked came back on its own.
 - **Create a project, then try to read back its generated deploy key** → refused, exactly as a supplied credential would be. Then confirm the **public** half is retrievable and appears in the audit, because these are two different objects.
 - Delete a project → **the key it generated is revoked at GitHub**, not merely deleted from the table. Assert on the far side; a local delete leaves standing access.
 - The generated key appears in the weekly report as something created on his behalf.
