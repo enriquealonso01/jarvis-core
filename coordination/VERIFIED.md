@@ -305,6 +305,11 @@ index dcdf213..7336a33 100644
   - **Nothing persisted.** Every insert ran inside `BEGIN … ROLLBACK`, and `schedule_runs` holds 0 rows dated 2029 or later afterwards. Probing a production constraint is worth doing; leaving fixture rows behind to prove it is not.
   - `s34-schedule-test` 17/0.
 
+- **2026-09-03 — The scheduler is firing live on the box, once per minute, with the new code's effect visible in the data.** Follow-up to the constraint check: proving the index rejects a duplicate says nothing about whether schedules still *run* after a change that touched 91 lines of `worker.ts`.
+  - **It is alive and on time.** At `19:10:18 UTC` the most recent run was `scheduled_for 19:10:00`, `started_at 19:10:02` — a fire 16 seconds before I looked. The five most recent land 0.4 to 3 seconds after their minute.
+  - **831 runs, zero duplicates.** `GROUP BY (schedule_id, scheduled_for) HAVING count(*) > 1` returns nothing, across every run since 2026-08-31.
+  - **The deploy boundary is visible in production data, which is the nicest evidence of the tick.** All 830 runs before have `result` NULL; the first run after — and only that one — records `result = 'fired'`. The worker container started `19:06:38`, and the next scheduled minute was 19:10. So the new code began writing a field the old code never wrote, at exactly the moment it took over. That is the change working, observed rather than asserted, and it also rules out the reading I might otherwise have jumped to: 830 NULLs looks like a column nothing populates.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
