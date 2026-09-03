@@ -2238,6 +2238,11 @@ Results land in `benchmarks`. A model **earns** the `senior_engineer` role by
 winning the suite, and `route_order` follows from the scores rather than from
 someone's opinion.
 
+The suite produces **two ordered lists per role — normal and escalation — not
+one.** *"Good enough to serve this role unattended"* and *"worth escalating to
+when the cheap route has already failed"* are different questions, and a single
+ranking answers only the first.
+
 The suite also sets each role's **quality floor** (VI.2) — the score below which
 a model may not serve that role unattended. A floor is only meaningful once the
 suite has enough cases to separate a good model from a fluent one, so set it from
@@ -2247,6 +2252,10 @@ observed scores rather than picking a round number first.
 - Run two harnesses through it and confirm the winner is what routing actually uses afterwards.
 - Feed it a deliberately bad model and confirm it scores badly rather than passing on fluency — a suite that everything passes measures nothing.
 - Re-run the same pair twice: scores should be close. Wild variance means the suite is measuring noise and needs more cases before anyone trusts it.
+- **A task that fails on its normal route escalates upward rather than sideways.** Assert on *which route ran second*, not on the task eventually succeeding — a lateral switch also eventually succeeds sometimes, and costs the same as the failure.
+- A task that succeeds on the normal route never touches the escalation pool. **Both halves**, or escalation is just routing with extra words.
+- A role with an empty escalation pool fails cleanly rather than escalating to nothing.
+- Escalations are counted per task shape, so a shape that always escalates is visible **without anyone reading a log**.
 
 **Debug** If every candidate scores the same, the cases are too easy. Add cases from bugs that actually took real time to solve.
 
@@ -4125,6 +4134,25 @@ for two things only: always-on cheap Supervisor operations, and catching coding
 work when every subscription is exhausted. Metered spend stays off unless Enrique
 sets a ceiling on that profile, and no route ever enables billing to rescue
 itself.
+
+### A normal pool and an escalation pool
+
+The planning conversation asked for this directly: each role gets a normal pool
+and, where useful, an **escalation pool**, so ordinary work does not consume the
+scarce capacity. What was scarce then was free tier. **What is scarce now is
+subscription quota** — which makes the idea more relevant, not less.
+
+The plan already has *fallback*: another route when one is unavailable. **It does
+not have escalation.** The triggers are different. Fallback answers *"this route
+is down."* Escalation answers *"this work turned out to be harder than the route
+it was given."*
+
+- **Escalation is triggered by evidence, never by prediction.** Nobody can look at a task and know it is hard. What is observable is that the cheap route already tried — it failed its own tests, it looped (`agent.repeat`), or it spent its retry budget without moving. That is what buys a more expensive model.
+- **Down is the default.** A task starts on the cheapest route that meets its role's properties. **Escalation is what failure purchases, not what optimism assumes.**
+- **II.3's rung 8 gains a direction.** *"Switch model within the approved pool"* is currently satisfied by a lateral move to an equally cheap route — which re-runs the same failure at the same price. Rung 8 escalates.
+- **Escalation is one-way within a task.** Coming back down mid-task discards the expensive model's context and hands the cheap one the failure it already had.
+- **An empty escalation pool is a valid configuration.** `stt` and `embeddings` have nowhere to go. And a role that escalates on nearly everything is misrouted, not under-provisioned.
+- **Every escalation is recorded, and the record is a routing signal.** A task shape that escalates every time is a pool assignment that is wrong: it pays the escalation price permanently while reporting the cheap one. That belongs in the weekly Improvement review, not in a per-task log nobody opens.
 
 ### Where the ceiling is actually enforced — S25 owns this
 
