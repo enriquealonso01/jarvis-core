@@ -6,7 +6,8 @@
  * suite that everything passes measures nothing." So the fixtures are a good
  * run, a fluent-but-wrong run, and a run that cheated by deleting the test.
  */
-import { scoreRun, type RunEvidence } from "../src/benchmark.js";
+import { createPool } from "../src/db.js";
+import { collectEvidence, scoreRun, type RunEvidence } from "../src/benchmark.js";
 
 let fails = 0;
 let passes = 0;
@@ -29,7 +30,7 @@ const base: RunEvidence = {
   tokens: 120000,
 };
 
-function main() {
+async function main() {
   console.log("1. a good run scores near the top");
   const good = scoreRun(base);
   (good.overall ?? 0) >= 0.95 ? ok(`overall ${good.overall}`) : bad(`overall ${good.overall}`);
@@ -78,9 +79,50 @@ function main() {
     ? ok("a cheap wrong run still ranks below a costly right one")
     : bad("quota folded into the score");
 
+  await collectorChecks();
+
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);
   process.exit(fails === 0 ? 0 : 1);
+}
+
+/**
+ * The collector reads the record; it does not run anything.
+ *
+ * Seeded rows rather than a live run, because what is being checked is whether
+ * the reading is right - a live run would prove the harness works and say
+ * nothing about whether the evidence was gathered correctly.
+ */
+async function collectorChecks(): Promise<void> {
+  const pool = createPool();
+  const t = await pool.query<{ id: string }>(
+    `INSERT INTO tasks (lane, title, objective, state, pr_number)
+     VALUES ('heavy', 's29 collector', 'x', 'succeeded', 7) RETURNING id`);
+  const id = t.rows[0].id;
+  for (const [type, name] of [["phase", "reproduce"], ["phase", "change"], ["tool", "command_execution"], ["tool", "file_change"]]) {
+    await pool.query(
+      `INSERT INTO task_events (task_id, type, name) VALUES ($1, $2, $3)`, [id, type, name]);
+  }
+
+  console.log("7. the collector reads what the run recorded");
+  const ev = await collectEvidence(pool, id, {
+    hiddenTestsPassed: true, regressionTestsPassed: true, ownTestsPassed: true,
+    redGreenVerified: true, filesChanged: ["a.js"], expectedFiles: ["a.js"], tokens: 10,
+  });
+  ev.toolCalls === 2 ? ok("counted the tool calls") : bad(`toolCalls=${ev.toolCalls}`);
+  ev.phases.join(",") === "reproduce,change" ? ok("kept the phases in order") : bad(`phases=${ev.phases}`);
+  ev.prOpened ? ok("saw the pull request") : bad("missed the pull request");
+  ev.escalated === false ? ok("no escalation recorded") : bad("invented an escalation");
+
+  console.log("8. an unrecorded dimension is unscored, not a free point");
+  const scored = scoreRun(ev);
+  scored.scores.tool_reliability === null && scored.unscored.includes("tool_reliability")
+    ? ok("tool_reliability is null, because errors are not recorded anywhere")
+    : bad(`tool_reliability scored ${scored.scores.tool_reliability} on data that does not exist`);
+
+  await pool.query(`DELETE FROM task_events WHERE task_id = $1`, [id]);
+  await pool.query(`DELETE FROM tasks WHERE id = $1`, [id]);
+  await pool.end();
 }
 
 main();

@@ -24,7 +24,15 @@ export type RunEvidence = {
   /** What a correct fix is expected to touch. Anything else is scope creep. */
   expectedFiles: string[];
   toolCalls: number;
-  toolErrors: number;
+  /**
+   * Null when the run kept no record of tool failures.
+   *
+   * `task_events` has no error type today, so a collector cannot tell a clean
+   * run from one that failed half its commands. Reporting 0 would score every
+   * run a perfect 1 on reliability - a dimension that always passes measures
+   * nothing, so it goes unscored until the events carry it.
+   */
+  toolErrors: number | null;
   /** Phase names the run reported, in order. */
   phases: string[];
   escalated: boolean;
@@ -55,7 +63,9 @@ export function scoreRun(e: RunEvidence): Scored {
     ? null
     : Math.max(0, 1 - stray.length / e.filesChanged.length);
 
-  const reliability = e.toolCalls === 0 ? null : Math.max(0, 1 - e.toolErrors / e.toolCalls);
+  const reliability = e.toolCalls === 0 || e.toolErrors === null
+    ? null
+    : Math.max(0, 1 - e.toolErrors / e.toolCalls);
 
   const scores: Record<string, number | null> = {
     reproduction: e.phases.includes("reproduce") ? 1 : 0,
@@ -67,7 +77,11 @@ export function scoreRun(e: RunEvidence): Scored {
     tool_reliability: reliability,
     scope_control: scope,
     code_quality: null,
-    pr_quality: e.prOpened && Boolean(e.prTitle && e.prTitle.trim()) ? 1 : 0,
+    /*
+     * Whether a pull request exists, not whether its prose is good. Title and
+     * description quality is a judgement, and judgements are not scored here.
+     */
+    pr_quality: e.prOpened ? 1 : 0,
     // An escalation on a case the cheap route should handle is a cost, not a
     // success: the work finished, and it finished expensively.
     unnecessary_escalation: e.escalated ? 0 : 1,
@@ -117,5 +131,48 @@ export function scoreRun(e: RunEvidence): Scored {
       .filter(([k, v]) => v === null && !JUDGEMENT.includes(k) && k !== "quota_consumed")
       .map(([k]) => k)],
     overall: total ? weighted / total : null,
+  };
+}
+
+/**
+ * What a finished run left behind, read from the database.
+ *
+ * Deliberately does not run anything: the test-execution half needs the repo
+ * and the branch, and mixing "read the record" with "check out and run" makes
+ * both harder to test. This half is provable offline with seeded rows, which is
+ * why it is separate.
+ */
+export async function collectEvidence(
+  pool: { query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> },
+  taskId: string,
+  tests: {
+    hiddenTestsPassed: boolean | null;
+    regressionTestsPassed: boolean | null;
+    ownTestsPassed: boolean | null;
+    redGreenVerified: boolean | null;
+    filesChanged: string[];
+    expectedFiles: string[];
+    tokens: number | null;
+  },
+): Promise<RunEvidence> {
+  const events = await pool.query(
+    `SELECT type, name FROM task_events WHERE task_id = $1 ORDER BY at`, [taskId]);
+  const phases = events.rows.filter((r) => r.type === "phase").map((r) => String(r.name ?? ""));
+  const toolCalls = events.rows.filter((r) => r.type === "tool").length;
+
+  const esc = await pool.query(
+    `SELECT count(*) AS n FROM escalations WHERE task_id = $1`, [taskId]);
+  const task = await pool.query(
+    `SELECT pr_number FROM tasks WHERE id = $1`, [taskId]);
+
+  return {
+    ...tests,
+    toolCalls,
+    // Not recorded anywhere yet; see the field's own note.
+    toolErrors: null,
+    phases,
+    escalated: Number(esc.rows[0]?.n ?? 0) > 0,
+    prOpened: task.rows[0]?.pr_number != null,
+    prTitle: null,
   };
 }

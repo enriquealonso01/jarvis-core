@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "29e2e2086a79a5bb64f792a201c36b242bfcb5f9",
   "total_steps": 51,
-  "updated_at": "2026-09-03T02:52:15Z",
+  "updated_at": "2026-09-03T02:57:20Z",
   "current_step": "S29",
   "steps": [
     {
@@ -253,7 +253,7 @@
         "title": "The engineering evaluation suite",
         "stage": 5,
         "state": "partial",
-        "evidence": "The escalation half is built and asserted (scripts/s29-escalation-test.sh, 6 assertions). Rung 8 read 'switch model within the approved pool' and satisfied it with a LATERAL move - any other approved route ordered by route_order - which re-runs the same failure at the same price. It now moves only into the escalation pool, records the escalation keyed by shape so a shape that always escalates is visible without reading a log, and skips cleanly when the pool is empty. Sabotaged back to the lateral query: it grabbed an unrelated production profile that merely sorted first and recorded a phantom escalation. Every route is in the normal pool on purpose - which models are worth escalating TO is what the benchmark decides, and inventing an ordering here would be the opinion S29 exists to replace. The scorer is built and proven failable (scripts/s29-scoring-test.sh, 8 assertions): nine of the twelve dimensions are decided from evidence a run leaves behind, and root_cause_accuracy and code_quality are returned null and listed as unscored rather than invented, because a floor set from made-up components measures the invention. Weighted, not averaged - flat averaging gave a run that reproduced the bug, kept scope tight, opened a tidy PR and FIXED NOTHING a score of 0.75, which is the plan's own warning arriving in practice; it now scores 0.52 against 1.00. NOT done: the benchmark suite, the scoring, the quality floors and the measured senior_engineer route are unbuilt, and the Done-when is that route being chosen by measurement and the ranking reproducing on a re-run."
+        "evidence": "The escalation half is built and asserted (scripts/s29-escalation-test.sh, 6 assertions). Rung 8 read 'switch model within the approved pool' and satisfied it with a LATERAL move - any other approved route ordered by route_order - which re-runs the same failure at the same price. It now moves only into the escalation pool, records the escalation keyed by shape so a shape that always escalates is visible without reading a log, and skips cleanly when the pool is empty. Sabotaged back to the lateral query: it grabbed an unrelated production profile that merely sorted first and recorded a phantom escalation. Every route is in the normal pool on purpose - which models are worth escalating TO is what the benchmark decides, and inventing an ordering here would be the opinion S29 exists to replace. The scorer is built and proven failable (scripts/s29-scoring-test.sh, 8 assertions): nine of the twelve dimensions are decided from evidence a run leaves behind, and root_cause_accuracy and code_quality are returned null and listed as unscored rather than invented, because a floor set from made-up components measures the invention. Weighted, not averaged - flat averaging gave a run that reproduced the bug, kept scope tight, opened a tidy PR and FIXED NOTHING a score of 0.75, which is the plan's own warning arriving in practice; it now scores 0.52 against 1.00. collectEvidence reads what a finished run recorded - phases in order, tool-call count, escalation, pull request - and is asserted against seeded rows rather than a live run, because a live run would prove the harness works and say nothing about whether the evidence was gathered correctly. Found while building it: task_events has no error type, so tool failures are not recorded anywhere; toolErrors is therefore null and tool_reliability goes unscored, since a dimension every run passes measures nothing. NOT done: the benchmark suite, the scoring, the quality floors and the measured senior_engineer route are unbuilt, and the Done-when is that route being chosen by measurement and the ranking reproducing on a re-run."
     },
     {
       "id": "S30",
@@ -380,5 +380,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S29: the benchmark scorer is failable by construction; wiring it to live runs is next."
+  "working_on": "S29: the scorer and the evidence collector are built and failable; the corpus and the live wiring are next."
 }
