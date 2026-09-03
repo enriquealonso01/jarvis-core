@@ -2209,6 +2209,8 @@ of the questionnaire.
 **Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
 - **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
 - An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- **The answers name which connections, environments and branch are production**, and the broker reads them. Add a connection afterwards without labelling it → **treated as production**, not as safe.
+- A connection named `staging-prod-mirror` is **not** production and `main-db` **is**, because the label says so and nothing is matching on the string.
 - The unanswered questions appear in Needs You, and answering the gating ones makes the project usable **before** the rest are answered. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
 
 **Debug** If `AGENTS.md` lands with template placeholders still in it, finalize ran before every answer was collected — the onboarding session must refuse to finalize on a missing required field rather than substituting a default. If the committed file and the database disagree, decide which is canonical now and enforce it; two sources of project policy is a bug that gets worse with time.
@@ -3963,6 +3965,23 @@ content, change infrastructure, rotate credentials.
 A natural-language grant does **not** satisfy Level 3. Nor does a previous
 approval for a similar action, nor a grant issued minutes earlier for the same
 task. Point-of-action confirmation, every time.
+
+#### Nothing defines what "production" is
+
+The transcript's firmest rule is that Jarvis consults before anything that
+affects production. Level 3 encodes it — merge to production, deploy to
+production, delete production data, modify a production database — and **the
+plan never says how the broker knows.**
+
+Production is a property of a **target**, not of a verb. At the moment of the
+call the broker sees a connection, a branch, an environment name. Left
+undefined, this gets implemented as a substring match on the name, which is wrong
+in both directions: `staging-prod-mirror` matches and `main-db` does not.
+
+- **Production-ness is declared at onboarding and carried on the object** — which connections, which environments, which branch. S26 already asks for *"deploy environments and approval rules"*; this is the same answer, stored where the broker reads it rather than in prose.
+- **Unlabelled targets are production.** The third appearance of the same default in this plan — an unclassified MCP tool is not callable, an unmapped config key is immutable, and an unlabelled target is production. **The alternative default means the first thing nobody classified is the one that gets deleted.**
+- **The classification is on the target *and* the effect.** IV.6 already puts read-only database analysis at Level 1 while modifying a production database is Level 3 — the same connection, two levels. The effect comes from the connection's permitted-action set (S31), which is what makes this checkable rather than a judgement call.
+- **The production branch is part of it, and S10 depends on it.** A grant may cover *"merge it"*; merging **to production** can never be inside a grant. So whether a granted merge is authorised turns entirely on which branch is production — **a fact the plan has been assuming and not recording.**
 
 The WhatsApp message for a Level 3 gate is short and complete:
 
