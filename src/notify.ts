@@ -87,13 +87,25 @@ export async function enqueueNotification(
     objectType?: string;
     objectId?: string;
     idempotencyKey: string;
+    /**
+     * The channel this notification is ABOUT, when it is about one.
+     *
+     * A message asking Enrique to pair WhatsApp was queued on WhatsApp, where
+     * it waited for the pairing it was asking for. It had been failing since
+     * 21:59 and was a large share of the delivery-retry traffic. The rule is
+     * structural rather than a special case for one message: a notification
+     * about a channel cannot be delivered by it, so that channel is removed
+     * from its delivery set and the console - which is always live - carries it.
+     */
+    aboutChannel?: string;
   },
 ): Promise<string | null> {
   if (args.level === "none") return null;
 
   // ui_only never leaves the console. The higher levels also write a ui row so
   // the notification center shows the same thing the phone would.
-  const channels: string[] = args.level === "ui_only" ? ["ui"] : ["ui", "whatsapp"];
+  const all: string[] = args.level === "ui_only" ? ["ui"] : ["ui", "whatsapp"];
+  const channels = all.filter((c) => c !== args.aboutChannel);
 
   let firstId: string | null = null;
   for (const channel of channels) {
