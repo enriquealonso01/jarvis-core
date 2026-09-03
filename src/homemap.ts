@@ -68,6 +68,21 @@ export type HomeMap = {
 const SUPERVISOR = "supervisor";
 
 /**
+ * Is this point worth drawing?
+ *
+ * "Running work and needs-you as nodes that appear only when non-empty." Lifted
+ * out of the two call sites so it can be asserted directly: a live map on a busy
+ * box cannot demonstrate that an empty point is omitted, because nothing on it is
+ * empty, and a sabotage that draws them anyway then goes unnoticed.
+ *
+ * A permanently present node showing zero carries no information and still costs
+ * space on a screen whose entire purpose is fitting.
+ */
+export function shouldDraw(count: number): boolean {
+  return count > 0;
+}
+
+/**
  * Everything Home draws, from rows.
  *
  * Nodes that would be empty are OMITTED rather than drawn grey: "running work and
@@ -144,7 +159,7 @@ export async function homeMap(pool: pg.Pool): Promise<HomeMap> {
       WHERE state IN ('running','preparing','recovering')`,
   );
   const runningCount = Number(running.rows[0]?.n ?? 0);
-  if (runningCount > 0) {
+  if (shouldDraw(runningCount)) {
     nodes.push({
       id: "running",
       kind: "running",
@@ -162,7 +177,7 @@ export async function homeMap(pool: pg.Pool): Promise<HomeMap> {
       WHERE status NOT IN ('resolved','ignored') AND owner = 'user'`,
   );
   const needsCount = Number(needs.rows[0]?.n ?? 0);
-  if (needsCount > 0) {
+  if (shouldDraw(needsCount)) {
     nodes.push({
       id: "needs_you",
       kind: "needs_you",

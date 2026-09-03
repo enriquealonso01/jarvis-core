@@ -25,7 +25,7 @@
  */
 import { createPool } from "../src/db.js";
 import {
-  fitsWithoutScrolling, homeMap, MAX_NODES_SMALL, motionFor, NODE_STATES, unknownNode,
+  fitsWithoutScrolling, homeMap, MAX_NODES_SMALL, motionFor, NODE_STATES, shouldDraw, unknownNode,
 } from "../src/homemap.js";
 
 const pool = createPool();
@@ -40,6 +40,7 @@ async function main(): Promise<void> {
   let project = "";
   let housekeeping = "";
   const tasks: string[] = [];
+  const extraProjects: string[] = [];
   try {
     project = (await pool.query<{ id: string }>(
       `INSERT INTO projects (slug,name,project_type,confidentiality)
@@ -136,6 +137,14 @@ async function main(): Promise<void> {
     (runningRows > 0) === Boolean(liveRunning)
       ? ok(`the running point is drawn exactly when there is running work (${runningRows} now)`)
       : bad(`running rows ${runningRows} but node ${Boolean(liveRunning)}`);
+    /*
+     * The omission rule itself. A live map on a busy box cannot show that an
+     * empty point is left out, because nothing on it is empty - so the rule is
+     * asserted where it can actually fail.
+     */
+    !shouldDraw(0) && shouldDraw(1)
+      ? ok("and a point with nothing in it is not drawn at all")
+      : bad("an empty point would be drawn");
 
     /*
      * "Start a task -> the change is visible BECAUSE THE STATE CHANGED."
@@ -152,6 +161,18 @@ async function main(): Promise<void> {
     busy.nodes.find((n) => n.id === `project:${project}`)?.state === "active"
       ? ok("and marks the project it belongs to, because a task is running")
       : bad("the project was not marked active");
+    /*
+     * The other direction, which is the one that matters: a project with nothing
+     * running must NOT be marked live. Asserting only the positive lets a
+     * hardcoded "active" pass, which is what sabotage found.
+     */
+    const quiet = (await pool.query<{ id: string }>(
+      `INSERT INTO projects (slug,name,project_type,confidentiality)
+       VALUES ($1,$1,'personal','normal') RETURNING id`, [`${SLUG}-quiet`])).rows[0].id;
+    extraProjects.push(quiet);
+    (await homeMap(pool)).nodes.find((n) => n.id === `project:${quiet}`)?.state === "ok"
+      ? ok("while a project with nothing running is not marked live")
+      : bad("A PROJECT WITH NO RUNNING WORK WAS MARKED LIVE");
     motionFor("active") > 0 && motionFor("ok") === 0
       ? ok("motion follows the state and nothing else")
       : bad("motion does not follow state");
@@ -207,7 +228,7 @@ async function main(): Promise<void> {
       : bad(`overflow advice: ${crowded.why}`);
   } finally {
     if (tasks.length) await pool.query(`DELETE FROM tasks WHERE id = ANY($1::uuid[])`, [tasks]);
-    for (const id of [project, housekeeping].filter(Boolean)) {
+    for (const id of [project, housekeeping, ...extraProjects].filter(Boolean)) {
       await pool.query(`DELETE FROM knowledge_chunks WHERE project_id = $1`, [id]);
       await pool.query(`DELETE FROM tasks WHERE project_id = $1`, [id]);
       await pool.query(`DELETE FROM projects WHERE id = $1`, [id]);
