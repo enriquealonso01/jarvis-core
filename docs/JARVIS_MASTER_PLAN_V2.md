@@ -662,6 +662,23 @@ A project is a security boundary. Concretely:
 - Professional and confidential projects get a dedicated unix user, created at project-create time. Until that exists, the heavy lane refuses them.
 - The Supervisor, Improvement, and Maintenance never use a project-owned auth profile.
 
+### The boundary assumes one repository per project, and nothing checks it
+
+Every isolation test in the plan probes **across** projects: A cannot
+`git ls-remote` B, cannot read B's secret, cannot reach B's browser profile. They
+all pass — and they would all still pass if **two projects were linked to the
+same repository**, because then A reading B's code is A reading its own.
+
+That is not a hypothetical shape. A repository containing an application and its
+scheduled jobs is naturally two bodies of work, and onboarding asks for *"exact
+GitHub owner/repo"* per project with nothing stopping the same answer twice. **The
+boundary would be gone by configuration, with every probe still green** — which is
+the worst kind of hole, because the tests report the opposite.
+
+- **Onboarding refuses a repository already linked to another project, and says why.** Default deny, per IV.6b rule 4, and the refusal names the other project so the answer is obvious rather than mysterious.
+- **It can be allowed, deliberately, with the consequence stated.** Two projects sharing code share a boundary, so **the stricter classification governs both** — confidentiality, auth profiles, approval rules. They cannot be one confidential and one normal, because the code is the same code. This is S38's mixed-document rule and S48's mixed-report rule, arriving at the level of the repository.
+- **Two projects on one repo is usually the wrong answer**, and the refusal is a chance to say so: the honest fix is one project with two areas of work, not two projects pretending the code is separate.
+
 ### The harness reaches the network, and the path guard does not help
 
 The third and broadest instance of the same pattern. S32 found that a browser
@@ -2209,6 +2226,7 @@ of the questionnaire.
 **Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
 - **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
 - An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- **Link a repository already linked to another project** → refused, with the other project named. Then allow it explicitly and confirm **the stricter classification now governs both** — a shared repo cannot be confidential on one side and normal on the other.
 - **The answers name which connections, environments and branch are production**, and the broker reads them. Add a connection afterwards without labelling it → **treated as production**, not as safe.
 - A connection named `staging-prod-mirror` is **not** production and `main-db` **is**, because the label says so and nothing is matching on the string.
 - The unanswered questions appear in Needs You, and answering the gating ones makes the project usable **before** the rest are answered. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
