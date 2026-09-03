@@ -803,7 +803,7 @@ integration mistakes than three agents coordinating through a document.
 6. **When something breaks twice for the same reason, write it down** in `docs/DEBUG_NOTES.md`. The call agent's self-transcription bug and its runaway-recording loop were each found the expensive way; both are now one-line comments in `callcontrol.ts`. Repeat that pattern.
 7. **Do not start the next step until the current one is observed working.** Half-finished steps compound.
 8. **Do not write the clock into the plan.** "X does not exist yet", "currently absent", "shipped at 21:18" — every one of those is true when written and false soon after, and it rots *inside* the section that exists to fix it. Say what the step does, not what the world lacks. The exception is a live defect, which should say so loudly and be deleted when it is closed.
-9. **Every requirement gets an owner in the same change that writes it.** A rule stated in Parts I–VII with no step implementing it does not get implemented — it gets quoted approvingly and ignored. Before finishing any plan edit, ask which step builds this, and if the honest answer is "none", either put it in a step or put it in S18b. **This has already produced the visual direction, System Health, the status bar, the composer, the path guard, harness egress, the audit keys and the console hardening as orphans, most found only by going back and looking.** The check takes ten seconds; finding one later takes a tick.
+9. **Every requirement gets an owner in the same change that writes it.** A rule stated in Parts I–VII with no step implementing it does not get implemented — it gets quoted approvingly and ignored. Before finishing any plan edit, ask which step builds this, and if the honest answer is "none", either put it in a step or put it in S18b — and **putting it in S18b means reopening S18b**, because that step completes like any other and an item added to a closed container is an item nobody will read. **This has already produced the visual direction, System Health, the status bar, the composer, the path guard, harness egress, the audit keys and the console hardening as orphans, most found only by going back and looking.** The check takes ten seconds; finding one later takes a tick.
 10. **Steps are sometimes inserted with a letter suffix** — `S13b` — when the plan gains a step after its neighbours are already numbered and underway. Renumbering mid-build would invalidate work in flight, so the suffix is deliberate. Treat `S13b` as a full step: it has the same Build/Test/Debug/Done-when, it belongs in `PROGRESS.json`, and it counts toward the total. Match steps with `S\d+b?`, never `S\d+`.
 
 ---
@@ -1670,6 +1670,24 @@ From now on: a requirement that lands after its governing step has shipped goes
 into **this step**, not into the finished one. The finished step gets a one-line
 pointer and nothing else.
 
+### This step cannot be finished, and marking it done has already lost work
+
+The rule above quietly assumes a container that stays open. **It does not.** This
+step was marked `done` — five items, sixty-six assertions, honestly complete at
+that moment — and the plan has since added more, which now sit in a step nobody
+will open again. The list here stands at **eight**; the completion evidence names
+five.
+
+That is the same failure this step was created to solve, one level up. A
+requirement written after its step shipped had no owner, so it got an owner — and
+then that owner shipped.
+
+So:
+
+- **`done` on this step means "empty right now", never "closed".** Adding an item here **reopens it**. An addition that leaves the step marked done is not a fix; it is the defect wearing the fix's paperwork.
+- **It runs at every stage boundary**, not once. A stage that ends with items sitting here has not ended.
+- **It is the last thing before S36 freezes.** A freeze over a non-empty register freezes the debt in with everything else, and after the freeze nobody is looking for it.
+
 ### What is left here
 
 The six containment items that were on this list have moved to **S12b**, where
@@ -1748,7 +1766,7 @@ If a resumed run "continues" but redoes work, the fields are being written and
 not read. Check the resume path before the write path — it is the same mistake
 the original checkpoint bug made.
 
-**Done when:** every item above is implemented and tested, and no completed
+**Done when (for this pass):** every item above is implemented and tested, and no completed
 step carries an unimplemented requirement added after it shipped.
 
 ---
@@ -2703,6 +2721,12 @@ and it belongs in one line at export time rather than in a discovery afterwards.
 *Size: 2 days.*
 
 **Build** Nothing new. Run every gate in Part VIII, fix what fails, and freeze.
+
+**Precondition: S18b is empty.** Not *"has been done once"* — empty at the moment
+of the freeze. A freeze performed over an open retrofit register seals the debt
+in with everything else, and nothing after a freeze goes looking for it. Check
+the register before running a single gate; it costs one look and it is the only
+moment at which a forgotten requirement is still cheap.
 
 **Test** All five gates. Every narrative N1–N8. Every critical loop.
 
