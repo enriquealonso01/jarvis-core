@@ -74,6 +74,34 @@ trap 'rm -rf "$tmp"' EXIT
 # Windows uid and tar recreates it on extraction, since the extract runs as
 # root and root is allowed to chown to anything - including a user that does
 # not exist.
+# What commit is about to become production?
+#
+# This packs the working tree, which is the whole reason a branch can become
+# production without anyone deciding to. Three separate problems today came from
+# exactly that, all from branches that were never merged:
+#   - migrations 041/042 applied from feat/s31-connector-interface, leaving two
+#     tables no code in main references
+#   - adapters.ts and connector.ts left on the box, compiled by every build
+#   - fix/outbox-delivery-loop ran for three hours and wrote notification rows in
+#     a state it invented, which main cannot see; two real warnings were lost
+#
+# So the tree is compared against origin/main and anything else has to be
+# deliberate. Deploying a branch is legitimate - testing a fix on the box before
+# merging is a real workflow - which is why this is a flag rather than a ban.
+git fetch -q origin main 2>/dev/null || true
+head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+main_sha="$(git rev-parse origin/main 2>/dev/null || echo unknown)"
+if [ "$head_sha" != "$main_sha" ] && [ "${DEPLOY_ALLOW_BRANCH:-0}" != "1" ]; then
+  echo "refusing to deploy: this tree is not origin/main" >&2
+  echo "    HEAD        $head_sha $(git rev-parse --abbrev-ref HEAD 2>/dev/null)" >&2
+  echo "    origin/main $main_sha" >&2
+  echo >&2
+  echo "Whatever is here becomes production, including migrations, which cannot be" >&2
+  echo "walked back by deploying main again. Merge first, or set" >&2
+  echo "DEPLOY_ALLOW_BRANCH=1 if you mean to put a branch on the box." >&2
+  exit 1
+fi
+
 echo "==> packing"
 tar -czf "$tmp/core.tgz" \
   --owner=0 --group=0 --numeric-owner \
