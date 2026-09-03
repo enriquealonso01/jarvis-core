@@ -351,7 +351,21 @@ export function runtimeForHarness(harness: string | null | undefined): AgentRunt
 
 export function runtimeFor(id: string | null | undefined): AgentRuntime | null {
   if (!id) return null;
-  return RUNTIMES[id] ?? null;
+  /*
+   * Object.hasOwn, not a bare index. `RUNTIMES["constructor"]` is inherited and
+   * truthy, so `?? null` never fired and this returned a FUNCTION where the
+   * signature promises an AgentRuntime.
+   *
+   * That is not only untidy: runner.ts:1113 is `if (askedRuntime &&
+   * !runtimeFor(askedRuntime))`, a guard whose whole job is rejecting a runtime
+   * that does not exist. A truthy return makes it pass, so a task carrying
+   * runtime "constructor" - and tasks.runtime has no CHECK constraint - would be
+   * accepted as valid and then used as a runtime object further down.
+   *
+   * Sixth instance of this shape today. The five before it were the phone and
+   * WhatsApp reason lists, two state machines and the deletion allow-list.
+   */
+  return Object.hasOwn(RUNTIMES, id) ? RUNTIMES[id] : null;
 }
 
 /**
