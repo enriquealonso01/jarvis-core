@@ -167,6 +167,102 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
     };
   });
 
+  /**
+   * An expired link offers a fresh one — delivered to WhatsApp, never rendered.
+   *
+   * S18b: "an expired link offers a re-issue to his WhatsApp rather than
+   * refusing. Small, and it is the difference between the credential loop
+   * working on the first try and him going to look for a ticket he was never
+   * supposed to have to find."
+   *
+   * THE DELIVERY CHANNEL IS THE AUTHENTICATION. Whoever is holding an expired
+   * link is not necessarily him - a two-hour token that has since lapsed may
+   * have been forwarded, screenshotted, or left in a browser somebody else
+   * uses. Rendering the replacement on the page would hand a fresh two hours to
+   * whoever asked; sending it to WhatsApp hands it to the person who owns the
+   * number. So this endpoint returns only an acknowledgement, and the suite
+   * asserts the new token appears nowhere in the response.
+   *
+   * It re-issues only for an EXPIRED request. A consumed one is finished - the
+   * credential was supplied - and minting a fresh link for it would reopen a
+   * closed door.
+   */
+  app.post("/api/action-requests/:id/reissue", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const r = await pool.query<{
+      id: string; issue_id: string | null; kind: string; payload: Record<string, unknown>;
+      consumed_at: Date | null; expires_at: Date | null;
+    }>(
+      `SELECT id, issue_id, kind, payload, consumed_at, expires_at
+         FROM user_action_requests WHERE id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row) return reply.code(404).send({ error: "not found" });
+
+    const state = actionState(row);
+    if (state !== "expired") {
+      return reply.code(409).send({
+        error: state === "consumed"
+          ? "that link was already used, and the thing it was for is done"
+          : "that link still works — open it rather than asking for another",
+        state,
+      });
+    }
+    if (!row.issue_id) {
+      return reply.code(409).send({ error: "this request has no issue to re-open" });
+    }
+
+    /*
+     * A NEW request rather than an extension of the old one. Extending would
+     * revive the exact token that has been sitting in whatever place it expired
+     * in; a new row means the old token stays dead however many copies of it
+     * exist.
+     */
+    const payload = row.payload ?? {};
+    const fresh = await ensureActionRequest(pool, {
+      issueId: row.issue_id,
+      kind: row.kind as ActionKind,
+      title: String(payload.title ?? "Something needs you"),
+      message: String(payload.message ?? "A link Jarvis sent you has expired."),
+      profileId: typeof payload.profile_id === "string" ? payload.profile_id : undefined,
+      connectionSlug: typeof payload.connection_slug === "string" ? payload.connection_slug : undefined,
+      projectId: typeof payload.project_id === "string" ? payload.project_id : null,
+      purpose: typeof payload.purpose === "string" ? payload.purpose : undefined,
+      cost: typeof payload.cost === "string" ? payload.cost : undefined,
+    });
+
+    /*
+     * Queued through S33's closed list rather than sent directly: `auth_handoff`
+     * is already one of the reasons Jarvis may open a conversation, so this
+     * inherits the quiet-hours hold and the batching instead of inventing a
+     * second way to reach him.
+     */
+    const { queueUnprompted } = await import("./unprompted.js");
+    await queueUnprompted(pool, {
+      reason: "auth_handoff",
+      subject: String(payload.title ?? "a link you needed has been re-issued"),
+      link: fresh.token ? `${ORIGIN}/action/${fresh.id}?t=${fresh.token}` : null,
+      projectId: typeof payload.project_id === "string" ? payload.project_id : null,
+    });
+
+    const { audit } = await import("./audit.js");
+    await audit(pool, {
+      actor: "user",
+      action: "action_request.reissued",
+      target: id,
+      outcome: "allowed",
+      reason: `expired link re-issued as ${fresh.id}, delivered over WhatsApp`,
+    });
+
+    // Deliberately no token, and not even the new id's link. The acknowledgement
+    // is the whole response.
+    return reply.send({
+      reissued: true,
+      delivered: "whatsapp",
+      message: "A fresh link is on its way to your WhatsApp. It is not shown here, "
+        + "because whoever is holding an expired link is not necessarily you.",
+    });
+  });
+
   app.post("/api/action-requests/:id/submit", async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const body = (req.body ?? {}) as { api_key?: string; token?: string };
