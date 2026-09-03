@@ -15,6 +15,7 @@
  * The palette half is a browser test; this is everything the API owes it.
  */
 import { createPool } from "../src/db.js";
+import { removeFixtures } from "./lib/fixtures.js";
 
 const pool = createPool();
 let pass = 0;
@@ -56,6 +57,13 @@ const STAMP = Date.now().toString(36);
 const SECRET_B = `zarquon${STAMP}`;
 const SHARED = `quibble${STAMP}`;
 
+/**
+ * Every project this suite makes, so the `finally` can take them away again.
+ * Recorded in the helper rather than at each call site: the ones that leak are
+ * the ones a failed assertion skipped past.
+ */
+const created: string[] = [];
+
 async function project(slug: string): Promise<string> {
   const r = await pool.query<{ id: string }>(
     `INSERT INTO projects (slug,name,project_type,confidentiality,production_status)
@@ -63,6 +71,7 @@ async function project(slug: string): Promise<string> {
      ON CONFLICT (slug) DO UPDATE SET archived_at = NULL RETURNING id`,
     [slug],
   );
+  created.push(r.rows[0].id);
   return r.rows[0].id;
 }
 
@@ -275,6 +284,7 @@ async function main(): Promise<void> {
 main()
   .catch((err) => { console.error(err); fail += 1; })
   .finally(async () => {
+    await removeFixtures(pool, created);
     await pool.end().catch(() => undefined);
     process.exit(fail === 0 ? 0 : 1);
   });

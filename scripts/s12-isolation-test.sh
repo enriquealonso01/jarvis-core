@@ -44,6 +44,22 @@ STAMP=$(date +%s)
 ALPHA="s12fs-alpha-$STAMP"
 BETA="s12fs-beta-$STAMP"
 
+# Take the two fixture projects away again, however this script ends.
+#
+# A leftover project is not inert: Stage B routing re-homes an inbox event into
+# a matching project, so a fixture that outlives its suite becomes a live
+# routing target for the next one. This script asserts with `check`, which does
+# not exit, but it can still die on a `set -e` failure or a Ctrl-C - and those
+# are exactly the runs that used to skip a tidy-up written at the bottom. Hence
+# a trap, not a final line. The removal itself goes through
+# `teardownFixtureProject` (via scripts/remove-fixture-projects.ts) because two
+# dozen tables carry a foreign key to `projects` and a hand-written cascade in
+# shell would get it wrong.
+cleanup() {
+  $COMPOSE run --rm --no-deps -T runner     node --import tsx scripts/remove-fixture-projects.ts "$ALPHA" "$BETA" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
 # Each probe must be the only thing the one-shot runner can claim.
 clearqueue() {
   q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL

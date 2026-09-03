@@ -13,6 +13,7 @@
  * from the behaviour.
  */
 import { createPool } from "../src/db.js";
+import { removeFixtures } from "./lib/fixtures.js";
 import { isForgetRequest, isStandingInstruction, recordStatement, sameSubject } from "../src/preference.js";
 import { retrieve } from "../src/knowledge.js";
 
@@ -23,6 +24,8 @@ const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
 
 const SLUG = `s30pref-${Math.random().toString(36).slice(2, 7)}`;
+
+const created: string[] = [];
 
 async function main(): Promise<void> {
   console.log("1. a standing instruction is recognised; a remark is not");
@@ -46,6 +49,7 @@ async function main(): Promise<void> {
     `INSERT INTO projects (slug,name,project_type,confidentiality)
      VALUES ($1,$1,'personal','normal') RETURNING id`, [SLUG]);
   const pid = p.rows[0].id;
+  created.push(pid);
 
   console.log("");
   console.log("2. stating a preference, then contradicting it");
@@ -191,8 +195,19 @@ async function main(): Promise<void> {
   process.exit(fails === 0 ? 0 : 1);
 }
 
-main().catch(async (e) => {
-  console.error(e instanceof Error ? e.message : e);
-  await pool.end().catch(() => undefined);
-  process.exit(1);
-});
+/*
+ * Cleanup in a `finally`, not at the bottom of main.
+ *
+ * The runs that leave litter are the ones that failed, and those are exactly
+ * the runs that never reach a tidy-up written at the end of the happy path.
+ */
+main()
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    fails += 1;
+  })
+  .finally(async () => {
+    await removeFixtures(pool, created);
+    await pool.end().catch(() => undefined);
+    process.exit(fails === 0 ? 0 : 1);
+  });

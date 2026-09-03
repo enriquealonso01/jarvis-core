@@ -12,6 +12,7 @@
  * mentions that there is a dated decision with somebody's name on it.
  */
 import { createPool } from "../src/db.js";
+import { removeFixtures } from "./lib/fixtures.js";
 import { ingestDocument, retrieve, tierOrderFor } from "../src/knowledge.js";
 
 const pool = createPool();
@@ -21,6 +22,8 @@ const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
 
 const SLUG = `s30tier-${Math.random().toString(36).slice(2, 7)}`;
+
+const created: string[] = [];
 
 async function main(): Promise<void> {
   console.log("1. the question shape decides the order, not the subject");
@@ -45,6 +48,7 @@ async function main(): Promise<void> {
     `INSERT INTO projects (slug,name,project_type,confidentiality)
      VALUES ($1,$1,'personal','normal') RETURNING id`, [SLUG]);
   const pid = p.rows[0].id;
+  created.push(pid);
 
   await pool.query(
     `INSERT INTO config_versions (scope, project_id, key, value, version, actor, note, caused_by_message)
@@ -108,8 +112,19 @@ async function main(): Promise<void> {
   process.exit(fails === 0 ? 0 : 1);
 }
 
-main().catch(async (e) => {
-  console.error(e instanceof Error ? e.message : e);
-  await pool.end().catch(() => undefined);
-  process.exit(1);
-});
+/*
+ * Cleanup in a `finally`, not at the bottom of main.
+ *
+ * The runs that leave litter are the ones that failed, and those are exactly
+ * the runs that never reach a tidy-up written at the end of the happy path.
+ */
+main()
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    fails += 1;
+  })
+  .finally(async () => {
+    await removeFixtures(pool, created);
+    await pool.end().catch(() => undefined);
+    process.exit(fails === 0 ? 0 : 1);
+  });
