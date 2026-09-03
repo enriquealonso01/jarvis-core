@@ -920,8 +920,45 @@ export."*
 The worker picks up new context at its next checkpoint rather than being killed
 and restarted — a mid-flight interruption loses the work already done.
 
+### 3d — Correcting a route is containment, not an edit
+
+The deterministic router's **first** rule reads a stored correction, so
+corrections are plainly expected. What happens *when he makes one* is not
+specified, and two things follow from commitments the plan has already made.
+
+**A correction propagates along the correlation chain.** Rule four routes an
+event by its proximity to the previous one — so if message 1 went to Alpha and
+message 2 inherited Alpha from it, then *"no, that was Beta"* about message 1
+leaves message 2 sitting in Alpha. Silently, and in **exactly** the situation he
+described: two things arriving seconds apart about different projects.
+
+So when a route is corrected, every event that inherited it by correlation and
+has not yet been acted on moves with it. **Ones that already produced work do not
+move silently — they are named.** *"Moved the follow-up too. The task I already
+started is still under Alpha — move that as well?"* is a sentence he can answer in
+one word.
+
+**And a mis-route is a boundary crossing.** Project is the isolation boundary
+this entire plan defends. A body that landed in Alpha was read *in* Alpha —
+plausibly by Alpha's model route, plausibly against Alpha's memory. **Moving the
+record to Beta does not un-read it.**
+
+So a correction *records what already saw the content* — which conversation,
+which model route, whether it reached a task — rather than rewriting history to
+look as though the mis-route never happened. That is the difference between a
+correction that fixes the file and one that tells the truth. It also feeds S48: a
+pair of projects he corrects repeatedly is a routing rule waiting to be written,
+and the correction record is where that signal lives.
+
+**A correction is never inferred from tone.** *"That's not right"* while he is
+looking at a task is not a routing correction — it is far more likely to be about
+the work. A route changes when he names the project it should have been, or moves
+it in the console. Guessing here produces a second mis-route wearing the costume
+of a fix.
+
 ### Build
 - A classifier producing an explicit route decision, logged on the inbox event so a wrong route can be diagnosed later.
+- **Correction propagation across the correlation chain**, with already-acted-on descendants named rather than moved, and a record of what read the content before the correction.
 - Multi-destination splitting with `origin_inbox_id` provenance on every derived conversation and task.
 - A `task_context` path: append to a running task, signal the worker, and have the runner read pending context at each checkpoint boundary.
 - Ambiguity produces **one** short question, never a guess and never silence.
@@ -935,6 +972,10 @@ and restarted — a mid-flight interruption loses the work already done.
 - **Mid-run feedback**: with a task running, send context that belongs to it → attached, worker sees it at the next checkpoint, the run is not restarted. Then send context that belongs to a *different* task → queued there, running task untouched.
 - Send feedback in the second before a task completes → it lands somewhere retrievable rather than vanishing into a finished task.
 - Three messages in ten seconds about three projects → three tasks, none merged, none lost.
+- **Two messages seconds apart, the second correlated to the first; correct the first → the second moves too.** This is his scenario, and it is the one that will actually happen.
+- Correct a route whose follow-up already spawned a task → **the task does not move silently.** He is told in one line and can agree in one word.
+- After a correction, the record still shows the content was read in the original project. **Assert on the audit, not on the current project field** — the field is what a rewrite would fix.
+- *"That's not right"* typed on a task detail → not treated as a routing correction.
 
 ### Debug
 Wrong routing is the failure mode here, and it is invisible unless you log the
