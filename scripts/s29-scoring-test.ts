@@ -114,11 +114,37 @@ async function collectorChecks(): Promise<void> {
   ev.prOpened ? ok("saw the pull request") : bad("missed the pull request");
   ev.escalated === false ? ok("no escalation recorded") : bad("invented an escalation");
 
-  console.log("8. an unrecorded dimension is unscored, not a free point");
-  const scored = scoreRun(ev);
-  scored.scores.tool_reliability === null && scored.unscored.includes("tool_reliability")
-    ? ok("tool_reliability is null, because errors are not recorded anywhere")
-    : bad(`tool_reliability scored ${scored.scores.tool_reliability} on data that does not exist`);
+  console.log("8. a clean run and a failing one are now distinguishable");
+  const clean = scoreRun(ev);
+  clean.scores.tool_reliability === 1
+    ? ok("no error events, so reliability is 1")
+    : bad(`reliability is ${clean.scores.tool_reliability} on a run with no failures`);
+
+  // One failure in two calls. Before this, both runs looked identical.
+  await pool.query(
+    `INSERT INTO task_events (task_id, type, name, summary)
+     VALUES ($1, 'error', 'harness_error', 'command exited 1')`, [id]);
+  const withFailure = await collectEvidence(pool, id, {
+    hiddenTestsPassed: true, regressionTestsPassed: true, ownTestsPassed: true,
+    redGreenVerified: true, filesChanged: ["a.js"], expectedFiles: ["a.js"], tokens: 10,
+  });
+  withFailure.toolErrors === 1 ? ok("the failure was counted") : bad(`toolErrors=${withFailure.toolErrors}`);
+  const noisy = scoreRun(withFailure);
+  (noisy.scores.tool_reliability as number) < 1
+    ? ok(`reliability fell to ${(noisy.scores.tool_reliability as number).toFixed(2)}`)
+    : bad("a run that failed a command scored the same as one that did not");
+
+  console.log("9. a run that recorded nothing gets no free point either");
+  const empty = await pool.query<{ id: string }>(
+    `INSERT INTO tasks (lane, title, objective, state) VALUES ('heavy', 's29 empty', 'x', 'succeeded') RETURNING id`);
+  const nothing = await collectEvidence(pool, empty.rows[0].id, {
+    hiddenTestsPassed: null, regressionTestsPassed: null, ownTestsPassed: null,
+    redGreenVerified: null, filesChanged: [], expectedFiles: [], tokens: null,
+  });
+  nothing.toolErrors === null && scoreRun(nothing).scores.tool_reliability === null
+    ? ok("zero errors out of zero calls is unscored, not perfect")
+    : bad(`an empty run scored ${scoreRun(nothing).scores.tool_reliability}`);
+  await pool.query(`DELETE FROM tasks WHERE id = $1`, [empty.rows[0].id]);
 
   await pool.query(`DELETE FROM task_events WHERE task_id = $1`, [id]);
   await pool.query(`DELETE FROM tasks WHERE id = $1`, [id]);

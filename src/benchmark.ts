@@ -159,6 +159,7 @@ export async function collectEvidence(
     `SELECT type, name FROM task_events WHERE task_id = $1 ORDER BY at`, [taskId]);
   const phases = events.rows.filter((r) => r.type === "phase").map((r) => String(r.name ?? ""));
   const toolCalls = events.rows.filter((r) => r.type === "tool").length;
+  const toolErrors = events.rows.filter((r) => r.type === "error").length;
 
   const esc = await pool.query(
     `SELECT count(*) AS n FROM escalations WHERE task_id = $1`, [taskId]);
@@ -168,8 +169,12 @@ export async function collectEvidence(
   return {
     ...tests,
     toolCalls,
-    // Not recorded anywhere yet; see the field's own note.
-    toolErrors: null,
+    /*
+     * Counted only when the run produced tool calls at all. A run with no
+     * events recorded nothing, and "zero errors out of zero calls" is an
+     * absence of evidence rather than a clean sheet.
+     */
+    toolErrors: toolCalls === 0 ? null : toolErrors,
     phases,
     escalated: Number(esc.rows[0]?.n ?? 0) > 0,
     prOpened: task.rows[0]?.pr_number != null,

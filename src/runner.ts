@@ -1231,6 +1231,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     // keeps the first three hundred in order and then says out loud that it
     // stopped, with the transcript still holding the rest.
     let toolsRecorded = 0;
+    let errorsRecorded = 0;
     let toolCalls_total = 0;
     let lastTool: string | null = null;
 
@@ -1430,6 +1431,29 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         //
         // Written as it happens rather than at the end: a run that crashes at
         // minute thirty must still leave thirty minutes of visible work behind.
+        /*
+         * Failures, kept rather than dropped.
+         *
+         * Both runtimes already normalise `{ kind: "error" }` and the runner
+         * threw them away, so `task_events` recorded a run's successes and
+         * nothing else: a clean run and one that failed half its commands were
+         * indistinguishable afterwards. S29's `tool_reliability` could not be
+         * scored at all - and a dimension every run passes measures nothing.
+         *
+         * Capped with the same budget as tool calls: a harness stuck in a retry
+         * loop must not be able to fill the table with its own noise.
+         */
+        for (const failure of normalised.filter((e) => e.kind === "error")) {
+          if (errorsRecorded >= MAX_TOOL_EVENTS) break;
+          errorsRecorded += 1;
+          void pool
+            .query(
+              `INSERT INTO task_events (task_id, type, name, summary) VALUES ($1, 'error', $2, $3)`,
+              [taskId, "harness_error", (failure as { message: string }).message.slice(0, 500)],
+            )
+            .catch(() => undefined);
+        }
+
         for (const call of normalised.flatMap((e) => (e.kind === "tool" ? e.calls : []))) {
           if (toolsRecorded >= MAX_TOOL_EVENTS) {
             if (toolsRecorded === MAX_TOOL_EVENTS) {
