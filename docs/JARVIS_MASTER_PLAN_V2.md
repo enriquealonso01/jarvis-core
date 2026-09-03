@@ -2975,9 +2975,27 @@ This does not conflict with "do not rebuild what OpenClaw already does": the
 worker was not built to replace OpenClaw automations, it existed first, and
 replacing it now would be the rebuild.
 
+### The self-repair's cheapest lever is deleting his data
+
+N7 is *"disk hits 85% at 03:00, Maintenance prunes images and old artifacts,
+records what it did, and does not wake him."* **Artifacts are the corpus S30
+answers from** — the dumped PDFs, the forwarded threads, the call transcripts —
+and *"somewhere I can dump stuff and ask about it later"* is one of the oldest
+requirements here. So the automatic remedy for a full disk, running unattended at
+three in the morning, is **deleting the thing he will ask about next month.**
+
+It would not even fail visibly: S30's test dumps documents and asks three weeks
+later, and it passes on the day it is written. The failure arrives in production,
+as an honest *"I don't have that"* about something he definitely gave Jarvis.
+
+- **Maintenance reclaims only what is rebuildable or expired.** Docker images and build caches, reaped worktrees, raw audio past its retention (7/10 days), compacted `task_events`. **Never an artifact inside its retention, and never the knowledge corpus** — those are the data, not the debris.
+- **When the reclaimable space runs out and the disk is still climbing, that is an Issue, not a deeper prune.** It is the `re-raise` class from IV.2: degrading while it waits. The honest sentence is *"I cannot free more without deleting things you asked me to keep"* — **and that is his decision, not a 3am one.**
+- **Ingest degrades before it deletes.** Above the threshold, new uploads are refused with a truthful reason rather than accepted and quietly pruned later. **Refusing an upload is recoverable; accepting one and deleting it is not** — and accepting-then-deleting looks like success at the moment it happens, which is why it is the one to rule out.
+- **Check free space before writing, not after.** A partially written artifact that filled the disk is worse than a refused one, and it is the shape that takes the box down rather than merely disappointing him.
+
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
 
-**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself. **Decline a candidate, then run the scan again → it does not come back.** Change its version and run again → it returns, and the message names what changed rather than repeating the pitch. A week with twenty findings produces the capped number of asks and the rest in the console. **Approve one → a task exists**; one-tap approval that produces no work is a button, not a decision.
+**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). **Then dump a document, force the disk to 85%, run Maintenance, and ask about the document — it is still there.** Exhaust every reclaimable byte with the disk still climbing → an Issue, not a deeper prune. Upload above the threshold → **refused with a reason, not accepted and pruned later.** Force an Improvement run and confirm nothing activates itself. **Decline a candidate, then run the scan again → it does not come back.** Change its version and run again → it returns, and the message names what changed rather than repeating the pitch. A week with twenty findings produces the capped number of asks and the rest in the console. **Approve one → a task exists**; one-tap approval that produces no work is a button, not a decision.
 
 **Debug** A duplicate fire after a restart means idempotency is keyed on something other than `scheduled_for`. A schedule that silently stops has usually hit its error count and paused itself — that is correct behaviour, but it must be visible in the console rather than only in a column. For Maintenance, confirm each auto-repair wrote what it did; a repair with no audit row is indistinguishable from a bug that fixed itself.
 
