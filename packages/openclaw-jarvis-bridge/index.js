@@ -162,17 +162,63 @@ export default definePluginEntry({
      * path", and "dispatched but the return value ignored".
      */
     const log = api.logger ?? console;
-    log.info?.("[jarvis-bridge] registering message_received and before_agent_run");
+    log.info?.("[jarvis-bridge] registering before_dispatch, message_received, before_agent_run");
 
-    api.on("message_received", async (event) => {
-      log.info?.("[jarvis-bridge] message_received fired");
+    /*
+     * What the runtime actually handed us.
+     *
+     * `message_received` and `before_agent_run` registered cleanly for a day
+     * and never once dispatched — `plugins inspect` reported hookCount 2 with
+     * empty diagnostics, `plugins doctor` passed, and an ordinary gateway agent
+     * turn sailed past both. In OpenClaw's shipped loader `api.on` is
+     * `registerTypedHook(record, name, handler, opts, hookPolicy)` and the
+     * whole registrar sits behind a conditional capability spread, so "on is
+     * missing" and "on exists but this plugin was granted nothing" look
+     * identical from out here. Printing the surface is the cheapest way to
+     * tell those apart; drop this once the dispatch question is settled.
+     */
+    try {
+      log.info?.(
+        "[jarvis-bridge] DIAG typeof api.on=" + typeof api.on +
+          " keys=" + Object.keys(api).sort().join(","),
+      );
+    } catch (err) {
+      log.info?.("[jarvis-bridge] DIAG failed: " + String(err));
+    }
+
+    /*
+     * `before_dispatch` is the hook that matches what this bridge is for.
+     *
+     * OpenClaw's own hooks.md classifies `message_received` as Observe — it
+     * cannot stop OpenClaw answering, so on its own it could never satisfy
+     * ADR 002 even if it fired. `inbound_claim` looks right by name and is
+     * not: the same doc says it "is not a global pre-routing broadcast" and is
+     * invoked only for the plugin owning the message's conversation binding,
+     * which this bridge does not own. `before_dispatch` is documented as a
+     * Claim — "handle an inbound message before the normal model dispatch",
+     * where returning `{ handled: true }` handles it with no text. That is
+     * exactly the contract: Jarvis persists it, and OpenClaw says nothing.
+     */
+    api.on("before_dispatch", async (event) => {
+      log.info?.("[jarvis-bridge] before_dispatch fired");
       const result = await ingestToJarvis(await payloadFor(event?.message ?? event, log));
       if (!result.ok) {
-        // Persist-first: if Jarvis did not store it, this must not be treated
-        // as handled. Throwing also blocks the agent, which is the safe way to
-        // fail — silence rather than an unrecorded answer.
+        // Persist-first, and fail closed: if Jarvis did not store it, do not
+        // claim it as handled. Throwing keeps WhatsApp silent rather than
+        // letting OpenClaw answer for an event nothing recorded.
         throw new Error(`jarvis persist failed status=${result.status}`);
       }
+      // No text: Jarvis owns the reply and sends it through /jarvis/send.
+      return { handled: true };
+    });
+
+    /*
+     * Kept as an observer only. It is not load-bearing now that
+     * `before_dispatch` claims the message, but it is the cheapest witness to
+     * whether inbound dispatch reaches this plugin at all.
+     */
+    api.on("message_received", async () => {
+      log.info?.("[jarvis-bridge] message_received fired");
     });
 
     api.on("before_agent_run", async () => {
