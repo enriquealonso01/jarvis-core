@@ -208,7 +208,7 @@ async function activityTier(
       ORDER BY 4 DESC, e.at DESC LIMIT $3`,
     [q, projectId, limit],
   );
-  return r.rows.map((x) => ({
+  const events = r.rows.map((x) => ({
     tier: "activity" as const,
     id: x.id,
     body: x.detail ? `${x.title} — ${x.detail}` : x.title,
@@ -216,6 +216,90 @@ async function activityTier(
     rank: Number(x.rank),
     at: x.at,
   }));
+
+  /*
+   * A configuration change IS a decision, and it is the better-evidenced half.
+   *
+   * The key is searched with its underscores turned into spaces: a config key is
+   * snake_case, Postgres treats deploy_policy as a single lexeme, and nobody
+   * asks a question in snake_case - so "why is the deploy policy manual" would
+   * never reach the row that answers it.
+   *
+   * The plan names both: "the answer is a decision and its reasoning, and it
+   * lives in activity_events AND config_versions". A feed line says what
+   * happened; a config version says what the value became, who changed it, and
+   * the message that caused it - which is what "why did we set Alpha's deploy
+   * policy to manual" is actually asking for.
+   */
+  const cfg = await pool.query<{
+    id: string; key: string; value: string; note: string | null; actor: string | null;
+    caused_by: string | null; rank: string; at: string;
+  }>(
+    `SELECT c.id::text, c.key, c.value::text AS value, c.note, c.actor,
+            c.caused_by_message AS caused_by,
+            ts_rank_cd(to_tsvector('english',
+                       replace(c.key, '_', ' ') || ' ' || c.value::text || ' ' || COALESCE(c.note, '')
+                       || ' ' || COALESCE(c.caused_by_message, '')),
+                       websearch_to_tsquery('english', $1))::text AS rank,
+            c.at::text AS at
+       FROM config_versions c
+      WHERE to_tsvector('english',
+              replace(c.key, '_', ' ') || ' ' || c.value::text || ' ' || COALESCE(c.note, '')
+              || ' ' || COALESCE(c.caused_by_message, ''))
+            @@ websearch_to_tsquery('english', $1)
+        AND ($2::uuid IS NULL OR c.project_id = $2)
+      ORDER BY 7 DESC, c.at DESC LIMIT $3`,
+    [q, projectId, limit],
+  );
+  const decisions = cfg.rows.map((x) => ({
+    tier: "activity" as const,
+    id: x.id,
+    body: [`${x.key} set to ${x.value}`, x.note, x.caused_by && `asked as: ${x.caused_by}`]
+      .filter(Boolean).join(" — "),
+    citation: `${x.key} changed on ${x.at.slice(0, 10)}${x.actor ? ` by ${x.actor}` : ""}`,
+    rank: Number(x.rank),
+    at: x.at,
+  }));
+
+  return [...events, ...decisions].sort((a, b) => b.rank - a.rank).slice(0, limit);
+}
+
+/**
+ * Which tier should answer first?
+ *
+ * The plan's rule is about EVIDENCE, not about topic: *"prefer the one whose
+ * answer can be cited most precisely: activity history over knowledge when the
+ * question is about a decision, because the decision has a date and a task; the
+ * document over memory when the question is about a fact, because the document
+ * can be quoted. Memory answers what Jarvis was TOLD, and that is the weakest
+ * evidence of the three."*
+ *
+ * So this reads the shape of the question, not its subject. "Why did we..." and
+ * "when did we decide..." are asking for a decision, and a decision has a date
+ * and an actor; "what did the client say..." is asking for a fact, and a fact
+ * can be quoted from a document.
+ *
+ * Memory is last in both orders, always. It is the only tier whose contents
+ * nobody can check - it records what Jarvis was told, with no document behind
+ * it - and putting it above evidence that can be quoted is how a half-remembered
+ * instruction outranks the contract it contradicts.
+ *
+ * Deliberately a small keyword rule rather than a model call: this decides
+ * ordering, not truth, every tier is still returned and labelled, and spending a
+ * model call to sort four lists would make every question slower to answer the
+ * same way.
+ */
+const DECISION_SHAPES = [
+  /\bwhy did\b/i, /\bwhy do\b/i, /\bwhy is\b/i, /\bwhy are\b/i,
+  /\bwhen did\b/i, /\bwho decided\b/i, /\bwho changed\b/i,
+  /\bdecide/i, /\bdecision\b/i, /\bagreed\b/i, /\bchanged\b.*\bto\b/i,
+];
+
+export function tierOrderFor(question: string): Tier[] {
+  const decision = DECISION_SHAPES.some((re) => re.test(question));
+  return decision
+    ? ["activity", "knowledge", "project_memory", "global_memory"]
+    : ["knowledge", "activity", "project_memory", "global_memory"];
 }
 
 export async function retrieve(
@@ -240,12 +324,16 @@ export async function retrieve(
     activityTier(pool, q, projectId, limit),
   ]);
 
-  const tiers = [
-    { tier: "activity" as Tier, hits: activity },
-    { tier: "knowledge" as Tier, hits: knowledge },
-    { tier: "project_memory" as Tier, hits: projectMemory },
-    { tier: "global_memory" as Tier, hits: globalMemory },
-  ].filter((t) => t.hits.length);
+  const byTier: Record<Tier, Hit[]> = {
+    activity,
+    knowledge,
+    project_memory: projectMemory,
+    global_memory: globalMemory,
+  };
+  // Ordered by what the question is asking for, not by a fixed preference.
+  const tiers = tierOrderFor(q)
+    .map((tier) => ({ tier, hits: byTier[tier] }))
+    .filter((t) => t.hits.length);
 
   return { tiers, total: tiers.reduce((n, t) => n + t.hits.length, 0) };
 }

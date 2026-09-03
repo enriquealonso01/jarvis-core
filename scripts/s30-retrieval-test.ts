@@ -123,12 +123,26 @@ async function main(): Promise<void> {
     ? ok("and every hit is labelled with the tier it came from")
     : bad("a hit is labelled with the wrong tier");
   /*
-   * The plan's ordering rule: a decision has a date and a task, so it can be
-   * cited most precisely, and it should not be buried under document text.
+   * The ordering rule follows the QUESTION, which this assertion originally got
+   * wrong. It asserted the decision tier always comes first - true of the
+   * ordering when it was static, and not what the plan asks for: activity leads
+   * for a decision question, knowledge for a fact question, because the rule is
+   * about which answer can be cited most precisely. "Refund window" is a fact.
    */
-  names[0] === "activity"
-    ? ok("the decision tier comes first, because it can be cited most precisely")
-    : bad(`the first tier was ${names[0]}`);
+  names[0] === "knowledge"
+    ? ok("a fact question leads with the document, which can be quoted")
+    : bad(`the first tier for a fact question was ${names[0]}`);
+  /*
+   * Every term has to appear somewhere, because websearch_to_tsquery ANDs them.
+   * "why did we CHANGE the refund window" matched nothing at all - the word
+   * change is in neither the decision nor the document - and an empty result
+   * has no first tier to assert about. The activity row says "Agreed with the
+   * client", so that is the word to ask with.
+   */
+  const decisionOrder = await retrieve(pool, { q: "why did we agree the refund window", projectId: pid });
+  decisionOrder.tiers[0]?.tier === "activity"
+    ? ok("and the same corpus asked why leads with the decision")
+    : bad(`a why-question led with ${decisionOrder.tiers[0]?.tier}`);
 
   console.log("");
   console.log("6. project scope holds");
