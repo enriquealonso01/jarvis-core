@@ -8,6 +8,55 @@ unblocked, finish it before starting anything new.
 
 ---
 
+## The nightly backup has reported failure for two days, and the backups are fine
+
+- **Step:** operational, found 2026-09-03 while checking whether S30 knowledge
+  chunks would survive a restore
+- **Blocked on:** Backups are frozen, so I diagnosed and stopped. The fix is a
+  change to `/usr/local/bin/jarvis-backup`, which is yours.
+- **What is happening:** `jarvis-restic-cron` has logged `backup failed` on
+  2026-09-02 and 2026-09-03. The message is:
+
+      pg_dump ok 877903 bytes
+      dump /var/lib/jarvis/db-backup/pg-20260903T001501Z.dump is missing from
+      snapshot aa5daf5d...; backup is not usable
+
+- **What is actually true:** the dump IS in that snapshot. Checked read-only
+  against the newest snapshot (aa5daf5d, 2026-09-03 02:15), which contains all
+  five local dumps including that one. The same is true of the 2026-09-02 run.
+  **Both nights produced usable backups and both reported failure.**
+- **Why the check fails:** the verification runs immediately after `restic
+  backup` and retries five times with two-second sleeps - ten seconds in total -
+  before declaring the dump missing. That is a remote B2 repository and a 716 MiB
+  snapshot; ten seconds is not a long enough window for the listing to be
+  consistent. Hours later the same query finds the file immediately.
+- **What it costs, which is not nothing:** the script exits 5 at the verify step,
+  which is BEFORE `restic forget --keep-daily 7 ... --prune`. So retention has
+  not run since 2026-08-31. The repository is growing without pruning, and it
+  will keep growing every night that this reports a false failure.
+- **What I suggest:** widen the retry window substantially (a minute or more,
+  with longer sleeps), and treat the check as "not yet confirmed" rather than
+  "not usable" when it times out - the two mean different things and only one of
+  them should stop the prune. Whatever you choose, the message should not say
+  "backup is not usable" about a backup that is usable.
+- **The second problem, and I think the worse one:** none of this was visible.
+  Two nights of reported failure produced zero health incidents and zero issues -
+  the only trace is `/var/log/jarvis-backup.log` and a `logger` line in the
+  journal. That is the same quiet-failure shape as the watchdog: the evidence
+  that backups work is the absence of a complaint, and the complaint had nowhere
+  to go. `src/selfwatch.ts` now has the machinery to raise this as a health
+  incident from outside the failing component; I have not wired it, because
+  backups are frozen and that is your call.
+- **What I did NOT do:** run a backup, run a restore, prune, or change any file
+  in the backup path. Everything above is from reading logs, the script, and
+  read-only `restic snapshots` and `restic ls`.
+- **One correction to my own diagnosis, in case it matters later:** my first pass
+  concluded the dump was absent from every snapshot. It was not - restic's
+  `--json` snapshot list is oldest-first, and I took the first element, so I
+  spent several minutes inspecting a snapshot from 31 August while investigating
+  a failure from 3 September.
+
+
 ## Six task transitions the code makes and the document does not draw
 
 - **Step:** S18b (contract conformance), surfaced 2026-09-03
