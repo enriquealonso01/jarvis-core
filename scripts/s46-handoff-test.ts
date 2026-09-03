@@ -33,6 +33,8 @@ const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
 
 const SLUG = `s46-${Math.random().toString(36).slice(2, 7)}`;
 const NOW = new Date("2026-09-10T09:00:00Z");
+/* Built from a char code: an escape here has been eaten three times before. */
+const NEWLINE = String.fromCharCode(10);
 const FLOW = {
   provider: "Composio",
   authorizeUrl: "https://backend.composio.dev/oauth/start?flow=abc123",
@@ -94,9 +96,18 @@ async function main(): Promise<void> {
     console.log("");
     console.log("3. the message names the host, and follows it");
     const message = handoffMessage(link);
-    message.includes("Composio") && message.includes("backend.composio.dev")
-      ? ok(`it names the provider and the host: "${message.split("\\n").join(" / ")}"`)
-      : bad(`message: ${message}`);
+    /*
+     * The host has to be named OUTSIDE the URL. Searching the whole message
+     * finds it inside the link itself, so the assertion could not tell
+     * "states the destination" from "the link happens to contain it" - which
+     * is exactly the distinction the rule is about, since the raw URL is the
+     * thing he would not scrutinise. Sabotage found that.
+     */
+    const withoutUrl = message.split(NEWLINE)
+      .filter((l) => !l.includes("https://")).join(" ");
+    message.includes("Composio") && withoutUrl.includes("backend.composio.dev")
+      ? ok(`it states the host in its own words: "${withoutUrl.trim()}"`)
+      : bad(`the host is only present inside the link: ${message}`);
     /*
      * "Change the destination in the flow and the message changes with it - A
      * NAME THAT IS HARDCODED PROVES NOTHING." So the flow is changed and the
@@ -106,7 +117,9 @@ async function main(): Promise<void> {
       ...FLOW, authorizeUrl: "https://oauth.example-provider.test/start?flow=abc123",
     }, NOW);
     const swappedMessage = handoffMessage(swapped);
-    swappedMessage.includes("oauth.example-provider.test")
+    const swappedWithoutUrl = swappedMessage.split(NEWLINE)
+      .filter((l) => !l.includes("https://")).join(" ");
+    swappedWithoutUrl.includes("oauth.example-provider.test")
       ? ok("changing the destination changes the host in the message")
       : bad(`the host is hardcoded: ${swappedMessage}`);
     !swappedMessage.includes("composio.dev")
