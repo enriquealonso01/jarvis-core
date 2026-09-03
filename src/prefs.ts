@@ -8,11 +8,17 @@
  *   "Communication preferences are stored, versioned, and **actually consulted**
  *    — a preference nothing reads is a preference that does not exist."
  *
- * NO NEW TABLE. S27 built `config_versions` with scope, key, value, version,
- * supersedes, conversation_id and caused_by_message, and S43 says outright that
- * "S27 already does these; this generalises the entrance" and "everything
- * versioned and reversible (S27)". A parallel preferences table would have been
- * a second rollback mechanism to keep in step with the first.
+ * NO NEW TABLE, AND NO SECOND WRITER. S27 built `config_versions` with scope,
+ * key, value, version, supersedes, conversation_id and caused_by_message, and
+ * S43 says outright that "S27 already does these; this generalises the
+ * entrance" and "everything versioned and reversible (S27)".
+ *
+ * This file writes preferences through `applyConfigChange` rather than
+ * INSERTing, and that is not tidiness — S27's own suite asserts that exactly one
+ * file writes a version row, and it caught this file doing it directly. Going
+ * through the one writer also means preferences inherit the immutable-domain
+ * refusal, the version numbering and the supersedes chain rather than
+ * reimplementing three things that would then have to be kept in step.
  *
  * THE CHANNEL IS A DIMENSION OF THE VALUE, NOT THE OWNER OF THE RECORD, and this
  * is the design decision in the file. The Debug note says why:
@@ -30,6 +36,7 @@
  * the Debug note describes.
  */
 import type pg from "pg";
+import { applyConfigChange, rollbackConfig } from "./config.js";
 
 /**
  * What he can change this way. A closed set, so an unrecognised preference is
@@ -101,19 +108,20 @@ export async function setPreference(
     next.default = args.value;
   }
 
-  const version = (current?.version ?? 0) + 1;
-  await pool.query(
-    `INSERT INTO config_versions
-       (scope, project_id, key, value, version, actor, note, conversation_id,
-        caused_by_message, supersedes)
-     VALUES ('global', NULL, $1, $2::jsonb, $3, $4, $5, $6, $7, $8)`,
-    [
-      args.key, JSON.stringify(next), version, args.actor ?? "enrique",
-      args.channel ? `on ${args.channel}` : "everywhere",
-      args.conversationId ?? null, args.causedByMessage ?? null, current?.id ?? null,
-    ],
-  );
-  return { version, value: next };
+  const outcome = await applyConfigChange(pool, {
+    scope: "global",
+    projectId: null,
+    key: args.key,
+    value: next,
+    actor: args.actor ?? "enrique",
+    note: args.channel ? `on ${args.channel}` : "everywhere",
+    conversationId: args.conversationId ?? null,
+    causedByMessage: args.causedByMessage ?? null,
+  });
+  if (!outcome.applied) {
+    throw new Error(`${args.key} was not applied: ${JSON.stringify(outcome)}`);
+  }
+  return { version: outcome.version, value: next };
 }
 
 async function currentRow(
@@ -164,24 +172,26 @@ export async function rollbackPreference(
   key: string,
   actor = "enrique",
 ): Promise<{ version: number; value: PreferenceValue } | null> {
-  const rows = await pool.query<{ id: string; version: number; value: PreferenceValue }>(
-    `SELECT id, version, value FROM config_versions
+  const rows = await pool.query<{ version: number; value: PreferenceValue }>(
+    `SELECT version, value FROM config_versions
       WHERE scope = 'global' AND key = $1
       ORDER BY version DESC LIMIT 2`,
     [key],
   );
-  const [current, previous] = rows.rows;
-  if (!current || !previous) return null;
+  const previous = rows.rows[1];
+  if (!previous) return null;
 
-  const version = current.version + 1;
-  await pool.query(
-    `INSERT INTO config_versions
-       (scope, project_id, key, value, version, actor, note, supersedes)
-     VALUES ('global', NULL, $1, $2::jsonb, $3, $4, $5, $6)`,
-    [key, JSON.stringify(previous.value), version, actor,
-      `rolled back to version ${previous.version}`, current.id],
-  );
-  return { version, value: previous.value };
+  /*
+   * S27's rollback, not a second one. It writes the old value FORWARD as a new
+   * version rather than deleting the current row, which is the behaviour this
+   * step wants anyway: the history stays a history, and what he heard between
+   * the two changes remains explicable afterwards.
+   */
+  const outcome = await rollbackConfig(pool, {
+    projectId: null, key, toVersion: previous.version, actor,
+  });
+  if (!outcome.applied) return null;
+  return { version: outcome.version, value: previous.value };
 }
 
 /* ------------------------------------------------------------------ *
