@@ -24,6 +24,8 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [Eleven regexes that matched nothing, because the backslashes were backspaces](#eleven-regexes-that-matched-nothing-because-the-backslashes-were-backspaces)
+- [The nightly backup said "not usable" about a usable backup](#the-nightly-backup-said-not-usable-about-a-usable-backup)
 - [The sweep certified images, not the tree](#the-sweep-certified-images-not-the-tree)
 - [An average over two clusters describes neither](#an-average-over-two-clusters-describes-neither)
 - [The fetch that decided the worktree base had no credential](#the-fetch-that-decided-the-worktree-base-had-no-credential)
@@ -239,6 +241,63 @@ subject did not choose. Ours scored obedience to our own instructions, our own
 directory layout, and our own guess about where tests live. And when successive
 corrections all move the same contestant up, stop and say so out loud - the
 next tempting fix is the one to leave alone.
+
+### Eleven regexes that matched nothing, because the backslashes were backspaces
+
+**Symptom:** `tierOrderFor("why did we set the deploy policy to manual")` returned
+the fact ordering instead of the decision ordering. The source read
+`/\bwhy did\b/i`. `grep` showed it. `tsc` accepted it. The compiled function
+was correct. Evaluating the identical array literal inline returned `true`.
+Calling it through the module returned `false`.
+**Cause:** the file was written by a python heredoc, and in python `"\b"` is not
+a backslash followed by b - it is **U+0008, BACKSPACE**. So eleven patterns
+shipped as `/<BS>why did<BS>/i`, which is a regex requiring a literal backspace
+character on both sides of the phrase. It matches nothing, ever.
+**Why every check missed it:** a backspace renders as zero width. `grep` prints
+it invisibly, an editor shows nothing, `.source` prints `why did`, and `.flags`
+prints `i`. The regex is valid, so the typechecker has no complaint. Every
+diagnostic agreed the code was right while the behaviour said otherwise.
+**How it was actually found:** printing character codes.
+
+    [...re.source].map(c => c.charCodeAt(0))
+    // 8,119,104,121,32,100,105,100,8   <- the 8s
+
+**What to do instead:** build backslashes as `chr(92)` when writing files from
+python, and read the result back with `cat -v`, which renders the control
+character as `^H` and makes it visible. The same applies to `\n`, `\t` and `\s`;
+`\n` at least breaks the line and gets noticed, which is why this one survived
+longer than the others.
+**Lesson:** when the source is right, the compiled output is right, the
+same expression works when typed inline, and the behaviour is still wrong -
+stop reading the code and look at the bytes. Six probes went past before that
+occurred to me.
+
+### The nightly backup said "not usable" about a usable backup
+
+**Symptom:** `jarvis-restic-cron` logged `backup failed` on two consecutive
+nights, with `dump ... is missing from snapshot ...; backup is not usable`.
+**What was true:** the dump was in the snapshot both nights. Checked read-only
+against the newest snapshot, which contained all five local dumps.
+**Cause:** the verification runs immediately after `restic backup` and retries
+five times with two-second sleeps - ten seconds - before declaring the dump
+missing. Against a remote B2 repository and a 716 MiB snapshot that is not long
+enough for the listing to be consistent. Hours later the same query answers
+instantly.
+**What it cost:** the script exits at the verify step, which is BEFORE
+`restic forget --prune`. Retention stopped running on the day the false failures
+began, and the repository grows every night it happens.
+**The part that matters more:** two nights of reported failure produced zero
+health incidents and zero issues. The only trace was a log file and one
+`logger` line. That is the same shape as the watchdog problem - the evidence
+that a thing works is the absence of a complaint, and the complaint has nowhere
+to go.
+**Left for Enrique:** backups are frozen, so this was diagnosed and stopped
+rather than fixed. It is in BLOCKED.md with the suggested change.
+**A correction worth keeping:** the first pass at this concluded the dump was
+absent from every snapshot. It was not. `restic snapshots --json` returns
+oldest-first, and taking `d[0]` meant inspecting a snapshot from three days
+before the failure being investigated. When a diagnosis says "this has never
+worked", check that you are looking at the right run first.
 
 ### The sweep certified images, not the tree
 
