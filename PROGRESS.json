@@ -1,9 +1,9 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
-  "total_steps": 51,
-  "updated_at": "2026-09-03T22:29:37Z",
-  "current_step": "S49",
+  "total_steps": 57,
+  "updated_at": "2026-09-03T22:35:37Z",
+  "current_step": "S50",
   "steps": [
     {
       "id": "S1",
@@ -386,6 +386,44 @@
       "stage": 10,
       "state": "built",
       "evidence": "THE PLAN GRANTS S48 THE ONE CROSS-PROJECT READ IN THE WHOLE DOCUMENT AND SAYS WHY THAT IS DANGEROUS: 'an exception that broad, arriving in the last step, is how isolation quietly stops meaning anything. So it needs a shape.' The shape is: fan out per project, merge FINDINGS, never transcripts. projectPass is the only function that sees a body, its signature is single-project, and it REFUSES rather than filters when handed another project's transcripts - a caller doing that has already made the mistake this step is built around, and silently dropping the extras would let it keep making it. Finding has no quote, excerpt, body or sample field, and that absence IS the mechanism: a helpful excerpt is the obvious next improvement and nothing else would have stopped it. mergeFindings takes Finding[] and has no parameter through which a transcript could arrive. ASSERTED ON WHAT CROSSED, NOT ON WHAT THE REPORT SAYS ABOUT ITSELF, exactly as the plan instructs. The confidential fixture contains a phrase existing nowhere else, and the suite hunts for it in the merge INPUT, the merge OUTPUT and the REPORT - three separate assertions - plus a fourth confirming the phrase really was in the transcripts the pass read, so the absences are facts about the projection rather than about the fixture. The sabotage that adds one excerpt to a citation goes red on three of them. CROSS-PROJECT MATCHING IS OVER A NORMALISED CORRECTION, per the Debug note: 'two passes describing the same defect in different words will never match', and the step would then 'report three unrelated one-offs where there is one standing complaint'. The suite words the two projects' corrections DIFFERENTLY on purpose - 'Enri' and '  ENRI ' - and requires one merged finding. The behaviour is part of the fingerprint, so two different defects with the same target do not collide. RANKED BY REACH BEFORE COUNT: a correction in two projects outranks one appearing nine times in one, because the first is a standing complaint and the second may be one bad week on one piece of work. Already-fixed issues are dropped SILENTLY - 'a weekly report re-raising last week's fixed problems is a report that gets skipped, and then the real items go unread with it'. A week with nothing left produces one short sentence, because 'a cycle that always finds problems is a cycle that invents them'. The report and each merged finding take S38's strictestOf. routeForPass has NO FALLBACK PARAMETER: 'a fallback that silently picks another provider is the whole defect wearing a retry'. And a finding nobody can act on is dropped rather than printed. scripts/s48-selfreview-test.ts, 26 assertions, green first run. Sabotaged ten ways, all red first pass. NOT BUILT: nothing runs the weekly cycle. No scheduler invokes the passes, nothing reads real conversations into a Transcript, no analyser produces the normalised corrections (they are an input here), the report is not written as an artifact or classified on disk, and no approved finding has become a task or a preference change end to end. This is the shape of the exception, held by tests; the exception itself has never been exercised against real data."
+    },
+    {
+      "id": "S49",
+      "title": "Talk to Jarvis in the browser (live voice)",
+      "stage": 10,
+      "state": "built",
+      "evidence": "S49 IS 'A NEW TRANSPORT AND A UI, NOT A SECOND CONVERSATION BRAIN', so this is only the three rules the browser makes newly easy to break; S21's runtime, S20's turn-taking and S39's channel rules are reused untouched. ONE - THE CONSOLE PROVES WHO, THE APPROVAL PAGE PROVES WHAT: the plan calls this 'the single most likely place to break that rule, because talking to Jarvis on the console page feels like authority it does not carry', so spokenInstruction returns `executes` as the LITERAL false - a version that could execute has to change the type and every caller. Deploy raises an approval needing re-auth; an ordinary request still queues as a task, or the rule would just be 'the voice channel does nothing'. TWO - THE ORB HAS NO CLOCK: orbState takes microphone amplitude, playback level and track state and nothing derived from time, so 'it never moves because time passed' is a property of what the function can SEE rather than a note asking the next person not to add a pulse. Asserted STRUCTURALLY (no Date, now(), elapsed, timer, frame or tick in scope) as well as per-frame, because a mocked frame proves one frame; the sabotage injecting Date.now() goes red on exactly that. A muted mic stops the motion by the same rule rather than a special case, and a running tool shows thinking with zero motion since a spin would be the decorative pulse 0.45 forbids. THREE - THE SCREEN IS THE DIVERGENCE: S39 unchanged, no address spoken, but the link goes to the thread beside the orb and the line does NOT also promise WhatsApp - two places for one link when the place he is looking at already has it. Capture is persist-first as an ORDER rather than a comment: captureThenAsk takes the persist and the ask, so no model is reached before the inbox event exists and a call dropped mid-utterance still leaves the capture behind. scripts/s49-browservoice-test.ts, 24 assertions, green. Sabotaged ten ways, all red first pass. THE SUITE CAUGHT A GUESSED REGEX: my strip looked for the contraction and speakable.ts says 'I am sending', so the WhatsApp promise survived and the spoken line offered him two places to find one link. It now matches speakable's own sentence and restores the full stop the split consumed. NOT BUILT, AND IT IS MOST OF S49: no transport. No WebRTC or WebSocket audio, no mic capture, no playback, no 'Talk to Jarvis' control, no orb - all jarvis-control-center work, a different repo. Nothing registers the browser as a voice-capable channel and none of these decisions is called."
+    },
+    {
+      "id": "S50",
+      "title": "Jarvis calls a third party to get something done",
+      "stage": 10,
+      "state": "built",
+      "evidence": "THE GRANT IS A CEILING, NOT A TARGET, and the Debug note predicts exactly how that breaks: 'if it books the wrong slot when the exact one is unavailable, the grant is being treated as a target to satisfy rather than a ceiling - a miss is a question, not an improvisation.' decideOnOffer accepts ONLY on an empty deviation list, with no allowNearMatch and no tolerance argument, because a tolerance is precisely how a ceiling becomes a target. The plan's deviation test - nothing at eight, only 8:45 - is the centre of the suite, and the sabotage relaxing the guard by ONE deviation goes red seven times. Every parameter is a ceiling, not just the time. Case and whitespace are not deviations, so it does not stop over nothing. Both halves asserted: the exact table IS taken, or the guard would prove only that it never books anything. A CARD IS CHECKED BEFORE THE DEVIATIONS, because it is refused even when the table is exactly right - 'regardless of how the task was phrased'. Nothing resembling a card number appears in anything said, asserted by looking for digits rather than by trusting the sentence. IT IDENTIFIES AND DOES NOT IMPERSONATE: the opening line names him in the third person and carries the automated-assistant disclosure in the same sentence rather than a separate line that could be dropped for brevity. The impersonation check GREPS WHAT WAS SYNTHESISED, per the plan's 'assert on what was synthesised, not on a lucky paraphrase', rather than reading a flag. The disclosure is built field by field and has nowhere to put a card, an address or anything about his other affairs, so the Debug note's failure - 'applying inbound disclosure rules to an outbound stranger' - is not writable here. Two dial attempts then it reports back, since a loop that waits politely between calls is still a loop from the restaurant's side. The call he named raises no redundant approval and a place he did not name does. The other party's audio is not recorded, with the plan's own jurisdictional reason attached so changing it is a decision rather than an accident. scripts/s50-outbound-test.ts, 28 assertions, green. Sabotaged twelve ways, all red first pass. The suite also caught a report that read like a form - 'They can do time Saturday at 8:45pm' - which he reads, and a report reading like a form makes him place the call himself. NOT BUILT: no call is placed. Nothing dials, the S21 runtime is not driven from the caller side, no task grant is issued or invalidated against these parameters, no transcript is persisted and no outcome is reported on his preferred channel."
+    },
+    {
+      "id": "S51",
+      "title": "Home is a map of the system, not a list of it",
+      "stage": 10,
+      "state": "not_started"
+    },
+    {
+      "id": "S52",
+      "title": "Forthcoming: it asks for what it needs before it is stuck",
+      "stage": 10,
+      "state": "not_started"
+    },
+    {
+      "id": "S53",
+      "title": "Agent orchestration: many agents on one goal",
+      "stage": 10,
+      "state": "not_started"
+    },
+    {
+      "id": "S54",
+      "title": "Deploy its own control plane",
+      "stage": 10,
+      "state": "not_started"
     }
   ],
   "gates": {
@@ -397,5 +435,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S49's three core-side rules built: nothing spoken executes, the orb has no clock in scope, and the link goes to the screen while the URL is still never spoken. NOT built: the transport and the orb are console-repo work, and nothing calls these decisions. Next: S50 (Jarvis calls a third party), then S51-S54."
+  "working_on": "S50 built as decisions: the grant is a ceiling with no tolerance argument, a card stops even a perfect table, the disclosure has nowhere to put anything but the booking, and impersonation is checked against what was synthesised. NOTE: the steps array stopped at S48, so S49's evidence had silently gone nowhere - S49-S54 are now present and both are recorded. NOT built for either: nothing dials, and S49's transport is console-repo work. Next: S51, S52, S53, S54."
 }
