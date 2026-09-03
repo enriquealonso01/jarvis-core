@@ -95,9 +95,26 @@ export function mayDial(reason: CallReason, now = new Date()): DialVerdict {
 }
 
 /** The first sentence: who is calling, and why, before anything else. */
+/**
+ * The human label for a reason, or the reason itself.
+ *
+ * `CALL_REASONS[reason].label` reads as safe and is not: for an inherited key
+ * the index returns something truthy and `.label` is undefined, so the sentence
+ * became "This is Jarvis, calling about undefined." - spoken aloud, on a phone
+ * call. It does not throw, which is why it would have been found by hearing it.
+ *
+ * `mayDial` now guards the dial path, so an unknown reason cannot ring the
+ * phone. This is the second site: `outbound_calls.reason` is an unconstrained
+ * text column read back for an Issue title, and echoing the raw reason there is
+ * more useful to whoever reads the Issue than the word "undefined".
+ */
+function labelFor(reason: string): string {
+  return Object.hasOwn(CALL_REASONS, reason) ? CALL_REASONS[reason as CallReason].label : reason;
+}
+
 export function openingLine(reason: CallReason, subject: string): string {
   const said = subject.trim().replace(/\s+/g, " ");
-  return `This is Jarvis, calling about ${CALL_REASONS[reason].label}. ${said}`;
+  return `This is Jarvis, calling about ${labelFor(reason)}. ${said}`;
 }
 
 /**
@@ -419,7 +436,7 @@ export async function fallBackToWhatsApp(
     service: "phone",
     owner: "user",
     status: "waiting_for_user",
-    title: `[call] ${CALL_REASONS[call.reason].label} — ${why}`,
+    title: `[call] ${labelFor(call.reason)} — ${why}`,
     dedupeKey: `call.fallback:${callId}`,
     projectId: call.project_id,
     evidence: { call_id: callId, reason: call.reason, subject: call.subject },
