@@ -27,6 +27,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Two engines, four different reasons the same task could not finish](#two-engines-four-different-reasons-the-same-task-could-not-finish)
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
+- [A half-deleted project, and a stale seed image behind it](#a-half-deleted-project-and-a-stale-seed-image-behind-it)
 - [The sweep stopped at s25, so a runner change broke a suite unseen](#the-sweep-stopped-at-s25-so-a-runner-change-broke-a-suite-unseen)
 - [A new column broke three call suites, silently](#a-new-column-broke-three-call-suites-silently)
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
@@ -158,6 +159,31 @@ statement.
 runs the code has it, and dev is one of those. The swallow is what made it quiet:
 `could not close the turn` went to stderr while the suite reported a behavioural
 failure three layers away.
+
+### A half-deleted project, and a stale seed image behind it
+**Symptom:** heavy tasks on the seeded `alpha-web` parked with "no engineering
+route is usable here: anthropic_personal", which reads exactly like the S12b
+fail-closed allowlist gap that three fixtures really did have.
+**It was not that.** Two of my own faults, stacked:
+1. `teardownFixtureProject` was not transactional. When it could not delete a
+   project - the `conversations` foreign key, before it walked the graph - it had
+   already deleted everything pointing AT the project, and left the project
+   standing without its `auth_profile_allowlists` rows. A half-deleted project
+   looks fine until something tries to use it.
+2. Re-seeding did not restore them, because `scripts/dev-rebuild.sh` defaults to
+   `api runner seed` and I had been calling it as `dev-rebuild.sh runner` every
+   time. The seed image was months of edits behind: its baked `dev-seed.ts` had
+   no `subscription_login` clause at all, so the allowlist insert simply was not
+   in the code being run.
+**Fix:** the teardown runs in a transaction and rolls back as a unit, asserted
+with a trigger that refuses the delete - a plain foreign key does not work as a
+blocker, because the teardown correctly walks the catalog and deletes the
+blocking row too. And rebuild every dev image, not the one service you are about
+to run: a stale seed is invisible, because it produces a database that is merely
+INCOMPLETE rather than one that errors.
+**Lesson:** "the fixture has the S12b gap" was the third explanation that fit the
+symptom and the second that was wrong. The evidence that settled it was reading
+the image's own copy of the seed, not the repository's.
 
 ### The sweep stopped at s25, so a runner change broke a suite unseen
 **Symptom:** `s28-park-test` failed 5 of 11 with assertions that made no sense -

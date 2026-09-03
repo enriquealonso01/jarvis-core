@@ -101,6 +101,57 @@ async function main() {
     ? ok("and the teardown removed it rather than reporting it clean")
     : bad(`leftBehind=${JSON.stringify(second.leftBehind)}`);
 
+  console.log("5. a teardown that cannot finish leaves the project untouched");
+  /*
+   * The half-deleted case, which is worse than no deletion: an earlier version
+   * stripped a project's child rows, failed on a foreign key, and left the
+   * project standing without them. The seeded alpha-web and alpha-mobile lost
+   * their allowlists exactly that way, and every heavy task on them then parked
+   * with "not allowlisted" - a symptom that reads like a different bug.
+   */
+  const p3 = await pool.query<{ id: string }>(
+    `INSERT INTO projects (slug, name, project_type) VALUES ($1, $1, 'personal') RETURNING id`,
+    [`${slug}-c`]);
+  const pid3 = p3.rows[0].id;
+  await pool.query(
+    `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+     SELECT id, $1, ARRAY['senior_engineer'] FROM auth_profiles LIMIT 1`, [pid3]);
+  /*
+   * A row the teardown genuinely cannot delete.
+   *
+   * The first version of this used a plain foreign key, and the teardown walked
+   * the catalog, found the blocking table, deleted the row and carried on -
+   * correctly. It only appeared to roll back because the referencing-table list
+   * had been cached before that table existed. A trigger cannot be walked
+   * around, so this is a real failure rather than a stale cache.
+   */
+  await pool.query(`CREATE TABLE IF NOT EXISTS teardown_block (
+      id serial PRIMARY KEY, project_id uuid REFERENCES projects (id) ON DELETE RESTRICT)`);
+  await pool.query(`CREATE OR REPLACE FUNCTION teardown_block_refuse() RETURNS trigger
+      LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''this row cannot be deleted''; END'`);
+  await pool.query(`DROP TRIGGER IF EXISTS teardown_block_no_delete ON teardown_block`);
+  await pool.query(`CREATE TRIGGER teardown_block_no_delete BEFORE DELETE ON teardown_block
+      FOR EACH ROW EXECUTE FUNCTION teardown_block_refuse()`);
+  await pool.query(`INSERT INTO teardown_block (project_id) VALUES ($1)`, [pid3]);
+
+  const blocked = await teardownFixtureProject(pool, pid3);
+  const stillThere = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM projects WHERE id = $1`, [pid3]);
+  Number(stillThere.rows[0].n) === 1 ? ok("the project survived") : bad("the project vanished");
+  const keptRows = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM auth_profile_allowlists WHERE project_id = $1`, [pid3]);
+  Number(keptRows.rows[0].n) === 1
+    ? ok("and so did its allowlist, rather than being stripped")
+    : bad(`its allowlist was deleted anyway (${keptRows.rows[0].n} left)`);
+  Object.keys(blocked.removed).length === 0
+    ? ok("and it reports having removed nothing")
+    : bad(`it claims to have removed ${JSON.stringify(blocked.removed)}`);
+
+  await pool.query(`DROP TRIGGER IF EXISTS teardown_block_no_delete ON teardown_block`);
+  await pool.query(`DELETE FROM teardown_block WHERE project_id = $1`, [pid3]);
+  await pool.query(`DELETE FROM auth_profile_allowlists WHERE project_id = $1`, [pid3]);
+  await pool.query(`DELETE FROM projects WHERE id = $1`, [pid3]);
+
   await pool.end();
   console.log(`
 ==== ${passes} passed, ${fails} failed ====`);
