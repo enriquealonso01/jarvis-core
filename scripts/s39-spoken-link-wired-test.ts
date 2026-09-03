@@ -18,6 +18,7 @@
  * nothing leaves him waiting for a link that never arrives, and promising it
  * without sending is a spoken lie.
  */
+import fs from "node:fs/promises";
 import { createPool } from "../src/db.js";
 import { speakable, speakableWithLinks } from "../src/speakable.js";
 
@@ -27,6 +28,8 @@ let fails = 0;
 const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
 
+/* Built from a char code: an escape here has been eaten five times now. */
+const NEWLINE = String.fromCharCode(10);
 const TOKEN = "Yy3kPq7sD2nE4vB8";
 const ANSWER =
   "I need you to sign in to the supplier portal. Open "
@@ -108,7 +111,49 @@ async function main(): Promise<void> {
       [`call-link:${turnId}:%`]);
 
     console.log("");
-    console.log("4. an answer with no link promises nothing");
+    console.log("4. and it is the LIVE path that does this, not this test");
+    /*
+     * The assertions above exercise the same functions callruntime calls, which
+     * is not the same as asserting that callruntime calls them - sabotaging the
+     * live path left every one of them green. That is the "asserting the rule,
+     * not the wiring" mistake, and the repo already has the answer: read the
+     * source, the way s27-config-test holds "only one file writes a version row".
+     */
+    const runtime = await fs.readFile(new URL("../src/callruntime.ts", import.meta.url), "utf8");
+    /speakableWithLinks\(written\)/.test(runtime)
+      ? ok("the live answer path renders with speakableWithLinks")
+      : bad("callruntime does not call speakableWithLinks on the answer");
+    /*
+     * Comment lines are excluded. The prose in callruntime explains WHY
+     * speakable() was wrong, so a naive search finds the explanation and calls
+     * it a violation - and the version of this assertion with a broken escape
+     * matched nothing at all, so it had never once evaluated. It does now.
+     */
+    const code = runtime.split(NEWLINE)
+      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join(NEWLINE);
+    !new RegExp("\\bspeakable\\(").test(code)
+      ? ok("and never calls the leaking speakable() at all")
+      : bad("callruntime still calls speakable(), which passes bare URLs through");
+    /spokenForm\.links/.test(runtime)
+      ? ok("it delivers the links it lifted rather than dropping them")
+      : bad("the lifted links are never delivered, so the promise is a lie");
+    /*
+     * Order matters: queued BEFORE the line is spoken, so the sentence is true by
+     * the time he hears it and a call dropping mid-answer still delivers.
+     */
+    runtime.indexOf("call-link:") < runtime.indexOf('saySafely(t, ctx, answer, "answer")')
+      ? ok("and queues them before the line is spoken, not after")
+      : bad("the link is queued after the answer, so the promise is briefly false");
+    /*
+     * The key must be stable across a retry. A clock in it makes every retry a
+     * new row, which is the duplicate this idempotency exists to prevent.
+     */
+    !/call-link:[^`]*Date\.now|call-link:[^`]*Math\.random/.test(runtime)
+      ? ok("with an idempotency key that has no clock in it, so a retry collides")
+      : bad("the idempotency key varies per attempt, so a retry sends twice");
+
+    console.log("");
+    console.log("5. an answer with no link promises nothing");
     const plain = speakableWithLinks("The deploy finished. Nothing needs you.");
     plain.links.length === 0 && !plain.say.includes("WhatsApp")
       ? ok("an ordinary answer is unchanged and makes no promise nobody is keeping")
