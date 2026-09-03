@@ -2149,6 +2149,9 @@ quota figure is worse than an honest unknown, because it will route around an
 engine that was actually available.
 
 - **Spend enforcement, both points.** Drive `model_usage` past the soft ceiling → exactly one notification, routing unchanged. Past the hard ceiling → metered routes drop out, **and a coding task still completes on its subscription route.** That second half is the assertion that matters: a test that only proves metered calls stopped would pass on an implementation that stopped everything.
+- **The same two points, driven by voice rather than by tokens.** Push TTS characters past the ceiling and confirm the same soft notification and the same hard stop. **A ceiling that only fires on inference is one vendor's ceiling**, and the two that bill per second are the ones that run away unattended.
+- Open a call and hold it → it ends at its maximum duration, and it ends **even when the call state machine is the thing that is stuck.**
+- At the hard ceiling, Jarvis **writes instead of speaking** rather than going silent.
 - Attempt a metered call through the broker directly, bypassing routing, with the profile over its ceiling → refused there too.
 
 **Done when:** every registered route has passed a real tool-enabled call, and a
@@ -4329,6 +4332,30 @@ breaks the system.
 
 Spend resets on the profile's own billing period, not on a calendar month
 Jarvis invented.
+
+### The ceiling watches inference and ignores the two things that bill per second
+
+Both enforcement points read `model_usage`. **Inference is not the only metered
+vendor here, and it is not the one most likely to run away.**
+
+- **ElevenLabs bills per character.** A retry loop that re-synthesises the same reply, or a long spoken document, spends real money and appears nowhere in `model_usage`. VI.3's own table says `voice_tts` is *metered per character* — and then nothing meters it.
+- **Telnyx bills per minute**, plus the number. A call that fails to hang up is billed for as long as it stays open, and *"never redial in a loop"* (S23) bounds the number of calls, not the length of one.
+- **WhatsApp bills per conversation window**, B2 bills for stored bytes, and the box itself is the one fixed cost in a system whose whole budget is €/$40.
+
+The shape of the risk is different from inference, which is why it was missed: a
+model call is one bounded charge, and **a call leg and a synthesis loop are
+charges that keep accruing while nobody is looking.** The failure is not an
+expensive month; it is an open line at three in the morning.
+
+So:
+
+- **Every metered vendor has a ceiling, recorded the same way.** One usage table, one soft/hard pair per profile, whether the unit is tokens, characters, minutes or gigabytes. A second mechanism for the second vendor is how one of them ends up unenforced.
+- **A live call carries its own bound.** A maximum duration, enforced at the carrier where possible and in the call state machine regardless, because the state machine is the thing that might be wedged.
+- **The soft ceiling reports in his currency, not the vendor's.** *"$4.20 of $10 this month, mostly voice"* is actionable; *"812,000 characters"* is not.
+- **Hard-ceiling behaviour follows the rule already established**: the metered thing stops, the flat-rate things keep working. Voice stopping means Jarvis writes instead of speaking — **degraded, not silent.**
+
+The subscription CLIs remain outside all of this. They are flat-rate, they cannot
+overspend, and their exhaustion is a routing fact rather than a cost one.
 
 **Jarvis manages its own models.** When a route dies it says so, proposes a
 replacement, and asks for the one key it needs — it does not fail silently and it
