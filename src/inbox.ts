@@ -130,6 +130,24 @@ export async function ingestUserMessage(
   if (authored.forwarded) {
     await pool.query("UPDATE inbox_events SET forwarded_text = $2 WHERE id = $1",
       [inboxId, authored.forwarded]);
+    /*
+     * Stored is not indexed (S30, scenario N2).
+     *
+     * The forward was already kept separately so it can never be mistaken for
+     * something he said. But a thread nobody can retrieve has been filed rather
+     * than kept, and N2 is precisely "three weeks later, what did the client
+     * say about the refund window?" - so it is chunked and indexed here.
+     *
+     * Deliberately not allowed to throw: failing to index must not cost him the
+     * message.
+     */
+    const { ingestForward } = await import("./knowledge.js");
+    const indexed = await ingestForward(pool, {
+      inboxEventId: inboxId,
+      projectId: conv.rows[0].project_id,
+      text: authored.forwarded,
+    });
+    if (indexed.error) console.error(`forward not indexed: ${indexed.error}`);
   }
 
   /*
