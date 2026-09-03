@@ -41,6 +41,16 @@ export async function checkConnectionAccess(
     projectId: string | null;
     taskId?: string | null;
     capability?: string;
+    /**
+     * Which action, when one is being performed (S31).
+     *
+     * Omitting it asks the weaker question - "may this project reach this
+     * connection at all" - which is what routing and the runner ask when they
+     * are choosing a credential rather than doing something with it. Every
+     * invocation through `ConnectorInterface` names an action, so nothing that
+     * actually performs work can take the weaker path by forgetting.
+     */
+    action?: string;
   },
 ): Promise<BrokerDecision> {
   const conn = await pool.query<{
@@ -49,13 +59,42 @@ export async function checkConnectionAccess(
     scope: string;
     project_id: string | null;
     auth_profile_id: string | null;
+    permitted_actions: string[] | null;
   }>(
-    `SELECT id, slug, scope, project_id, auth_profile_id FROM connections WHERE slug = $1`,
+    `SELECT id, slug, scope, project_id, auth_profile_id, permitted_actions
+       FROM connections WHERE slug = $1`,
     [args.connectionSlug],
   );
   const c = conn.rows[0];
   if (!c) {
     return { allowed: false, code: "security.broker_deny", reason: "unknown connection" };
+  }
+
+  /*
+   * A connection is a set of actions, not a switch (S31).
+   *
+   * This sits directly under "connection exists" and above every isolation
+   * check on purpose: an action that is not permitted is refused whoever asks,
+   * so there is no ordering in which a project could talk its way into one.
+   *
+   * Empty permits NOTHING. The plan's example is the reason - "project A may
+   * use Composio" and "project A may send email as Enrique" are different
+   * statements, and one connection reaching hundreds of services makes the gap
+   * between them enormous. This table has already been bitten twice by an
+   * allowlist whose empty state meant "all", in the project and profile
+   * allowlists a few lines below; it fails closed here from the start.
+   */
+  if (args.action !== undefined) {
+    const permitted = c.permitted_actions ?? [];
+    if (!permitted.includes(args.action)) {
+      return {
+        allowed: false,
+        code: "security.broker_deny",
+        reason: permitted.length
+          ? `${c.slug} does not permit ${args.action}`
+          : `${c.slug} permits no actions yet`,
+      };
+    }
   }
 
   // A project-scoped connection belongs to exactly one project. Asking for
