@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T22:22:35Z",
-  "current_step": "S48",
+  "updated_at": "2026-09-03T22:29:37Z",
+  "current_step": "S49",
   "steps": [
     {
       "id": "S1",
@@ -397,5 +397,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S48 built as a shape: findings cross between passes and bodies never do, asserted on what crossed rather than on the report's self-description. NOT built: nothing runs the cycle - no scheduler, no real transcripts, no analyser producing the normalised corrections, no report artifact, no approved finding turned into work. Stage 10's remaining steps (S49+) are next; several need surfaces I cannot reach from the dev stack, so I will read forward and build the decision layers that do not."
+  "working_on": "S49's three core-side rules built: nothing spoken executes, the orb has no clock in scope, and the link goes to the screen while the URL is still never spoken. NOT built: the transport and the orb are console-repo work, and nothing calls these decisions. Next: S50 (Jarvis calls a third party), then S51-S54."
 }
