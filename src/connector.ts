@@ -26,6 +26,7 @@
 import type pg from "pg";
 import { checkConnectionAccess, recordDenial, type BrokerDecision } from "./isolation.js";
 import { audit } from "./audit.js";
+import { raiseIssue } from "./notify.js";
 
 export type ConnectorKind = "composio" | "mcp" | "direct" | "native" | "api";
 
@@ -37,6 +38,8 @@ export type Invocation = {
   role?: string | null;
   taskId?: string | null;
   input?: Record<string, unknown>;
+  /** Override the default call timeout. Tests use it; callers rarely should. */
+  timeoutMs?: number;
 };
 
 export type Refusal = { ok: false; code: string; reason: string };
@@ -68,7 +71,36 @@ type ConnRow = {
   kind: string;
   config: Record<string, unknown>;
   credential_id: string | null;
+  disabled_at: Date | null;
+  disabled_reason: string | null;
+  consecutive_timeouts: number;
 };
+
+/**
+ * How long any one call may take before the lane is considered hostage.
+ *
+ * Applies to every kind, not only MCP. The plan raises this about a hanging MCP
+ * server, but nothing about the failure is MCP-shaped: a database that never
+ * answers and an HTTP endpoint that accepts a connection and then goes quiet
+ * both hold the heavy lane exactly as effectively. A timeout that covers only
+ * the vendor everyone was worried about is a timeout with a hole in it.
+ */
+export const CALL_TIMEOUT_MS = 20_000;
+
+/** Two in a row is broken. One is a bad afternoon. */
+export const TIMEOUTS_BEFORE_DISABLE = 2;
+
+class TimedOut extends Error {}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new TimedOut(`no answer within ${ms}ms`)), ms);
+    work.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
 
 /**
  * Is this action permitted on this connection, and at what level.
@@ -91,11 +123,30 @@ export async function authorise(
   if (!decision.allowed) return decision;
 
   const conn = await pool.query<ConnRow>(
-    `SELECT id, slug, kind, config, credential_id FROM connections WHERE slug = $1`,
+    `SELECT id, slug, kind, config, credential_id, disabled_at, disabled_reason, consecutive_timeouts
+       FROM connections WHERE slug = $1`,
     [args.connectionSlug],
   );
   const c = conn.rows[0];
   if (!c) return { allowed: false, code: "security.broker_deny", reason: "unknown connection" };
+
+  /*
+   * A disabled connection is refused before anything else is considered.
+   * Checked here rather than at the call site so that every caller inherits it,
+   * including the ones written after somebody forgot this existed.
+   */
+  if (c.disabled_at) {
+    /*
+     * Reported as an ordinary broker denial rather than a new code. The denial
+     * vocabulary is part of the frozen taxonomy, and "disabled" is a reason a
+     * broker says no, not a new kind of no - the sentence carries the detail.
+     */
+    return {
+      allowed: false,
+      code: "security.broker_deny",
+      reason: `connection ${c.slug} is disabled: ${c.disabled_reason ?? "taken out of service"}`,
+    };
+  }
 
   /*
    * The permitted-action set. This is the assertion that separates a set from a
@@ -176,19 +227,71 @@ export async function invoke(
   }
 
   try {
-    const output = await adapter.invoke({
+    const output = await withTimeout(adapter.invoke({
       action: args.action,
       input: args.input ?? {},
       config: c.config ?? {},
       credentialId: c.credential_id,
       pool,
-    });
+    }), args.timeoutMs ?? CALL_TIMEOUT_MS);
+
+    /*
+     * A call that answered clears the streak. Consecutive is the whole point:
+     * without this reset the counter is cumulative, and a connection that
+     * times out once a quarter is eventually disabled for being old rather
+     * than for being broken.
+     */
+    if (c.consecutive_timeouts > 0) {
+      await pool.query(`UPDATE connections SET consecutive_timeouts = 0 WHERE id = $1`, [c.id]);
+    }
     await auditCall(pool, args, c, "invoked", null);
     return { ok: true, output };
   } catch (e: unknown) {
+    const timedOut = e instanceof TimedOut;
     const reason = e instanceof Error ? e.message.slice(0, 300) : String(e);
-    await auditCall(pool, args, c, "failed", reason);
-    return { ok: false, code: "connector.failed", reason };
+
+    if (!timedOut) {
+      await auditCall(pool, args, c, "failed", reason);
+      return { ok: false, code: "connector.failed", reason };
+    }
+
+    const n = await pool.query<{ consecutive_timeouts: number }>(
+      `UPDATE connections SET consecutive_timeouts = consecutive_timeouts + 1
+        WHERE id = $1 RETURNING consecutive_timeouts`, [c.id]);
+    const streak = n.rows[0]?.consecutive_timeouts ?? 1;
+
+    if (streak >= TIMEOUTS_BEFORE_DISABLE) {
+      /*
+       * Disabled, with an Issue, rather than retried forever. The plan is
+       * specific about which of those two it wants: a hanging server that keeps
+       * being retried costs the heavy lane every time, and the cost is paid by
+       * whatever task was unlucky enough to be next.
+       */
+      await pool.query(
+        `UPDATE connections SET disabled_at = now(), disabled_reason = $2 WHERE id = $1`,
+        [c.id, `timed out ${streak} times in a row`]);
+      await raiseIssue(pool, {
+        /*
+         * An existing class, because the taxonomy is frozen and this is not a
+         * new kind of failure - it is the one the taxonomy already calls a
+         * crashed MCP server, or a degraded provider for everything else.
+         */
+        category: c.kind === "mcp" ? "mcp.crash" : "provider.degraded",
+        service: "connector",
+        owner: "provider",
+        title: `[connector] ${c.slug} disabled after ${streak} timeouts`,
+        dedupeKey: `connector.timeout:${c.slug}`,
+        projectId: args.projectId,
+        taskId: args.taskId ?? null,
+        evidence: { connection: c.slug, kind: c.kind, action: args.action, streak },
+        requiredAction:
+          `${c.slug} stopped answering and has been taken out of service so it cannot hold the heavy `
+          + `lane. Check the server, then clear disabled_at to bring it back.`,
+      });
+    }
+
+    await auditCall(pool, args, c, "failed", `${reason}${streak >= TIMEOUTS_BEFORE_DISABLE ? " - disabled" : ""}`);
+    return { ok: false, code: "connector.timeout", reason };
   }
 }
 
