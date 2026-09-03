@@ -95,5 +95,5 @@ console.log("\n== recording ==");
 ok("never records the other party", recordingPolicy().recordOtherParty === false);
 ok("records its own side", recordingPolicy().recordOwnSide === true);
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);

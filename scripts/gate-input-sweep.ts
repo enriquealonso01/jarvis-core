@@ -76,5 +76,5 @@ ok("desktopAccess with an unknown scope and no declarations refuses",
 ok("facilityAccess does not grant a prototype key",
   facilityAccess("constructor").allowed === true);
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);

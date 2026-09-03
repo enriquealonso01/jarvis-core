@@ -104,7 +104,7 @@ async function main() {
   ok("and it still has a label, because colour is never alone",
     !!unknownNode("x", "nowhere").label);
 
-  console.log(`\npass=${pass} fail=${fail}`);
+  console.log(`==== ${pass} passed, ${fail} failed ====`);
   await pool.end();
   process.exit(fail ? 1 : 0);
 }

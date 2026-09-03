@@ -90,5 +90,5 @@ ok("fresh while it lives", linkIsFresh(l, new Date(now.getTime() + 59_000)));
 ok("dead at expiry", !linkIsFresh(l, new Date(now.getTime() + 60_000)));
 ok("dead after expiry", !linkIsFresh(l, new Date(now.getTime() + 61_000)));
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);

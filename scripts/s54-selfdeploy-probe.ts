@@ -112,5 +112,5 @@ for (const bad of ["false", "no", "0", "off"]) {
 ok("a missing acceptance result does not promote",
   mayPromote({ ...green, acceptanceSuitePassed: undefined } as any).promote === false);
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);

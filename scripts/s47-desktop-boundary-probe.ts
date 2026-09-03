@@ -120,5 +120,5 @@ ok("never seen -> unreachable", reachableNow(null, now).reachable === false);
 ok("seen 5s ago -> reachable", reachableNow(new Date(now.getTime() - 5_000), now).reachable === true);
 ok("seen 5m ago -> unreachable", reachableNow(new Date(now.getTime() - 300_000), now).reachable === false);
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);
