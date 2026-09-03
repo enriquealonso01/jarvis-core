@@ -18,7 +18,7 @@ Currently verifying: _front-door. Dirs and the project API credential are proven
   - `POST /api/projects/definitely-not-a-real-slug-xyz/deploy-key` → **404** `{"error":"project not found"}` — the lookup no longer aborts before it can miss.
   - `POST /api/projects/jarvis-proof-01/deploy-key` → **200**, real key provisioned (`fingerprint SHA256:hk1Z+fNazFajqoPF8HuQmRQJhXaVhPwPP5f/cpirxpk`).
   - Pre-fix cause confirmed against the live database, not a fixture: `SELECT ... WHERE id = 'jarvis-proof-01' OR slug = 'jarvis-proof-01'` → `ERROR: invalid input syntax for type uuid`. One placeholder was bound against a `uuid` column and a `text` column at once.
-  - The same line was fixed in the PR-create and PR-merge handlers. Those two are **not** verified yet — only the deploy-key path was exercised.
+  - The same line was fixed in the PR-create and PR-merge handlers. **Both now verified too — see the entry below.**
 
 - **2026-09-03 — New-project dirs are runner-writable (was BROKEN #2).** Fixed in PR #261 (`mkdirForRunner`, inheriting the parent's owner), deployed, then verified with `scripts/verify-project-dirs.mjs` creating a real project through the running API:
   - Before: `POST /api/projects` → 200, and all three dirs `uid=0 gid=0 mode=750`; `sudo -u jarvis touch .../probe` → **Permission denied**. That is what killed every heavy task on an API-onboarded project.
@@ -34,6 +34,16 @@ Currently verifying: _front-door. Dirs and the project API credential are proven
   - **Then it stopped, correctly, at a gate nobody had listed** — see BROKEN #2 below. The task sits in `waiting_for_provider` and raised `[harness] no engine is allowlisted for this project`, and notably the ticket names the *right* remedy (the per-project allowlist, not a login), which the code comment at `src/runner.ts:486` says was itself a past bug. No PR exists on the repo, and I am not claiming one.
   - **So: no manual patching was needed to onboard, and the front door is still not proven.** Steps 1–4 are real and unaided; the engine grant is a genuine missing step. This is what the monitor gate was for — three mechanisms passed in isolation and the real run found a fourth thing.
 
+
+- **2026-09-03 — PR-create and PR-merge resolve by slug, and a project's OWN credential opens and merges a real PR.** These were the two things I had explicitly left unverified. Both checked against the running API on the box, on the throwaway project `jarvis-e2e-gbbqkr` from the end-to-end run.
+  - **The `id::text` fix on the other two handlers** (`scripts/verify-pr-handlers.mjs`). The two 400s carry different messages, which is what makes this decisive with no side effects: `"project has no linked GitHub repo"` means the lookup missed, `"title and head branch required"` means it resolved the slug and moved on.
+    - PR-create, unknown slug → **400** *no linked GitHub repo*; real slug, no title → **400** *title and head branch required*. Lookup resolves by slug.
+    - PR-merge, unknown slug → **400** *no linked GitHub repo*; real slug with PR `999999` → **502** *github merge failed status=404*, i.e. it got past the lookup and reached GitHub. No 500s, no `uuid` errors anywhere.
+  - **The happy path, which the end-to-end run never reached** (it parked at the engine gate first). I seeded a branch and commit on the throwaway repo, then drove Jarvis:
+    - `POST /api/projects/jarvis-e2e-gbbqkr/pull-requests` → **200** `{"pr_number":1,...}`; confirmed independently with `gh pr view`: PR #1 **OPEN**, `test/pr-happy-path` → `main`.
+    - `POST /api/projects/jarvis-e2e-gbbqkr/pull-requests/1/merge` → **200** `{"merged":true}`; confirmed independently: state **MERGED**, `mergedAt 2026-09-03T16:27:40Z`.
+  - **This closes BROKEN #3 properly, not just at the mechanism level.** The credential used was the project's own row — `fingerprint project:jarvis-e2e-gbbqkr:github`, kind `api_key` — so an auto-provisioned per-project credential really can open *and* merge a pull request, without reaching the admin profile. Minting it was the earlier claim; this is it working.
+  - **Not cleaned up, deliberately:** the repo `enriquealonso01/jarvis-e2e-gbbqkr` and its project row still exist. Deleting a GitHub repo is destructive and outward-facing, so that is Enrique's call. Its slug is not `proj-accept-*`, so the acceptance sweep will not archive it on its own.
 
 ## ✗ BROKEN — Tester backlog (start here)
 
@@ -57,7 +67,9 @@ Currently verifying: _front-door. Dirs and the project API credential are proven
    - **There is no API endpoint to grant it.** So onboarding through the API can never finish unaided as things stand.
    - **I have deliberately not fixed this, because the two options differ in security posture and the call is Enrique's:** (a) auto-grant an engine at onboarding — makes the front door work unaided, but weakens a deliberate S12b boundary; (b) add an explicit, audited `POST /api/projects/:id/engine-allowlist` and make the grant a real onboarding step — keeps the boundary and keeps the grant a decision. **My recommendation is (b)**: granting an engine to a fresh project looks exactly like the kind of thing that should be an act, not a default. Awaiting Enrique's answer.
 
-3. **No per-project GitHub API credential on onboarding — FIXED, see the end-to-end entry above.** A new project gets a deploy key (can push a branch) but no per-project github api credential, so it cannot open a PR, and the account-wide admin token is correctly refused. Onboarding must provision a per-project github credential (the bench path does; the API path does not).
+~~3. No per-project GitHub API credential on onboarding.~~ **FIXED and VERIFIED** — minted by the deploy-key endpoint (PR #270) and proven to open and merge a real PR. See the entry above. Kept here only so the original numbering still reads.
+
+   _Original:_ ** A new project gets a deploy key (can push a branch) but no per-project github api credential, so it cannot open a PR, and the account-wide admin token is correctly refused. Onboarding must provision a per-project github credential (the bench path does; the API path does not).
 
 4. **openclaw stays down once it stops — but NOT for the reason originally recorded.** Re-diagnosed 2026-09-03; the original entry blamed a missing restart policy and that is wrong:
    - The container already has `restart: unless-stopped`, in `deploy/compose.yaml` **and** on the live container (`docker inspect` → `{"Name":"unless-stopped"}`).
