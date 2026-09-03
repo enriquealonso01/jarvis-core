@@ -1295,6 +1295,11 @@ autonomous loop is ever pointed at the suite again.
 ## S13 — The console leads with work
 *Size: half a day.*
 
+> **Revised by S51.** S13 makes Home lead with work instead of health; **S51 turns
+> that row-based Home into a single no-scroll map of the whole system.** Build S13 as
+> written — it is the correct first move — and read S51 for where the rows become the
+> map. The two are one Home, read from both ends.
+
 **Build** Home shows the running task, the queue, and what needs Enrique. Health collapses to a strip. System lane hidden by default.
 
 **Test** With a heavy task running, the first screenful on a phone is that task. With nothing running, Home reads calm rather than broken.
@@ -4103,6 +4108,67 @@ but the defaults here are the cautious reading.
 **Debug** If it books the wrong slot when the exact one is unavailable, the grant is being treated as a target to satisfy rather than a ceiling — a miss is a question, not an improvisation. If it discloses more than the task needs, it is applying inbound disclosure rules to an outbound stranger; S23's "outbound establishes nothing" applies to businesses too.
 
 **Done when:** Enrique says *"call this restaurant and book Saturday at eight for two,"* and it comes back either *"booked, under your name"* or with the specific problem and a question — having never invented a booking, given out a card number, or pretended to be him.
+
+## S51 — Home is a map of the system, not a list of it
+*Size: 3–4 days. **Revises S13's Home layout.** Read S13, S13b and I.3's visual direction first. Affects already-built work: Home is rebuilt and re-verified.*
+
+S13 made Home lead with work instead of disk percentage, and that was right as far
+as it went. It did not go far enough: Home is still **rows** — running task, queue,
+needs-you, health strip — and Enrique's report is that there are too many of them
+and he has to scroll to take in the system. He asked for the opposite: **open Home
+and see the whole thing at once, without scrolling** — the projects, what it
+remembers, what is running, what needs him — as a **map with points**, and reach the
+detail (a chat, a call, a project's work) only by clicking into it.
+
+**Build** Home becomes a single **no-scroll view of the whole system**: a spatial
+node-link map — the pattern others already use for this (a force-directed
+"constellation" / graph view; `react-force-graph`/d3-force on canvas is a fitting
+starting point on the console's existing Next.js/React stack, final choice to an
+ADR). Every point is a **real object**:
+
+- **The global Supervisor at the hub** — the thing you talk to (the composer opens from here).
+- **Projects** around it (`GET /projects`), coloured within I.3's semantic palette and **labelled** (never colour alone), a project carrying live work marked as such — and it is marked *because* a task is running, not on a timer.
+- **Memory — "what it remembers"** as its own cluster (S30): Home shows that the corpus exists and is the way in, **not** 279k chunks rendered as points. The shape, then a click to explore (S18 search / S30). Drawing the whole graph is noise, and noise on Home is the thing being removed.
+- **Running work** and **Needs-you** as nodes that appear only when non-empty and light up when they do; when both are empty the map reads **calm**, per S13's empty-state rule — not broken.
+- **The build-progress bar (S13b) stays**, above the fold, as part of the map's frame — present and correct while the build is unfinished, and not the page's headline once it is done.
+
+### The line this step must not cross
+This is the exact place I.3 is aimed at. A map of real objects is an operations
+console; a map that **moves, glows, or fills space for atmosphere** is the "movie
+prop / decorative dashboard / fake holographic interface" I.3 forbids and the fake
+motion 0.45 forbids. The map earns its place **only** by being the fastest way to
+see the whole system — so **a node is a real object, an edge is a real
+relationship, position and size carry meaning, and motion happens only when real
+state changes.** If a point cannot be tied to a field, it does not belong on Home.
+
+### Progressive disclosure is the whole point
+Home answers *"what is the system and what is happening"* at a glance. Everything
+dense — a conversation, a call transcript, a task's tool events, a project's tabs —
+lives **one click away, on the pages that already hold it** (S14 work detail,
+project tabs, `/conversations`). This **revises S13; it does not add a second Home.**
+It keeps S13b's bar, applies S15's visual direction, and every node routes into a
+page that already exists.
+
+### It is the default, not the only way
+A node-link graph is not the fastest read for everyone or every screen. Provide a
+**legible list/grid equivalent of the same information, one action away**, and use
+it automatically for reduced-motion and for viewports too small to draw the graph
+without cramping. The map's thirteen UX states (S15) are all defined — `loading`,
+`empty` (*"Nothing running. Jarvis is available."*), `stale`, `offline`,
+`partially available` — and a node whose source is unknown renders `unknown`, never
+a fabricated point.
+
+**Test**
+- Open Home on desktop and on a 375px phone → the whole system is legible **without scrolling**; the running task and needs-you are found at a glance; nothing dense (a conversation, a transcript, tool events) is on the page.
+- Every node resolves to a real object: a project node → its overview; the memory cluster → search/memory (S30/S18); the running-work node → the work detail (S14). **No node leads nowhere.**
+- **The no-decoration test**: with nothing running and nothing needing him, the map is calm and still — it does **not** animate for atmosphere. Start a task → the change is visible *because the state changed*. Assert that motion is driven by real events, not a timer (0.45).
+- The S13b build bar is present and correct on Home (reuses S13b's tests) and does not dominate once the build is done.
+- Reduced-motion, a small viewport, or no canvas → the legible list equivalent, same information, one action away. A node with an unknown source shows `unknown`.
+- The map's `loading` / `empty` / `stale` / `offline` / `partially available` states are all defined — a blank canvas never reads as broken (S15).
+
+**Debug** If Home needs scrolling to see the system, it is rendering detail that belongs behind a click — move that off Home rather than shrinking the type. If the map feels like a movie prop, something is animating or glowing with no state change behind it; the fix is to bind every motion and colour to a real field, not to tune the animation. If the memory cluster is unreadable, it is trying to draw the whole corpus instead of its shape — Home shows that memory exists and is the door; S30/S18 do the exploring.
+
+**Done when:** Enrique opens Home and takes in the whole system — projects, memory, what is running, what needs him, how far the build has got — on **one screen without scrolling**, and reaches everything else by clicking a point on the map rather than scrolling past it.
 
 ---
 
