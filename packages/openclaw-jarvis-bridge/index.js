@@ -165,28 +165,6 @@ export default definePluginEntry({
     log.info?.("[jarvis-bridge] registering before_dispatch, message_received, before_agent_run");
 
     /*
-     * What the runtime actually handed us.
-     *
-     * `message_received` and `before_agent_run` registered cleanly for a day
-     * and never once dispatched — `plugins inspect` reported hookCount 2 with
-     * empty diagnostics, `plugins doctor` passed, and an ordinary gateway agent
-     * turn sailed past both. In OpenClaw's shipped loader `api.on` is
-     * `registerTypedHook(record, name, handler, opts, hookPolicy)` and the
-     * whole registrar sits behind a conditional capability spread, so "on is
-     * missing" and "on exists but this plugin was granted nothing" look
-     * identical from out here. Printing the surface is the cheapest way to
-     * tell those apart; drop this once the dispatch question is settled.
-     */
-    try {
-      log.info?.(
-        "[jarvis-bridge] DIAG typeof api.on=" + typeof api.on +
-          " keys=" + Object.keys(api).sort().join(","),
-      );
-    } catch (err) {
-      log.info?.("[jarvis-bridge] DIAG failed: " + String(err));
-    }
-
-    /*
      * `before_dispatch` is the hook that matches what this bridge is for.
      *
      * OpenClaw's own hooks.md classifies `message_received` as Observe — it
