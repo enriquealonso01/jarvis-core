@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-09-03T22:46:39Z",
-  "current_step": "S52",
+  "updated_at": "2026-09-03T22:50:55Z",
+  "current_step": "S53",
   "steps": [
     {
       "id": "S1",
@@ -419,7 +419,8 @@
       "id": "S53",
       "title": "Agent orchestration: many agents on one goal",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE PLAN CALLS THIS 'THE MOST POWERFUL STEP IN THE ENGINEERING HALF, AND THE EASIEST TO TURN INTO A RUNAWAY', and its Debug note names each failure together with where it lives - so each is asserted at that place rather than at its symptom. THE LOOP STOPS ON A CONDITION AND HAS NO CLOCK IN SCOPE. 'A loop with no real stop is a bill with a heartbeat', so shouldContinue takes the done-condition and the iteration count and nothing derived from time - asserted structurally (no Date, now(), elapsed, deadline, timer, setTimeout or interval) as well as by driving the loop to its condition with time held still, which is only meaningful because there is nothing to move. 'Solid' is three checkable booleans rather than a score, because a threshold is a dial somebody turns down when the loop will not stop, and all three must hold. There is also a hard iteration backstop: a planner whose condition never arrives because it is BROKEN bills exactly like one with no condition, and the stop says the planner is the problem rather than the goal. THE CEILING IS CHECKED AT THE FAN-OUT. The Debug note: 'if it spawns without bound, the ceiling is being checked per agent instead of per orchestration'. So admitAgent takes COUNTS - an agent asked whether it may run always answers yes, because it is only one. Both a per-orchestration and a system-wide ceiling, and over either the agent QUEUES rather than being refused, since a refused agent is work he asked for that silently never happens. A TREE EACH, derived from the agent id so a caller cannot hand two agents the same path - 'never a swarm pushing to one branch'. 'ran_again' is deliberately absent from the closed progress list, because the watchdog must stop 'a looping agent that stops making REAL progress - never it ran again'. Spend PAUSES rather than kills: the work is not wrong, it reached a limit, and killing it would lose what it has done; the message says it stopped at the line rather than after crossing it. ONE KILL takes the orchestration's agents rather than a list somebody assembles, because assembling that list is where one gets missed. And the boundary the power makes tempting: mayShipCore returns the literal false - 'orchestration multiplies the builders, not the authority' - while isolation is checked per AGENT, because the plan requires it to hold 'across every agent, not just the first', and the sabotage that exempts all but the first goes red. scripts/s53-orchestration-test.ts, 26 assertions, green first run. Sabotaged THIRTEEN ways, all red first pass. NOT BUILT, AND IT IS MOST OF S53: no orchestration is ever created. Nothing decomposes a goal into roles, nothing spawns an agent, no worktree is made, no lease is taken or released, no shared persisted state object exists for agents to coordinate through, and nothing renders any of it in the Work view or on the Home map. There is no table behind any of this. These are the governors, held by tests; the thing they govern has not been built."
     },
     {
       "id": "S54",
@@ -437,5 +438,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S52 built as decisions: a need cannot exist without a task id, the register is keyed on the capability so a second task does not re-ask, asks batch per piece of work, and connecting authorises only connecting. NOT built: nothing detects a coming need, nothing sends the message, and the register has no persistence. Next: S53 (agent orchestration) and S54 (deploy its own control plane) - the last two."
+  "working_on": "S53's governors built: the loop has no clock in scope, the ceiling is checked at the fan-out rather than per agent, worktrees are derived per agent, 'it ran again' is not progress, spend pauses rather than kills, one action releases every lease, and no agent ships core. NOT built: no orchestration is created, no agent spawned, no shared state object, nothing visible. Next: S54, the last step."
 }
