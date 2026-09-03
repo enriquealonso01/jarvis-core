@@ -56,7 +56,8 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s18b-selfwatch-test s18b-conformance-test s18b-datamodel-test
         s5-isolation-test s7-pullrequest-test s26-onboarding-test s27-config-test
         s37-untrusted-test voice-create-test progress-endpoint-test
-        debug-notes-index-test s30-chunk-test s30-retrieval-test s30-dump-test s30-extract-test s30-index-artifact-test s30-which-tier-test s30-every-type-test s30-preference-test s30-harness-memory-test"
+        debug-notes-index-test s30-chunk-test s30-retrieval-test s30-dump-test s30-extract-test s30-index-artifact-test s30-which-tier-test s30-every-type-test s30-preference-test s30-harness-memory-test
+        no-test-litter-test"
 
 # Suites deliberately NOT in the sweep, and why. Each needs something the sweep
 # cannot give it, and a suite that cannot pass here would train everyone to
@@ -87,6 +88,10 @@ clearqueue() {
     "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
      WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null 2>&1
 }
+
+# no-test-litter-test runs LAST on purpose: it asks whether the suites that
+# just ran cleaned up after themselves, and that question only has an answer
+# once they have.
 
 # A named subset runs on its own: `bash scripts/sweep.sh s18-search-test s19-call-test`.
 # The whole sweep takes longer than some callers are willing to wait, and half a
