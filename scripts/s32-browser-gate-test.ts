@@ -153,11 +153,22 @@ async function main(): Promise<void> {
   console.log("");
   console.log("9. the ordinary browsing that led up to it is recorded too");
   await attempt({ url: "https://dash.example.com/servers", kind: "navigate" });
-  const trail = await pool.query<{ n: string }>(
-    `SELECT count(*) AS n FROM browser_actions WHERE project_id = $1`, [pid]);
-  Number(trail.rows[0].n) === 4
-    ? ok(`all four actions are on the record, not just the gated ones (${trail.rows[0].n})`)
-    : bad(`${trail.rows[0].n} rows; the trail is incomplete`);
+  /*
+   * Asserted on the CONTENT of the trail rather than on a count. My first
+   * version expected four rows and there are three - only the calls that go
+   * through `gatedInteraction` write one, and everything in sections 4 to 8 is
+   * the pure classifier - so the number was a fact about how the fixture is
+   * written rather than about the gate. A count also passes for the wrong
+   * reason the moment somebody adds a case above it.
+   */
+  const trail = (await pool.query<{ kind: string; decision: string }>(
+    `SELECT kind, decision FROM browser_actions WHERE project_id = $1 ORDER BY at`, [pid])).rows;
+  trail.some((r) => r.kind === "navigate" && r.decision === "allow")
+    ? ok("the ordinary navigation that led up to the click is on the record too")
+    : bad(`no allowed navigation was recorded: ${JSON.stringify(trail)}`);
+  trail.filter((r) => r.kind === "click").length === 2
+    ? ok("alongside both attempts at the click - the refused one and the approved one")
+    : bad(`the click attempts are not both recorded: ${JSON.stringify(trail)}`);
 
   await pool.query(`DELETE FROM browser_actions WHERE project_id = $1`, [pid]);
   await pool.query(`DELETE FROM projects WHERE id = $1`, [pid]);
