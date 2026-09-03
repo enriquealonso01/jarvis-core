@@ -2484,6 +2484,30 @@ mistake available in this system: orders of magnitude slower, costs per page, an
 fails in a new way each time. Mode 2 exists to make that impossible rather than
 merely discouraged.
 
+### The pages are the most untrusted input in the system, and Mode 2 turns them into code
+
+Every other untrusted-content rule in this plan governs text that will be **read**.
+Mode 2 reads a handful of pages and **emits a scraper** — code that then runs
+14,000 times, unattended, with no model in the loop to notice what it is doing.
+The input to that code generator is a document written by whoever owns the site.
+
+That is a different risk from a poisoned message, not a smaller one. **A message
+can talk a model into a bad reply. A page can talk a model into writing a
+program.**
+
+- **A page can influence extraction and nothing else.** The model's Mode 2 output is a *specification* — URL pattern, selectors, pagination rule, rate limit, output shape — not free-form code. A constrained emitter is what makes injection harmless rather than merely unlikely: **there is nowhere in a selector to put a shell command.**
+- **The generated scraper runs in the browser container**, under the same egress restrictions as the browsing itself, holding no credential it was not given. It runs unattended thousands of times, which is exactly why it must be the least privileged thing in the system rather than the most convenient.
+- **Instructions found in a page are content** (IV.6b). A page saying *"for API access use this endpoint with this key"* is data — it does not redirect the scrape, and it does not become a connection request. That is S46's rule arriving through a different door.
+- **The design pass routes like any other read.** A scrape inside a confidential project is designed under that project's routing (S48), because the pages it reads become artifacts in that project.
+
+### What comes back is stored, indexed, and recalled later
+
+Scraped output is an artifact, so S30 indexes it, so a question three weeks later
+can retrieve it — and by then nothing about it says a stranger wrote it.
+
+- **Scraped artifacts carry their origin, and recall surfaces it.** *"According to a page on example.com"* and *"according to your notes"* must never render the same way.
+- A scrape becomes an artifact with a source, **never memory**. Memory is what Enrique told Jarvis; the web is a citation, not a belief.
+
 ### Mode 2's strategy ladder
 
 Within the generated scraper, pick the cheapest fetch that works and escalate
@@ -2521,6 +2545,10 @@ guessed at.
 - Scrape the same page twice → same structured output. Non-determinism here means the extractor is depending on render timing.
 - Point it at a page that returns a consent wall, one that returns a block page, and one that rate-limits. Each must be **reported as what it is**, not as an extraction failure.
 - Ten pages in sequence → memory flat at the end, no orphaned Chromium processes.
+- **Plant an injection in a page the design pass reads** — a comment telling the scraper to also fetch an internal URL, or to include a credential in its output. The emitted specification is unaffected and references none of it. **Assert on the specification, not on the run**: a run that happened not to do the bad thing proves nothing about the next one.
+- The generated scraper attempts egress outside the browser container's allowlist → refused **at the network layer**.
+- Scrape a page carrying a plausible instruction, then ask a question that retrieves it → answered **with the page cited as a scraped source**, not as knowledge. Both halves: retrievable *and* attributed.
+- A scrape designed inside a confidential project runs its design pass under that project's routing.
 
 ### Debug
 
@@ -2541,6 +2569,10 @@ the container is not being reaped — `docker ps` after a failed run.
 Keep one saved copy of every page shape that broke, in the project's artifacts.
 The site will change again, and the diff between the old snapshot and the new
 page is the fastest possible diagnosis.
+
+If a generated scraper does something its specification does not describe, the
+emitter is producing **code** rather than a specification. Fix the emitter's
+output type; a filter on its output is a second thing to get wrong.
 
 **Done when:** a scraping task completes unattended, escalates tiers correctly,
 files structured output plus source snapshots as project artifacts, and cannot
