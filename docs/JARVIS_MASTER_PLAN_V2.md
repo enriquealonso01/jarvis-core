@@ -2300,6 +2300,9 @@ of the questionnaire.
 **Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
 - **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
 - An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- **Create a project, then try to read back its generated deploy key** → refused, exactly as a supplied credential would be. Then confirm the **public** half is retrievable and appears in the audit, because these are two different objects.
+- Delete a project → **the key it generated is revoked at GitHub**, not merely deleted from the table. Assert on the far side; a local delete leaves standing access.
+- The generated key appears in the weekly report as something created on his behalf.
 - **Link a repository already linked to another project** → refused, with the other project named. Then allow it explicitly and confirm **the stricter classification now governs both** — a shared repo cannot be confidential on one side and normal on the other.
 - **The answers name which connections, environments and branch are production**, and the broker reads them. Add a connection afterwards without labelling it → **treated as production**, not as safe.
 - A connection named `staging-prod-mirror` is **not** production and `main-db` **is**, because the label says so and nothing is matching on the string.
@@ -4108,6 +4111,21 @@ cancelled.
 Check order: connection exists → project allowlist → role allowlist →
 confidentiality policy → spend policy → always-confirm gate. Fails closed. Every
 denial is audited. Secrets are decrypted at point of use and never logged.
+
+### Secrets Jarvis creates, not only ones Enrique hands it
+
+The broker's model is: he supplies a credential, it is encrypted, it is decrypted
+at the point of use. **Several parts of this plan require Jarvis to create
+credentials of its own** — S5 generates a project-scoped deploy key per project,
+S44 may build an adapter that needs a token, a project's own service may need a
+password — and none of that is covered by a contract written entirely around
+credentials that arrive from outside.
+
+- **A generated secret enters the broker in the same operation that creates it.** The gap between *generated* and *stored* is where it lands in a shell history, a log line, or a commit — and it is generated **inside a harness with a shell**, which is the least trusted place in the system. Generate, store, use the handle; never generate, keep, store afterwards.
+- **Provenance grants no privilege.** A key Jarvis made is read back exactly as rarely as one Enrique supplied, which is never. *"It is ours, we made it"* is the argument that would carve the exception, and it is wrong for the same reason the rest of the broker is right.
+- **The public half is not a secret and must be handled as a separate object.** A deploy key's public half has to reach GitHub; **conflating the halves is precisely how the private one gets posted somewhere**, and one of them belongs in an audit row while the other never does.
+- **A generated secret has an owner and an end.** Which project, and what happens when that project is deleted — because a deploy key left on a repository after its project is gone is **standing access nobody remembers granting**, the same shape as the browser session that outlives its connection. Deleting a project revokes what Jarvis created for it, on the far side, not just in the table.
+- **He is told, not asked.** Creating a deploy key is ordinary work and prompting for it is friction. But it is a fact about *his* GitHub account, so it belongs in the weekly report — **otherwise he gradually loses track of what has access to what, and finds out from the provider.**
 
 ## IV.5 Events
 SSE names are a closed set: `health`, `task.updated`, `queue.updated`,
