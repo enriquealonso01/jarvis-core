@@ -271,6 +271,13 @@ index dcdf213..7336a33 100644
   - Dev images (api, runner, worker) rebuilt against `main` first, so the suites read the current source rather than a cached image — the mistake that once cost a confused re-run.
   - Box brought to the same commit afterwards: runner restarted 20:44:39 against a 20:44:31 build, `/api/health` 200, five containers up.
 
+- **2026-09-03 — Three live failure classes have no notification entry and are silently classified as `worker.crash`.** Found by re-testing an assumption of my own: I had dismissed `notify.classify` as safe because "the keys are hardcoded". That dismissal was correct — `verdict.errorClass` is a typed union built from literals, so it cannot be an inherited key — but checking it properly raised the better question, which is whether every class in the taxonomy actually *has* an entry.
+  - `POLICY` in `failures.ts` defines 10 retry/park classes; `ERROR_CLASSES` in `notify.ts` defines 35 notification entries. Three of the ten are **absent from the notification table**: `agent.repeat`, `dependency.unavailable`, `resource.cpu`.
+  - **They are not rejected — they fall through.** On the box, `classify()` gives all three `severity=high, notify=ui_only, retryable=true, limit=3`, which is `worker.crash`'s row. The fallback is documented and sane *for an unknown category*; the point is that these are not unknown. They are known members of the taxonomy that were never given an entry, so a default meant for strangers is being applied to family.
+  - **One of them fires in production:** `agent.repeat` has 2 open issues on the box, the most recent today. So this is live behaviour, not a hypothetical.
+  - **A disagreement between two tables worth someone's judgement:** `resource.cpu` is classified `re-raise` by `staleness.ts` — the class for things that get *worse* while they wait — while inheriting `notify: "ui_only"`, which never reaches WhatsApp. Something that degrades unattended but is only ever shown in a console is the shape the staleness work exists to prevent.
+  - **Recorded, not fixed.** Choosing a severity and a notification channel per class is a policy decision, and inventing three of them to make a table look complete would be exactly the kind of confident guess this project keeps catching. It needs the Builder or Enrique.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
