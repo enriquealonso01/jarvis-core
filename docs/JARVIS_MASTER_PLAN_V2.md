@@ -4002,6 +4002,108 @@ will report three unrelated one-offs where there is one standing complaint.
 **Done when:** a mistake Enrique corrects twice becomes a fix he did not have to
 ask for.
 
+## S49 — Talk to Jarvis in the browser (live voice)
+*Size: 3–4 days. Reuses S21's runtime whole; this step is a new transport and a UI, not a second conversation brain.*
+
+The console already has the global composer, and it already mentions "optionally a
+browser microphone recording" — but that is a **one-shot voice memo**, submitted
+like a typed message. Enrique asked for the phone experience *in the web app*:
+press a button, **connect a live call**, talk to Jarvis and be answered, the same
+way S19–S24 make the phone work. The moving-circle visualization and a **"Talk to
+Jarvis"** control beside "Ask Jarvis" are the surface; the point underneath is that
+the browser becomes a full voice channel with the same capabilities as WhatsApp and
+the phone.
+
+**Build**
+- A live full-duplex browser audio transport — mic capture and playback over WebRTC (or a WebSocket audio stream), feeding the **existing S21 conversational orchestration runtime**. The three tracks (voice loop, tool track, speech scheduler), S20's turn-taking and barge-in, and S39's channel rules are reused unchanged. **Do not fork the conversation runtime for the browser** — the only new parts are the transport, the UI, and registering the browser as a voice-capable channel.
+- A **"Talk to Jarvis"** control on the composer, next to "Ask Jarvis". Pressing it opens the live call; the moving-circle orb shows call state.
+- Every utterance becomes a **durable Inbox Event before any model sees it**, on the same capture → routing (S3) → conversation → queue path as WhatsApp and the phone. Persist-first, no second input path (the global-composer rule, IV.0). Ending or dropping the call loses nothing.
+
+### The console proves who; the approval page still proves what
+A live browser call rides an **authenticated console session**, so unlike a raw
+phone call it establishes *who* — but being on a console page supplies only the
+first half, exactly as it does for the typed composer. *"Deploy Alpha to
+production"* spoken into the call is a **request**: it raises the approval and
+Enrique clicks it with re-authentication (S19, IV.6). **The voice channel is not an
+approval surface**, and this is the single most likely place to break that rule,
+because talking to Jarvis on the console page feels like authority it does not carry.
+
+### The orb reflects reality, or it is a lie with an animation
+The moving circle is bound to **real signals only** — mic amplitude while he speaks,
+playback level while Jarvis speaks, and the S21 track state (listening / thinking /
+answering / handed to the desk). It **never moves because time passed** (0.45: fake
+progress indicators are forbidden, and a decorative pulse on an idle call is exactly
+that). A muted mic stops the motion; a running tool track shows the thinking state,
+not a spin.
+
+### The screen is the divergence from the phone, and it is an upgrade
+S39 forbids a URL down the voice channel because the phone has no screen. The
+browser call **has one**. So when a voice workflow produces a link — a PR, an auth
+URL, a document — it appears in the **on-screen thread beside the orb**, and Jarvis
+says *"I've put it on screen"* rather than *"I'm sending it to WhatsApp."* Voice
+output stays tight (S39); anything better seen than heard goes to the surface that
+is already right there.
+
+**Test**
+- Press "Talk to Jarvis", speak a request → an Inbox Event is persisted **before** any model call, and the same routing as WhatsApp produces the task. Kill the tab mid-utterance → the captured event survives (persist-first).
+- Barge-in: speak over Jarvis → playback and queued TTS stop within a beat (reuses S20/S21).
+- **The orb-is-honest test**: mute the mic → amplitude-driven motion stops; force the tool track to run 30s → the orb shows thinking/handed-over, not a decorative spin. Assert the animation is driven by real signals, not a timer (0.45).
+- Say *"deploy Alpha to production"* in a browser call → it raises an approval requiring re-auth on the approval page and **does not execute from the voice channel**. The console-proves-who / approval-proves-what split holds.
+- A voice workflow yields a PR URL → the link appears in the on-screen thread and the spoken line says it is on screen; **the URL is never read out as a string** (S39).
+- Start a request by voice in the browser, continue it by WhatsApp → one task, one conversation, nothing restated (S39 continuity).
+- Deny mic permission or break WebRTC → it **falls back to the existing one-shot recording composer** with a plain message, not a dead button.
+
+**Debug** If a browser call spawns a second conversation, it is creating a per-channel conversation instead of joining the existing one — the same 1:1 mistake S39/IV.0 warn about, arriving by a new transport. If the orb animates while nothing is happening, it is bound to a timer rather than to audio/track state — rebind it or it is a fake progress indicator. If it feels slower than the phone, read the per-leg S21 timings before touching prompts: the browser adds an encode/transport leg the phone does not have, and that is usually where the latency is.
+
+**Done when:** Enrique presses one button in the web app, has a live full-duplex conversation with the orb showing what is actually happening, and it produces the same tasks — captured the same way — as if he had typed it or called the phone.
+
+## S50 — Jarvis calls a third party to get something done
+*Size: 4–5 days. Depends on S23 (the outbound dialer), S32 (browser, to find the number), S42 (approval by external impact), S21 (the runtime, now driving the caller side), S41 (what it may disclose).*
+
+S23 dials **Enrique**, on a hard six-reason allow-list. This step is the other
+direction he asked for: Jarvis **calls a business to accomplish a task** — *"call
+this restaurant and book a table for two Saturday at eight, inside; if there's a
+problem, come back to me."* Finding the restaurant is not this step — *"go to Google
+Maps and recommend restaurants"* is **S32**, which produces candidates Enrique picks
+from. This step is the call that acts on the pick.
+
+**Build**
+- Outbound dial to a **number Enrique names or selects** (from S32), reusing S23's call state machine, voice, and the **"never redials in a loop"** discipline. The S21 runtime drives the conversation from the caller side.
+- A **task grant (S10) that is a boundary, not a target.** It names the number, the goal, and the exact parameters — date, time, party size, seating, the name to hold it under — and **a ceiling on what may be committed.** S10's eight invalidation conditions apply: the moment the achievable booking differs from the granted parameters, the grant no longer covers it.
+- **It identifies, and it does not impersonate.** The opening line is *"This is Jarvis, calling on behalf of Enrique"* — never a claim to *be* him. It discloses only what the task needs (a name, a time, a party size) and nothing about his other affairs, because **outbound establishes nothing** (S23) and a business is a stranger.
+- **It never commits money and never reads out a card number.** A booking that requires a deposit or a card guarantee is a **stop-and-ask**, not something Jarvis completes — reading a card to a business is a prohibited financial action regardless of how the task was phrased.
+- **It captures and reports back.** The whole call is persisted and routed like any other conversation; the outcome returns on Enrique's preferred channel — *"booked, confirmation under your name"* or the specific problem and a question. Raw audio ages out at day 7, the transcript stays (S24).
+
+### Explicit instruction is the approval — and only for what he actually said
+Booking a table affects a third party and makes a commitment in Enrique's name, so
+it is externally visible by construction (S42). **Because he asked for it, the call
+itself does not raise a redundant approval** — S42's "explicit instruction is
+approval." What the desk **proposes, infers, or expands** is gated: a different
+night, a larger party, a place he did not pick, or any booking parameter he did not
+state. *"If there's a problem, come back to me"* is a **first-class behaviour**: on
+any deviation from the granted parameters it **stops and asks** rather than
+improvising a booking he did not authorise.
+
+*Flagged for Enrique:* recording the third-party leg has consent laws that vary by
+jurisdiction, so this is written to **not record the other party's audio** — the
+transcript comes from Jarvis's own STT of its side and the reported outcome — and to
+**disclose that it is an automated assistant** on connect. Say the word if you want
+it to record where lawful, or to skip the AI disclosure; both are one-line config,
+but the defaults here are the cautious reading.
+
+**Test**
+- *"Call [number], book a table for two Saturday at eight, inside"* → Jarvis dials, identifies itself as calling **for** Enrique, requests exactly those parameters, and reports the confirmation. **Assert on what was synthesised on the call, not on a lucky paraphrase** (S23).
+- **The deviation test**: the restaurant has nothing at eight, only 8:45 → Jarvis does **not** book 8:45. It comes back and asks. Booking an unauthorised slot is a scope expansion (S10 cond. 2 / S42), and this is the assertion that proves it stops.
+- **The commitment test**: the booking needs a card deposit → Jarvis refuses to give card details, stops, and reports that a deposit is required. It never reads a card number to the business.
+- **Explicit-instruction-is-approval**: the initial requested call raises **no** redundant approval; a **second** place he did not name **does** raise one.
+- Grep the transcript: Jarvis never claims to **be** Enrique, and the AI disclosure is present on connect.
+- No answer → S23's discipline: does not redial in a loop; reports back. Assert on the dial log.
+- The call and its outcome appear in the console with the full provenance chain; raw audio is gone at day 7, transcript kept (S24).
+
+**Debug** If it books the wrong slot when the exact one is unavailable, the grant is being treated as a target to satisfy rather than a ceiling — a miss is a question, not an improvisation. If it discloses more than the task needs, it is applying inbound disclosure rules to an outbound stranger; S23's "outbound establishes nothing" applies to businesses too.
+
+**Done when:** Enrique says *"call this restaurant and book Saturday at eight for two,"* and it comes back either *"booked, under your name"* or with the specific problem and a question — having never invented a booking, given out a card number, or pretended to be him.
+
 ---
 
 # PART IV — SHARED CONTRACTS
