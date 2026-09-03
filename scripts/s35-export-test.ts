@@ -50,13 +50,20 @@ async function main(): Promise<void> {
       ? ok("and neither can a bare API call")
       : bad("an API call started an export");
     /*
-     * The ordering matters and is asserted: a task holding a fresh session is
-     * refused for BEING A TASK. A gate that checked credentials first would let
-     * an injected agent argue about credentials.
+     * The ordering, asserted with the case that can actually see it.
+     *
+     * My first version checked a task holding a FRESH session and asserted the
+     * reason did not mention re-auth - which is true whichever order the checks
+     * are in, because a fresh session passes the credential check either way.
+     * Swapping the order left the suite green. The discriminating case is a
+     * task with a STALE session: refused for being a task if the initiator is
+     * checked first, refused for re-auth if it is not - and the second answer
+     * invites an injected agent to go and get a session.
      */
-    fromTask.allowed === false && !fromTask.reason.includes("re-auth")
-      ? ok("the refusal is about the initiator, not about credentials it might obtain")
-      : bad("the task refusal talks about credentials, so the order is wrong");
+    const staleTask = mayExport({ initiator: "task", reauthFresh: false, passphrase: PASSPHRASE });
+    !staleTask.allowed && staleTask.reason.includes("not something a task can start")
+      ? ok("a task with a STALE session is refused for being a task, not for its credentials")
+      : bad(`the initiator is not checked first: "${!staleTask.allowed ? staleTask.reason : "allowed"}"`);
 
     console.log("");
     console.log("2. but it is a gate, not a wall");
