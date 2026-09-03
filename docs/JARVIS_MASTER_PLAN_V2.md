@@ -319,6 +319,28 @@ repo status, and whether it is live or dormant.
 Per project, tabs: Overview, Work, Conversations, Activity, Repository,
 Artifacts, Memory, Connections, Schedules, Issues, Settings.
 
+### The Connections tab, because an authorization model nobody can read is one nobody can check
+
+Connections is the only tab in that list whose contents are load-bearing and
+unspecified. This plan puts a great deal into making authority precise — a
+permitted-action set per connection (S31), tools classified at attach time, a
+manifest hash, browser sessions with an age, credentials Jarvis generated — **and
+the only place any of it becomes visible to a human is this page.** Left as a tab
+name, all of that is a fact in a database, which is the same as the audit trail
+nobody reads.
+
+It answers four questions, in his words rather than the vendor's:
+
+- **What can this reach?** The permitted actions as capabilities, not tool names. *"Can send email as you"* is an answer; `gmail.messages.send` is a string he has to decode, and a page he has to decode is a page he stops opening.
+- **When was it last used, and for what?** A connection unused for three months is a candidate for removal, and **this is the only mechanism by which the set ever shrinks.** Otherwise connections accumulate permanently — the standing-access problem in aggregate rather than one session at a time.
+- **What has it refused?** Denials are the system working, and they belong here: several this week means something is misconfigured, or something is probing. The audit already holds them; the page is what makes them noticeable.
+- **Is it live, and what does it cost?** Session age against its maximum, credential health, metered spend to date.
+
+**Revoke is one click and does the far-side work** — the browser session cleared,
+anything Jarvis generated for it revoked at the provider (IV.4), not merely a row
+deleted. A revoke that leaves working access is worse than no button, because he
+believes it worked.
+
 ### Work detail
 Objective, phase, harness + model + auth-profile **id**, branch, the live tool
 event stream, tests run, review findings, artifacts, errors, timers, checkpoints,
@@ -2714,6 +2736,7 @@ the plan asks.
 
 **Test** Attach a server and invoke a tool before classifying it → refused, and the refusal says why. Classify a tool as Level 3, invoke it → stops for approval. Bump the server's version → its tools need re-classification and are inert until then. **A Composio connection permitting one action does not permit a second action on the same service** — this is the assertion that separates a permitted-action set from a switch. A project-scoped Composio connection used by a heavy task; the same connection denied to a second project. An MCP server attached to one project and invisible to another. A deliberately hostile MCP server cannot escape its container or read another project.
 
+- **The Connections tab shows a capability, not a tool name**, and a denial from this week is visible on it. Then revoke from that page and confirm **the browser session is cleared and the generated credential is revoked at the provider** — assert on the far side, not on the row.
 - A `direct` connection (a database URL) and a `native` one (a local directory) go through **the same broker path** as Composio. Assert the audit rows are the same shape, not merely that both worked.
 - Cross-project denial behaves identically for all four kinds. **Test the kind nobody thought about** — the native one — because it is the one that will have been special-cased.
 - **Remove the Composio adapter and the other kinds keep working.** If they do not, Composio is not behind the interface: it *is* the interface.
