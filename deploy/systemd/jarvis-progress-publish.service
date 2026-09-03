@@ -1,0 +1,20 @@
+[Unit]
+# The build bar, pulled by the box rather than pushed from a workstation.
+#
+# The push version only ran when a human remembered, so the bar went 21 hours
+# stale once and about three hours stale routinely. Pulling makes freshness a
+# property of the box, and a dead timer is a visible failure where a forgotten
+# command is not.
+Description=Publish PROGRESS.json and BLOCKED.md from the repository
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jarvis
+WorkingDirectory=/opt/jarvis/core
+EnvironmentFile=/etc/jarvis/runner.env
+ExecStart=/usr/bin/node --import tsx scripts/publish-progress-pull.ts main
+# A failed publish keeps the previous valid files. Nothing is worse than
+# serving half a PROGRESS.json to the console.
+Restart=no

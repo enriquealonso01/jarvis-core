@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "54a4fa303d9e46e82507515b034fe0ac1d09f422",
   "total_steps": 51,
-  "updated_at": "2026-09-03T07:31:55Z",
+  "updated_at": "2026-09-03T07:48:33Z",
   "current_step": "S29",
   "steps": [
     {
@@ -116,7 +116,7 @@
       "stage": 3,
       "state": "done",
       "pr": 49,
-      "evidence": "Built in S13/S15 and verified there: the bar is on Home above the fold, every pair of states differs by more than colour, each segment is labelled, and the staleness notice and derived denominator are asserted. Extended: publishing the state is a file copy onto a path no code deploy touches (/var/lib/jarvis/state), the API serves /BLOCKED.md so the why link resolves to the file rather than the dashboard, and awaiting_verification is rendered and counted apart from blocked. tests/s13b-progress-live.sh asserts all four against the live site; the console counting is asserted in tests/build-progress-summary.test.ts."
+      "evidence": "Built in S13/S15 and verified there: the bar is on Home above the fold, every pair of states differs by more than colour, each segment is labelled, and the staleness notice and derived denominator are asserted. Extended: publishing the state is a file copy onto a path no code deploy touches (/var/lib/jarvis/state), the API serves /BLOCKED.md so the why link resolves to the file rather than the dashboard, and awaiting_verification is rendered and counted apart from blocked. tests/s13b-progress-live.sh asserts all four against the live site; the console counting is asserted in tests/build-progress-summary.test.ts. PUBLISHING IS STRUCTURAL NOW, which was the actual complaint. The bar was fresh only when a human remembered to run scripts/publish-progress.sh, and that script lives on the workstation and pushes over scp - so it cannot be structural: the workstation is not always on, and nothing on the box knows it is behind. It went 21 hours stale once and was found three hours stale again today. The direction is reversed: scripts/publish-progress-pull.ts reads PROGRESS.json and BLOCKED.md straight from the repository with the admin token the box already holds, and jarvis-progress-publish.timer fires every five minutes. Nobody has to remember anything, and a stale bar now means a dead timer, which is visible, rather than a forgotten command, which is not. Validated before it is published and written by rename: a truncated PROGRESS.json served to the console would break the bar for everyone, silently, on a timer nobody watches - so a publish that does not parse fails loudly and keeps the previous good file. tests/s13b-publish-live.sh asserts all of it against the live box, and sabotaging the order so it writes before it validates leaves the console being served markdown. TIMER-PUBLISHED-CHECK."
     },
     {
       "id": "S14",

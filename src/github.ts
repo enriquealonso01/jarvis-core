@@ -357,3 +357,32 @@ export async function githubGetRepo(
     default_branch: json.default_branch || "main",
   };
 }
+
+/**
+ * One file's contents from a repository, at a ref.
+ *
+ * Used to publish the build bar from the box itself rather than from a
+ * workstation over scp. The raw media type is asked for explicitly: the default
+ * JSON response base64-encodes the content and caps out on larger files, and a
+ * silently truncated PROGRESS.json is worse than a failed publish.
+ */
+export async function githubReadFile(
+  pool: pg.Pool,
+  owner: string,
+  repo: string,
+  filePath: string,
+  ref: string,
+): Promise<string> {
+  const token = await adminToken(pool);
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.raw",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "jarvis-core",
+    },
+  });
+  if (!res.ok) throw new Error(`github API ${res.status} reading ${filePath}@${ref}`);
+  return await res.text();
+}
