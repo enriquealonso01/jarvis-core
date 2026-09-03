@@ -632,3 +632,48 @@ Anything that touches a database, a container boundary, a filesystem or a
 network path must be re-run on the box before it goes in this file. A pure
 function is the one case where the local number is *evidence* — but it is still
 not the claim.
+
+## S46 — the auth handoff ("sign in here") — ✓ verified (2026-09-03)
+
+The plan calls this "the highest-trust message in the system" and says an auth
+link is "the exact shape a phishing attempt would want Jarvis to deliver". So it
+was probed as that attempt rather than read.
+
+**One hole found, fixed in PR #414.** `mintAuthLink` checked the scheme and
+stopped, so this minted cleanly:
+
+```
+https://accounts.google.com@evil.com/signin
+```
+
+A valid https URL. Host is `evil.com`. The first twenty characters are the
+provider he trusts, and in a chat bubble on a phone the part he reads is the
+part before the `@`.
+
+The existing mitigation is real and stays: `handoffMessage` names the true host
+on its own line, and that is what makes a flow pointed *somewhere else entirely*
+visible. But it answers a different attack than this one, which is a flow
+pointed somewhere **spelled like** the right place — and the file's own stated
+method is that its rules are "enforced by type rather than by care". A link that
+is safe only because he read line three is enforced by care.
+
+The deciding argument was consistency: `linkIsSafe` (`src/brevity.ts:170`)
+already refuses userinfo URLs for a link to a mere *document*. Refusing that
+shape for a document and minting it for the highest-trust message in the system
+was the thing out of place.
+
+**What held, and it is the better half of this entry.** The origin gate is
+genuinely closed: `MAY_HANDOFF` is a `Set`, so `constructor`, `__proto__`,
+`toString`, `"ENRIQUE"`, `"enrique "` and `""` all fail closed to content rather
+than to a message. `AuthLink.provenance` having exactly one value does what the
+doc claims — a URL lifted out of a document cannot be widened into the type.
+Scheme rejection covers `javascript:`, `data:`, `file:`, `ftp:`, `ws:` and
+`vbscript:`. `handoffMessage` reads the host off the URL rather than storing it,
+so a swapped destination changes the message. Freshness is correct at the exact
+expiry boundary.
+
+**Checked:** `scripts/s46-handoff-probe.ts` — 28/3 before, **31/0 after, run on
+the box** in the API container against deployed source. The Builder's own
+`s46-handoff-test` is **21/0**, unchanged: its swap case uses a different host,
+not userinfo. No production callers yet, so the fix landed before anything
+depended on the old behaviour.
