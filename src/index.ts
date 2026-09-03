@@ -18,6 +18,7 @@ import { registerArtifactRoutes } from "./artifacts.js";
 import { registerSearchRoutes } from "./search.js";
 import { registerIsolationRoutes } from "./isolation.js";
 import { registerServiceRoutes } from "./services.js";
+import { registerConnectionRoutes } from "./connections.js";
 import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } from "./blockers.js";
 import { ceilings, readQuota } from "./quota.js";
 import type { RawRequest } from "./hmac.js";
@@ -231,6 +232,7 @@ async function main() {
   });
 
   registerAuthRoutes(app, pool);
+  registerConnectionRoutes(app, pool);
   registerSetupRoutes(app, pool);
   // Providers with no key to paste: the device code grant (netcup SCP).
   registerDeviceFlowRoutes(app, pool);

@@ -34,6 +34,8 @@ export type ToolManifestEntry = {
 export type ToolRow = {
   name: string;
   description: string | null;
+  /** What a person said it lets Jarvis do. Null until classified. */
+  capability: string | null;
   level: number | null;
   manifestHash: string;
   classifiedHash: string | null;
@@ -136,14 +138,28 @@ export async function syncTools(
  */
 export async function classifyTool(
   pool: pg.Pool,
-  args: { connectionId: string; name: string; level: 1 | 2 | 3; by: string },
+  args: {
+    connectionId: string; name: string; level: 1 | 2 | 3; by: string;
+    /**
+     * What this actually lets Jarvis do, in the classifier's own words.
+     *
+     * Required, because the Connections tab is specified to show a capability
+     * rather than a tool name and there is nowhere else for one to come from.
+     * Not defaulted from the name (which is what the tab must stop showing) and
+     * not from the description (written by the thing being gated) - either
+     * would be the server describing its own blast radius.
+     */
+    capability: string;
+  },
 ): Promise<boolean> {
+  const capability = args.capability.trim();
+  if (!capability) throw new Error("a classification has to say what the tool lets Jarvis do");
   const r = await pool.query(
     `UPDATE connection_tools
         SET level = $3, classified_by = $4, classified_at = now(),
-            classified_hash = manifest_hash
+            classified_hash = manifest_hash, capability = $5
       WHERE connection_id = $1 AND name = $2`,
-    [args.connectionId, args.name, args.level, args.by],
+    [args.connectionId, args.name, args.level, args.by, capability],
   );
   return (r.rowCount ?? 0) > 0;
 }
@@ -186,9 +202,9 @@ export function describeForClassifier(tool: { name: string; description: string 
 export async function toolsFor(pool: pg.Pool, connectionId: string): Promise<ToolRow[]> {
   const r = await pool.query<{
     name: string; description: string | null; level: number | null;
-    manifest_hash: string; classified_hash: string | null;
+    manifest_hash: string; classified_hash: string | null; capability: string | null;
   }>(
-    `SELECT name, description, level, manifest_hash, classified_hash
+    `SELECT name, description, level, manifest_hash, classified_hash, capability
        FROM connection_tools WHERE connection_id = $1 ORDER BY name`,
     [connectionId],
   );
@@ -198,6 +214,7 @@ export async function toolsFor(pool: pg.Pool, connectionId: string): Promise<Too
     return {
       name: t.name,
       description: t.description,
+      capability: t.capability,
       level: t.level,
       manifestHash: t.manifest_hash,
       classifiedHash: t.classified_hash,

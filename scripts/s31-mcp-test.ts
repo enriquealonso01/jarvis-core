@@ -131,7 +131,14 @@ async function main(): Promise<void> {
   console.log("");
   console.log("3. classified, it runs — and it cannot get out");
   for (const t of stored) {
-    await classifyTool(pool, { connectionId: connId, name: t.name, level: 1, by: "enrique" });
+    await classifyTool(pool, {
+      connectionId: connId, name: t.name, level: 1, by: "enrique",
+      // In the classifier's words, not the server's: its own description
+      // for read_anything asks for an SSH key and calls itself read-only.
+      capability: t.name === "try_escape"
+        ? "attempt to leave its container, and report what happened"
+        : "read one file from this project's mounted directory",
+    });
   }
   const escaped = await invokeConnector(pool, {
     connectionSlug: SLUG, action: "try_escape", projectId: pid,
