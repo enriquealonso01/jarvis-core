@@ -880,3 +880,51 @@ carried prose across the isolation boundary, and here the promotion gate read a
 failure as a pass. In each case the surrounding design was sound and the input
 validation was the gap — the modules are careful about what they *do* and
 trusting about what they are *given*.
+
+## The gate-input class — swept across every gate — ✓ verified (2026-09-03)
+
+Three modules this loop had one defect in common, and after the third it was
+worth stopping and probing the **class** rather than a fourth module: every gate
+that answers "may this happen", given a value its type forbids.
+
+The pattern, stated once: **these modules are careful about what they DO and
+trusting about what they are GIVEN.** The designs are genuinely good — closed
+vocabularies, single-valued provenance types, absent fields that make a leak
+unwritable — and then the front door takes an `unknown` from a row and reads it
+as a boolean.
+
+**Three more found, all in `capability.mayCall`**, the gate on calling a tool
+Jarvis wrote. All three returned `{allowed: true}`:
+
+```
+mayCall({ ...classified, level: undefined })                          // no level key at all
+mayCall({ ...classified, classifiedHash: null, manifestHash: null })  // no hashes at all
+mayCall({ ...classified, form: "constructor" })
+```
+
+1. `args.level === null` — `undefined` is not `null`, so a manifest with no
+   `level` key walked past the one check that makes an unclassified tool wait
+   for a person. That branch's own sentence is "a tool Jarvis wrote gets the
+   scrutiny a stranger's would", and absence was skipping it.
+2. `classifiedHash !== manifestHash` — `null !== null` is false, so a capability
+   carrying no hashes at all was "unchanged since it was classified": a sentence
+   true only because neither half exists.
+3. `form === "core_change"` — a deny-list of one. `core_change` is the only
+   non-attachable form *today*, which is exactly what makes a deny-list look
+   complete; the fifth form added to `CapabilityForm` would be callable the
+   moment it was declared and nobody would have chosen that.
+
+**Every gate fixed earlier in this loop held under the same attack**, which is
+the part that makes the sweep worth keeping rather than a one-off: `mayDial(NaN)`
+refuses, `mayPromote` with a string canary result refuses, `runnerUpdate` with an
+unknown requester refuses, `restorerSurvives`, `approvalForCall`, `handoffFor`
+and `desktopAccess` all fail closed.
+
+**Checked:** `scripts/gate-input-sweep.ts` — 17/6 before, **23/0 after, run on
+the box** against deployed source. The Builder's `s44-capability-test` is
+**28/0**, unchanged.
+
+**Also added the loop's probes to `scripts/sweep.sh`.** That list is hardcoded,
+so a probe not in it runs once and then rots — `gate-input-sweep`,
+`s46-handoff-probe`, `s47-desktop-boundary-probe`, `s48-selfreview-probe`,
+`s50-outboundtask-probe` and `s54-selfdeploy-probe` now run with everything else.
