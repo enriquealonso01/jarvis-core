@@ -48,14 +48,6 @@ export const ERROR_CLASSES: Record<string, ErrorClass> = {
   "model.outage": { severity: "high", retryable: true, limit: 5, notify: "whatsapp_degraded" },
   "model.removed": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
   "provider.degraded": { severity: "high", retryable: true, limit: 5, notify: "whatsapp_degraded" },
-  /*
-   * B10: "severity warning, notify Issue + ui_only". Something Jarvis depends on
-   * is not answering. It goes on the console and into the Issue list, and it
-   * does NOT reach his phone: the task parks as waiting_for_user, so the thing
-   * that needs him will announce itself through its own route rather than
-   * through an outage report he can do nothing with.
-   */
-  "dependency.unavailable": { severity: "medium", retryable: true, limit: 4, notify: "ui_only" },
   "provider.cred_expired": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
   // A model ID the provider no longer serves. Unlike a quota window this never
   // recovers on its own — the route has to be re-pinned by a person — so it is
@@ -74,26 +66,11 @@ export const ERROR_CLASSES: Record<string, ErrorClass> = {
   "queue.restart": { severity: "medium", retryable: false, limit: null, notify: "none" },
   "resource.disk": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
   "resource.ram": { severity: "high", retryable: false, limit: null, notify: "ui_only" },
-  /*
-   * B10: "severity warning, notify ui_only (Issue if sustained)". The
-   * parenthesis is the whole design - see `issueAfter`. Three reports inside a
-   * quarter of an hour with no quiet gap is an episode; one spike is a machine
-   * doing its job.
-   */
-  "resource.cpu": { severity: "medium", retryable: true, limit: 3, notify: "ui_only", issueAfter: 3 },
   "resource.io": { severity: "medium", retryable: true, limit: 3, notify: "ui_only" },
   "db.error": { severity: "critical", retryable: true, limit: 5, notify: "whatsapp_blocker" },
   "artifact.corrupt": { severity: "medium", retryable: false, limit: null, notify: "ui_only" },
   "model.malformed_tool": { severity: "medium", retryable: true, limit: 3, notify: "none" },
   "agent.loop": { severity: "high", retryable: false, limit: null, notify: "whatsapp_blocker" },
-  /*
-   * B10 (Enrique, 2026-09-03): "fires in prod -> severity error, notify Issue +
-   * WhatsApp". An agent repeating itself in production is burning budget on
-   * nothing and will not stop on its own - failures.ts parks the task rather
-   * than retrying it - so it is worth interrupting him for. It is a degradation
-   * and not a blocker: nothing is waiting on an action from him.
-   */
-  "agent.repeat": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
   "notification.delivery": { severity: "medium", retryable: true, limit: 8, notify: "ui_only" },
   "backup.failure": { severity: "critical", retryable: true, limit: 3, notify: "whatsapp_blocker" },
   "maintenance": { severity: "low", retryable: false, limit: null, notify: "ui_only" },
@@ -128,7 +105,13 @@ export const ERROR_CLASSES: Record<string, ErrorClass> = {
    */
   "agent.repeat": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
   "dependency.unavailable": { severity: "medium", retryable: true, limit: 4, notify: "ui_only" },
-  "resource.cpu": { severity: "medium", retryable: true, limit: 3, notify: "ui_only" },
+  /*
+   * The parenthesis in B10's assignment - "ui_only (Issue if sustained)" - is
+   * the part that needed somewhere to live: see `issueAfter` and
+   * `issue_candidates`. Three reports inside a quarter of an hour with no quiet
+   * gap is an episode; one spike is a machine doing its job.
+   */
+  "resource.cpu": { severity: "medium", retryable: true, limit: 3, notify: "ui_only", issueAfter: 3 },
 };
 
 /** Unknown errors are worker.crash severity: Issue, no data deleted. */
