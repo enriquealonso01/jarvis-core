@@ -83,7 +83,13 @@ export function planReclaim(candidates: ReclaimCandidate[]): ReclaimPlan {
   const approved: ReclaimCandidate[] = [];
   const refused: { candidate: ReclaimCandidate; why: string }[] = [];
   for (const c of candidates) {
-    if (c.kind in RECLAIMABLE) approved.push(c);
+    // Object.hasOwn, not `in`. `in` walks the prototype chain, so a candidate
+    // whose kind was "constructor", "__proto__" or "toString" was APPROVED
+    // FOR DELETION by the allow-list whose whole purpose is refusing to
+    // delete data. Observed on the box before this fix: three such kinds
+    // approved while `knowledge_chunks` was correctly refused - the real
+    // logic worked, and anything inherited walked straight past it.
+    if (Object.hasOwn(RECLAIMABLE, c.kind)) approved.push(c);
     else {
       refused.push({
         candidate: c,
