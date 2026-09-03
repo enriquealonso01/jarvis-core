@@ -108,5 +108,5 @@ try {
 } catch { /* expected */ }
 ok("a failed capture never reaches the model", asked === false);
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);

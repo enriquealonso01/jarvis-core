@@ -135,5 +135,5 @@ ok("a legitimate correction still produces a finding", projectPass({
   corrections: [{ behaviour: "form_of_address", correctedTo: "First  Name", conversationId: "c", turn: 1 }],
 })[0].correctedTo === "first name");
 
-console.log(`\npass=${pass} fail=${fail}`);
+console.log(`==== ${pass} passed, ${fail} failed ====`);
 process.exit(fail ? 1 : 0);
