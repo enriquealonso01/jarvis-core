@@ -281,6 +281,23 @@ the friction that stops him sending it.
 console goes through exactly the same capture, routing, conversation and queue
 path as WhatsApp.** The console is a channel, not a privileged shortcut.
 
+**The console proves who. The approval page proves what.** Both are required, and
+being on a console page supplies only the first — which is the trap here, because
+the console *is* where approvals legitimately happen, so a composer sitting on
+every console page reads like an approval surface. It is not one. *"Deploy to
+production"* typed into the composer is a **request**: it raises the approval and
+he clicks it with re-authentication, exactly as if he had said it on WhatsApp.
+IV.6 already refuses to let a natural-language grant reach Level 3; **the composer
+is the single most likely place for a well-meaning implementation to break that
+rule**, because everything about its surroundings suggests authority it does not
+carry.
+
+**What he uploads is not what he wrote.** A PDF, a screenshot or a pasted log
+arriving through the composer is content — IV.6b rule 3 — exactly as a forwarded
+WhatsApp message is (S37). The temptation is stronger here only because he
+selected the file himself, and **choosing to show Jarvis a document is not the
+same as writing its contents.**
+
 That matters more than it looks. A second input path that skips the inbox would
 have its own bugs, its own dropped messages, and its own provenance gaps — and
 the one guarantee this whole system rests on is that **every input arrives the
@@ -1261,9 +1278,27 @@ how much of it the agent has done.
 ### The data
 
 `PROGRESS.json` at the repo root — root rather than `docs/` (owned by the plan)
-or `src/` (it is data, not code). The building agent writes it; the console reads
-it directly. No endpoint, no table: the file is versioned in git, so the bar's
+or `src/` (it is data, not code). **It has more than one writer**, which the
+original sentence — *"the building agent writes it"* — did not anticipate, and the
+console reads it directly. No endpoint, no table: the file is versioned in git, so the bar's
 whole history is auditable and a state change is a diff with a timestamp.
+
+### Two writers, and the write has to be a merge
+
+In practice this file is written by whoever advances the build **and** by whoever
+edits the plan, because `total_steps` and `plan_sha` are facts about the plan
+while the step states are facts about the work. Two writers is the right
+arrangement — each knows something the other does not — but **the write pattern
+was not designed for it.**
+
+Rewriting the whole object on every touch means two edits to *different* steps
+still collide, because both rewrote `updated_at`. **Every independent change
+conflicts, so the conflicts stop carrying information** — and a conflict that is
+always noise gets resolved by whichever side is quicker to overwrite.
+
+- **Update your own keys, never the whole object.** Steps are keyed by id: a writer touching S37 writes S37. Then a conflict means both writers touched the same step, **which is the case that should conflict** and the only one worth a human deciding.
+- **Nobody is the authority on the whole file.** The builder owns step state and evidence; the plan's editor owns `total_steps` and `plan_sha`; `current_step` and `working_on` are derived, not asserted, so nothing has to arbitrate them.
+- **On a conflict, keep the other writer's states.** They know something you do not — and the cost is asymmetric: re-deriving a sha costs nothing, while overwriting a step state silently un-does someone's real observation. This is the file's *whole purpose* being at stake: **a progress bar is worth exactly as much as it is believed.**
 
 ```json
 {
@@ -1375,6 +1410,7 @@ next deploy.
 - Every state renders distinguishably, including on a phone and in the colour-blind-safe palette. Blocked must not read as done.
 - Add a step to the plan → the denominator grows on the next update and the percentage **goes down**. That is correct behaviour and the bar must not hide it.
 - Stale file → the staleness notice appears; back-date `updated_at` to force it.
+- **Two writers, one file**: advance a step and edit the plan in the same window, from two places. Both land, **and neither silently overwrites the other's states.** This is the case that actually happens.
 - **Divergence**: serve a `PROGRESS.json` whose `total_steps` disagrees with the deployed plan, and whose `updated_at` is *recent*. The bar must flag it. **This is the case the age check misses, and it is the one that actually occurred** — a confident wrong number is worse than an obviously old one.
 - Update `PROGRESS.json` by copying one file, with no rebuild, and confirm the bar changes. If that is not possible, the file is in the wrong place.
 - A step marked `done` whose PR is not merged → the console flags the inconsistency rather than trusting the file. **The bar is a claim, and the console is allowed to check it.**
@@ -1820,6 +1856,8 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Type a Level 3 instruction into the composer** → it raises an approval and does **not** act, even though the session is fully authenticated and the page is the console. Then approve it properly and confirm it proceeds. **Both halves** — the first alone would pass on a composer that does nothing.
+- Upload a document containing an instruction → stored, quoted, searchable, **and not obeyed.** Same assertion as the forwarded-thread case, on the channel where it looks most like his own words.
 - **Drive a task to terminal failure and confirm it passed rung 10 first** — he was asked before it died. A task that reaches `failed_terminal` without a record of asking him is the bug this rule exists to catch.
 - Its Work detail reads as an account: attempted, observed, blocking, what would unblock. Then say *"try again with X"* → **it resumes from the checkpoint** rather than restarting.
 - **Prune a completed task's events, then open its Work detail.** It still reads as an account of what happened — phases, tests, findings, PR — rather than an empty page. Then confirm a task **without** an account is not pruned at all.
@@ -3091,6 +3129,9 @@ memory. **The one thing that must never happen is two answers to "what was said"
 **Test before the number exists** — everything except pairing:
 - Synthesised inbound payloads of each type against `/internal/inbox/ingest` → correct inbox events, artifacts, transcripts and routing.
 - A real audio file through the full transcribe-and-route path.
+- **A voice note naming a project, transcribed badly.** With the name near a known slug it resolves to the slug **and says so**. With it near nothing, one short question rather than a guess — and **never a silent choice**, which is the outcome that looks like success and lands the work in the wrong project.
+- A voice note whose only low-confidence token is incidental → **no question at all.** The pair is the test; asking about everything is the failure the requirement was written against.
+- Correct a misheard name afterwards → supersedes the derived record, the original audio and transcript are untouched, and the route moves with it (S3).
 - Kill the API for 10 seconds mid-send → the bridge retries, reconciliation fills the gap, nothing is dropped (L1).
 - Ingest with a bad HMAC → refused.
 - An unknown sender → ignored, not processed.
@@ -3402,7 +3443,27 @@ about what can proceed — **narrowing the prompts, never widening the boundary.
 Learning may make Jarvis ask less about private actions. It may never teach
 itself that an external action has become internal.
 
+### An objection is not a refusal, and the plan only has refusals
+
+Everything above is about **authority** — whether Jarvis is allowed. N6 refuses
+and explains in one line; the gates decide what needs asking. **Nothing covers
+disagreeing on the merits of something he is plainly entitled to do.**
+
+*"Skip the tests and push it."* *"Drop the retention to a day."* *"Delete that
+project."* On a personal project none of those touch a gate, so they proceed in
+silence — and a system that only ever objects on rules will quietly do the
+harmful-but-authorised thing every time. **A good engineer says something once.**
+
+- **Say it once, in one sentence, and then do it.** The same shape N6 already uses for refusals, minus the block. Repeating an objection is how an assistant becomes something he routes around, and the second time is always more annoying than the first was useful.
+- **The bar is data loss, irreversibility, or a rule he set himself.** *"You asked me to always run the suite on this project"* is worth a sentence. *"I would have structured it differently"* is not — taste is not an objection, and a Jarvis that editorialises is one he stops reading.
+- **It does not block.** The objection travels with the work starting, never as a question that waits for an answer. An objection that stalls the task is a refusal wearing softer words.
+- **It never becomes a refusal.** If the action genuinely is not allowed, that is the gate's job and the gate says so. **Mixing the two means he cannot tell whether Jarvis is asking or blocking**, which costs more than either.
+- **Objections are recorded**, which makes S48 able to ask the only question that matters about them: were they right? **A Jarvis that objects and is usually wrong should object less**, and that is measurable rather than a matter of tone.
+
 ### Test
+- **Ask for something authorised and destructive** — skip the tests, drop retention to a day — and confirm **one sentence, then the work happens anyway.** Ask again and confirm it does **not** object twice.
+- Ask for something authorised and merely not-to-taste → **no objection at all.**
+- An objection never converts into a block: the task starts in the same message.
 - A private console change, a desktop preparation and an internal config edit all proceed with **no prompt**.
 - "Send that email to the client" → sent, **no second confirmation** — the external consequence was the instruction.
 - Jarvis *proposing* to email someone → asks first.
@@ -3874,6 +3935,21 @@ upload, a scheduled firing, a webhook. Written before any model sees it and
 by adding a derived record that supersedes it, not by changing the original — the
 original is the evidence of what was actually said, and it is the only thing in
 the system that cannot be reconstructed.
+
+#### A transcript is a guess, and the plan has been treating it as text
+
+Voice is how Enrique mostly talks to Jarvis, and **every voice input is a model's
+best guess at what he said.** S19 handles the *authority* consequence — an
+unattested call proposes rather than acts — and nothing handles the *accuracy*
+one, which is present on a perfectly authenticated call and on every WhatsApp
+voice note.
+
+Confirming everything is the friction he asked to be rid of, so the rule is not
+about confidence in general:
+
+- **Check the transcription where it decides something.** A misheard *"remember that"* costs nothing. A misheard **project name** routes work into the wrong project — which S3 now establishes is a boundary crossing, not a filing error. A misheard **number**, **repository**, **branch** or **connection** changes what gets built or what gets touched. Those tokens, at low confidence, are worth one short question. Everything else is not.
+- **Bias transcription toward the vocabulary the system already knows.** Project slugs, connection names, repositories, branches — Jarvis holds all of them, and they are exactly the domain nouns VI.3 says `stt` will struggle with. A token near a known name resolves to the known name **and says which**, because *"I took that as Alpha"* is a sentence he can correct in three words.
+- **The correction path already exists; wire voice to it.** *"No, I said Alpha, not Alfa"* is a route correction (S3), and it supersedes rather than edits — IV.0's rule above, arriving through the channel that needs it most.
 
 #### The promise starts at the inbox event, and the doorway is before it
 
