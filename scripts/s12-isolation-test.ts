@@ -21,6 +21,7 @@
  * The two filesystem probes — Beta's files and Beta's browser profile — are not
  * here. They need a real harness run, so they live in the shell half.
  */
+import { deleteProjects } from "./_teardown.js";
 import { createPool } from "../src/db.js";
 import {
   checkConnectionAccess,
@@ -187,59 +188,33 @@ const createdProjects: string[] = [];
  * abort the rest - a teardown that stops at the first obstacle leaves more behind
  * than one that keeps going.
  */
-const REFERENCING_PROJECT = [
-  "activity_events", "approvals", "artifacts", "audit_events", "auth_profile_allowlists",
-  "browser_actions", "browser_sessions", "channel_allowlist", "config_versions",
-  "connection_project_allowlist", "connections", "conversations", "inbox_events", "issues",
-  "knowledge_chunks", "memory_items", "objections", "onboarding_sessions", "outbound_calls",
-  "project_instructions_versions", "schedules", "task_grants", "tasks", "unprompted_messages",
-];
-
 /**
- * Tables that point at a task with a plain key.
+ * Take a fixture project out, and everything that came to point at it.
  *
- * `tasks` cannot go until these do, and the first version of this teardown went
- * straight for `tasks` - so it worked on a project whose fixtures never ran and
- * failed on every one that did, which is the harder case and the common one.
+ * This was two hand-written lists of referencing tables plus a special case for
+ * `task_dependencies`, and it had rotted in the two ways such a list always
+ * does. `REFERENCING_PROJECT` was missing `active_project`, `briefs` and
+ * `sender_project_binding`; `REFERENCING_TASK` named `call_turns` and
+ * `improvement_candidates` with a `task_id` column that does not exist on
+ * either - they use `handover_task_id` and `approved_task_id`. Every one of
+ * those failures went into a `.catch()` that printed and continued, so the
+ * teardown reported nothing and left the project standing.
+ *
+ * `deleteProjects` discovers the graph from `pg_constraint` instead, so a table
+ * added next month is handled by a teardown that never knew the old list.
  */
-const REFERENCING_TASK = [
-  "task_dependencies", "task_transitions", "task_attempts", "task_checkpoints",
-  "task_grants", "issues", "approvals", "schedule_runs", "task_events", "task_context",
-  "artifacts", "browser_actions", "call_turns", "outbound_calls", "escalations",
-  "improvement_candidates",
-];
-
 async function removeProject(id: string): Promise<void> {
-  /*
-   * task_dependencies points at tasks TWICE - once as the task and once as what
-   * it depends on - so clearing only `task_id` leaves the other side holding,
-   * and `tasks` then refuses to go. A teardown that clears one column of a
-   * two-column relationship looks complete and is not.
-   */
-  await pool.query(
-    `DELETE FROM task_dependencies
-      WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)
-         OR predecessor_id IN (SELECT id FROM tasks WHERE project_id = $1)`, [id],
-  ).catch((err) => console.error("teardown: task_dependencies:",
-    err instanceof Error ? err.message : err));
-  for (const table of REFERENCING_TASK) {
-    await pool.query(
-      `DELETE FROM ${table} WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1)`, [id],
-    ).catch((err) => console.error(`teardown: ${table}:`,
-      err instanceof Error ? err.message : err));
+  const removed = await deleteProjects(pool, [id]);
+  if ((removed.projects ?? 0) !== 1) {
+    /*
+     * Loud rather than swallowed. A teardown that silently half-works is how 24
+     * fixture projects accumulated while every run reported success.
+     */
+    console.error(`teardown: project ${id} was not removed:`, JSON.stringify(removed));
+    fail += 1;
   }
-  for (const table of REFERENCING_PROJECT) {
-    await pool.query(`DELETE FROM ${table} WHERE project_id = $1`, [id])
-      .catch((err) => console.error(`teardown: ${table}:`,
-        err instanceof Error ? err.message : err));
-  }
-  await pool.query(
-    `DELETE FROM routing_overrides WHERE to_project = $1 OR from_project = $1`, [id],
-  ).catch(() => undefined);
-  await pool.query(`DELETE FROM projects WHERE id = $1`, [id])
-    .catch((err) => console.error("teardown: projects:",
-      err instanceof Error ? err.message : err));
 }
+
 
 async function main(): Promise<void> {
   await login();
@@ -444,6 +419,7 @@ async function main(): Promise<void> {
      WHERE action='broker.invoke' AND target LIKE '%delete%'`,
   );
   check("and no delete was ever brokered", "0", invoked.rows[0].n);
+
 
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
 }
