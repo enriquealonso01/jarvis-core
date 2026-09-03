@@ -105,9 +105,17 @@ async function main(): Promise<void> {
 
   console.log("");
   console.log("5. the mechanism, not just the words");
-  stops({ url: "u", kind: "submit", element: "form", label: "Save" })
-    ? ok('every form submit stops, even one labelled "Save"')
-    : bad("a form submit was allowed because its label looked benign");
+  /*
+   * Asserted on the RULE, not just on the decision, and that distinction is not
+   * pedantry: deleting the submit branch entirely left this test green, because
+   * "submit" then fell through to the unknown-kind catch-all and stopped for a
+   * completely different reason. The assertion was satisfied by the safety net
+   * rather than by the rule it claimed to be testing - which is the shape of a
+   * test that passes for the wrong reason, found by sabotaging it.
+   */
+  classifyInteraction({ url: "u", kind: "submit", element: "form", label: "Save" }).rule === "submit"
+    ? ok('every form submit stops as a submit, even one labelled "Save"')
+    : bad("a form submit was allowed, or stopped for the wrong reason");
   stops({ url: "u", kind: "click", element: "button", label: "Update preferences", method: "POST" })
     ? ok("a POST stops whatever it is called")
     : bad("a POST was allowed");
