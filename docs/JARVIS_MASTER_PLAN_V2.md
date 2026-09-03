@@ -1156,7 +1156,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Build** Task grants per IV.6 with all eight invalidation conditions. Merge and deploy broker-gated. Production on professional projects needs a live approval and defaults off.
 
-**Test** Each of the eight invalidation conditions **individually**. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
+**Test** Each of the eight invalidation conditions in IV.6 **individually**, including the three that can only be discovered mid-run. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
 
 **Debug** A grant surviving a SHA change means it is bound to the task rather than the commit. Check what is actually stored.
 
@@ -3906,8 +3906,37 @@ is for the detail, not for the decision.
 
 "Fix this, PR it, merge it" pre-authorises named Level 1 and Level 2 actions for
 **that task, that repository, that commit, that environment**, with an expiry.
-It is invalidated by any of the eight conditions in S10. It can never reach
-Level 3.
+It can never reach Level 3.
+
+#### The eight invalidation conditions
+
+**These were referred to five times and written down nowhere.** S10 says *"per
+IV.6 with all eight invalidation conditions"*; this section said *"the eight
+conditions in S10"*; the acceptance gate says *"all eight (S10) verified
+individually"*. Each pointed at the other. A builder told to implement eight
+conditions and given none will invent eight, and they will be the eight that are
+easy to check.
+
+1. **Expiry.** Every grant carries one. A grant with no expiry is a policy change wearing a sentence's clothes.
+2. **Scope materially expands** beyond what the instruction described — more files, more services, a second repository, a blast radius the sentence did not cover. (S42 relies on this one by number.)
+3. **The commit changes.** A grant is bound to a SHA. Amend, rebase or add a commit and it is void, which is why it is stored against the commit and not the task.
+4. **A destructive migration appears** in the change — a drop, a truncate, a non-reversible alter. Not "the diff got bigger": a different kind of change from the one authorised.
+5. **Metered spend would have to be enabled**, or a ceiling raised, to continue. No grant purchases anything.
+6. **The task ends** — completed, failed, or cancelled. A grant does not outlive the work it was issued for, and a resumed task re-derives its authority rather than inheriting it.
+7. **The action's level rises to 3**, however it rises: reclassification of an MCP tool (S31), a project policy change, or the target turning out to be production. **Level 3 is never inside a grant**, so anything arriving there leaves it.
+8. **Enrique revokes or contradicts it** — explicitly, or by saying something incompatible on any channel. *"Actually hold off on that"* is a revocation wherever he says it.
+
+**Re-validated at the point of action, never at issue.** Conditions 3, 4 and 7
+are discovered *while working*; a grant checked once at creation cannot see any
+of them. Fail closed: a grant that cannot be evaluated is not a grant.
+
+**An invalidated grant parks the task and asks. It does not fail it.** The work
+already done stays, the reason names which condition fired, and one approval
+resumes it — otherwise invalidation costs more than never granting, and the
+feature gets turned off.
+
+**Only Enrique's words create one.** Not a model restating an instruction, not a
+task's own plan, not content Jarvis was shown (IV.6b).
 
 ### The console grants the approvals, so it is the gate behind every gate
 
@@ -4718,7 +4747,7 @@ purpose, and that crossing is what it exists to check.
 - **L6** two repos, distinct deploy-key fingerprints
 - **L11** auth-profile isolation, denied before any HTTP leaves the box
 - **L8** always-confirm blocked
-- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
+- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (IV.6) verified individually, and an invalidated grant **parks and asks** rather than failing the task
 - **N6** production deploy refused without a live approval
 - Search scoped to project A never returns project B (S18)
 - **The harness cannot reach Jarvis**: from inside a run, attempt `/internal/inbox/ingest`, a Postgres connection, and the OpenClaw gateway. All three refused at the network layer, not by the application. **An application-layer refusal proves the wrong thing** — it proves the request arrived.
