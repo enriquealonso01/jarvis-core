@@ -99,6 +99,25 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - **Not fully explained, and flagged rather than glossed:** the recorded reason is the bare `no engineering route is registered`, whereas a `wantHarness` mismatch should produce `…registered for fake:probe` (`src/quota.ts:300`). So the harness filter may not be the whole story. The environmental verdict does not depend on that detail — the suites fail before any `task_attempts` row exists, on infrastructure, not on what they assert.
   - **What this does not say:** nothing here certifies the five suites would pass in a complete environment. It says their current redness is not evidence of a regression, and names what to fix first.
 
+- **2026-09-03 — The five handed-over suites are green, and the cause was environment in four cases and me in the fifth.** Follow-up to the triage entry below; the recipe turned out to be three ordered steps, and each one was found by watching a specific thing change.
+
+  | suite | before | after |
+  |---|---|---|
+  | `s12-isolation` | 1 passed, 12 failed | **47 / 0** |
+  | `s12b-router` | red | **31 / 0** |
+  | `s12b-audit` | red | **31 / 0** |
+  | `s16-credential` | red | **26 / 0** |
+  | `s17-artifacts` | red | **75 / 0** |
+
+  - **The dev-stack recipe, in this order** — `pnpm dev:up` alone is not enough and nothing says so:
+    1. `pnpm dev:up` (starts only `api` + `postgres`).
+    2. `docker compose -f deploy/compose.dev.yaml --profile tools up -d worker` — `worker` and `runner` are behind `profiles: ["tools"]`, and `detectHostLogins` lives in the worker.
+    3. **Wait for the worker to reconcile `model_registry.health`, which is a later pass than `auth_profiles.health`.** This is the step that cost the most: after starting the worker, `anthropic_personal` read `healthy` in `auth_profiles` within seconds while its `model_registry` row was still `unknown`, so `engineerRoutes` matched nothing and every heavy task parked with `waiting_reason = "no engineering route is registered"`. Re-running the identical suite a few minutes later, with nothing else changed, took `s12-isolation` from 1/13 to 12/13.
+    4. `pnpm dev:seed` — the operator row existed but its password hash did not match `dev-password-1234`, so every suite's `login()` got `401 invalid credentials`. That was the last failure in `s12-isolation` (the HTTP half, which reports a bare `{}` when login throws).
+  - **The fifth was mine, not the environment.** `s12b-audit` stayed red at 30/1 after all of the above, on a ratchet: `no more than the recorded ceiling of 33` hand-written audit INSERTs, and the tree had 34. PR #270 — my own — had added one in `src/github.ts`. The sweep is explicit that the count may fall and may not rise, so the suite was right. Fixed in PR #290 by routing it through `audit()`; `github.ts` is back to 2 and the suite to 31/0.
+  - **Verified on the box, not just in dev**, because that fix changed real behaviour: the audit row now lands just after `COMMIT` rather than inside the transaction. Deployed, then `POST /api/projects/jarvis-proof-01/deploy-key` still returns 404/200 with an `apiCredentialId`, and a fresh provision against a project with no credential produced exactly **1** `github.api_credential.provision` row. The trade-off is named in the commit rather than hidden: `audit()` takes the pool, never throws and logs loudly, so the failure mode is a logged missing audit row instead of a lost credential.
+  - **A gotcha for whoever runs these next:** the suites read source from *inside the runner image*. After changing `src/`, `docker compose --profile tools build runner` — otherwise the ratchet keeps counting the old file and the fix looks like it did nothing. That cost one confused re-run.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 1. **No engine is allowlisted for a project onboarded through the API — the front door's last gate.** Found by the end-to-end run above, 2026-09-03, and not previously on any list.
