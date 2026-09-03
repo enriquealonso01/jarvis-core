@@ -928,3 +928,55 @@ the box** against deployed source. The Builder's `s44-capability-test` is
 so a probe not in it runs once and then rots — `gate-input-sweep`,
 `s46-handoff-probe`, `s47-desktop-boundary-probe`, `s48-selfreview-probe`,
 `s50-outboundtask-probe` and `s54-selfdeploy-probe` now run with everything else.
+
+## S49 — live voice in the browser — ✓ verified (2026-09-03)
+
+The last of the unprobed modules from this loop's backlog, and the first one
+where the adversarial pass found **nothing**. That is worth recording as
+carefully as a failure would be.
+
+S49 flags its own most fragile rule: "the voice channel is not an approval
+surface, and **this is the single most likely place to break that rule**,
+because talking to Jarvis on the console page feels like authority it does not
+carry." It does not break. `executes` is the literal `false` on every path,
+including when `needsApproval` arrives as `undefined`, `null`, `""` or `0` — the
+gate-input class from the previous tick does not apply here, because there is no
+branch that could execute regardless of what the flag says. The type carries the
+guarantee rather than the control flow.
+
+**S39's no-spoken-address rule held against eight shapes:** a bare domain,
+`www.`, an IP with a port, a markdown link, a URL with a query string and a
+fragment, two links in one line, and an email address. None reached the spoken
+line. The WhatsApp promise is replaced rather than appended for both the
+singular and plural wordings, the sentence keeps its full stop, and a line with
+no link is returned untouched.
+
+**The orb has no clock in scope**, `orbState` takes one argument, `thinking` and
+`handed_to_desk` produce zero motion rather than a spin, and a muted microphone
+stops the motion without a special case. `clamp()` already handles `NaN`,
+`Infinity`, out-of-range values and strings.
+
+`captureThenAsk` persists strictly before asking, and a capture that throws never
+reaches the model.
+
+**Checked:** `scripts/s49-browservoice-probe.ts` — **49/0, run on the box**
+against deployed source, and 49/0 in the dev runner. Added to `sweep.sh`.
+
+### What this says about the codebase
+
+`browservoice.ts` does the input validation that `mayCall`, `mayDial`,
+`mayPromote` and `runnerUpdate` were missing. So the discipline exists here — it
+is simply not uniform, and it is strongest where the author was most worried.
+Every gate I have had to fix this loop guarded something the file's own prose
+treated as obvious; every one that held guarded something the prose called
+dangerous. That is a useful place to point the next probe: not at the scariest
+module, but at the quiet checks inside one.
+
+### An operational note for running probes on the box
+
+A probe piped to `/tmp/x.ts` fails with "Top-level await is not supported with
+the cjs output format", because `/tmp` has no `package.json` above it and tsx
+falls back to CommonJS. Naming it **`/tmp/x.mts`** forces ESM and it runs. This
+is the difference between a probe that reports a product failure and one that
+reports my own plumbing — the same instrument class that cost six wrong answers
+earlier in this loop.
