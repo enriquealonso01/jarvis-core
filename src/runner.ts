@@ -615,6 +615,20 @@ async function runHarness(args: {
   cwd: string;
   configDir: string;
   prompt: string;
+  /**
+   * How the harness is to speak to the project's git remote.
+   *
+   * Without this the harness can do the whole job and not deliver it. Codex did
+   * exactly that on the S28 parity run: it reproduced the bug, fixed it,
+   * red-green verified the regression, ran the tests, made one focused commit -
+   * and then reported "Push is blocked because the environment lacks a usable
+   * GitHub SSH key". `gitEnv` existed and was used for the runner's own clone;
+   * it was simply never handed to the process that had to push.
+   *
+   * The key is the project's own deploy key, so this grants exactly the access
+   * the task needs and none beyond it.
+   */
+  gitSshCommand?: string | null;
   transcriptPath: string;
   /** S28: which engine, and therefore how to start it and how to read it. */
   runtime: AgentRuntime;
@@ -694,6 +708,9 @@ async function runHarness(args: {
       // ignores CLAUDE_CONFIG_DIR entirely, which presents as a 401.
       ...spec.env,
       JARVIS_FAKE_VARIANT: FAKE_VARIANT ?? "",
+      ...(args.gitSshCommand
+        ? { GIT_SSH_COMMAND: args.gitSshCommand, GIT_TERMINAL_PROMPT: "0" }
+        : {}),
       // Never let the harness inherit Jarvis's own database handle.
       DATABASE_URL: "",
       POSTGRES_PASSWORD: "",
@@ -1279,6 +1296,25 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     }
     await pool.query("UPDATE tasks SET ran_on_runtime = $2 WHERE id = $1", [task.id, runtime.id]);
 
+    /*
+     * The deploy key, materialised for the harness as well as for the clone.
+     * A project with no repository simply has none, and the harness then has
+     * nothing to push to - which is the honest state, not an error.
+     */
+    const gitSshCommand = project
+      ? await (async () => {
+          // Imported here, like the checkout above, so a run with no repository
+          // does not pay for the module at all.
+          const { loadProject, materialiseDeployKey } = await import("./checkout.js");
+          const repo = await loadProject(pool, project.id).catch(() => null);
+          if (!repo) return null;
+          const key = await materialiseDeployKey(pool, repo).catch(() => null);
+          // A project whose key cannot be materialised gets no push access and
+          // says so through the harness, rather than failing the run here.
+          return key && "sshCommand" in key ? key.sshCommand : null;
+        })()
+      : null;
+
     const outcome = await runHarness({
       cwd: workspace.dir,
       configDir: profile.dir,
@@ -1287,6 +1323,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
       allowedPaths: allowedPathsFor(project?.slug ?? null, task.id, profile.dir),
+      gitSshCommand,
       asUser,
       onEvent: (event, normalised) => {
         lastEventAt = Date.now();
