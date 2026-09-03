@@ -86,6 +86,19 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - `tests/s13-console-owner-live.sh` — the export tarball really does carry the Windows uid (`Enrique/197609`), and after a deploy into a scratch target **no file is owned by that phantom uid**, the published files belong to a user that actually exists, and nothing under `/opt/jarvis` carries it either.
   - All three ran from this machine against the live box over SSH and HTTPS, and each restored what it touched.
 
+- **2026-09-03 — Triage of the five red suites handed over by the Builder: environmental, not a regression.** Reproduced independently, so the answer does not rest on the Builder's worktree: `s12-isolation-test` is **1 passed, 12 failed** on my machine against the shared `jarvis-dev` stack, with the Builder's changes nowhere in it. Two concrete environment gaps, both found by following the data rather than the error text:
+  1. **The dev `worker` never runs.** `worker` and `runner` sit behind `profiles: ["tools"]` in `deploy/compose.dev.yaml`, so `pnpm dev:up` starts only `api` and `postgres`. `detectHostLogins` lives in the worker, so nothing ever reconciles profile health: every row in `auth_profiles` read `health='unknown'`, including `anthropic_personal`, **even though the `.credentials.json` marker `dev-seed` writes was present and non-empty**. Starting the worker (`--profile tools up -d worker`) flipped it to `healthy` within seconds, and its log says so: `harness login detected: anthropic_personal`. I have left that worker running.
+  2. **The heavy lane still parks, and the reason is a route, not the allowlist.** `tasks.waiting_reason` reads **`no engineering route is registered`** — not "not allowlisted". The suite's own fixture grants its allowlist row correctly (`anthropic_personal: {senior_engineer}`, profile healthy, eligibility `{normal,confidential}` covering the project's `normal`), so that gate is not the one failing. The registry is: dev has **1** usable senior-engineer route against the box's **4** —
+
+     | | total | approved | bound | healthy | senior |
+     |---|---|---|---|---|---|
+     | dev | 8 | 3 | 6 | 1 | 4 |
+     | box | 14 | 14 | 14 | 14 | 4 |
+
+     and the one healthy dev route (`anthropic_personal` / `claude-sonnet-host`) has an **empty `harness`**, while these suites drive `JARVIS_HARNESS=fake:probe`. A fake-harness route is what the dev stack is missing.
+  - **Not fully explained, and flagged rather than glossed:** the recorded reason is the bare `no engineering route is registered`, whereas a `wantHarness` mismatch should produce `…registered for fake:probe` (`src/quota.ts:300`). So the harness filter may not be the whole story. The environmental verdict does not depend on that detail — the suites fail before any `task_attempts` row exists, on infrastructure, not on what they assert.
+  - **What this does not say:** nothing here certifies the five suites would pass in a complete environment. It says their current redness is not evidence of a regression, and names what to fix first.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 1. **No engine is allowlisted for a project onboarded through the API — the front door's last gate.** Found by the end-to-end run above, 2026-09-03, and not previously on any list.
