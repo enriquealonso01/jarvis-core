@@ -149,6 +149,15 @@ const POLICY: Record<FailureClass, { park: boolean; maxRetries: number; parkStat
   "harness.crash": { park: false, maxRetries: 3, parkState: "waiting_for_user" },
 };
 
+/**
+ * Exposed so the conformance suite can hold this table to ERROR_TAXONOMY.md.
+ *
+ * A test that restated the policy would be a second copy to keep in sync, and
+ * the copy is always the one that rots - so the suite reads the document and
+ * compares it against THIS, the map production actually uses.
+ */
+export const POLICY_FOR_TESTS: Record<string, { park: boolean; maxRetries: number }> = POLICY;
+
 export function classifyHarnessFailure(args: {
   stopReason: "cancelled" | "silent" | "timeout" | "repeat" | null;
   exitCode: number | null;

@@ -8,6 +8,36 @@ unblocked, finish it before starting anything new.
 
 ---
 
+## Six task transitions the code makes and the document does not draw
+
+- **Step:** S18b (contract conformance), surfaced 2026-09-03
+- **Blocked on:** A ruling. `docs/STATE_MACHINES.md` is read-only law, so
+  editing it to match the code is not mine to do - and changing the code to
+  match the document would strand real work.
+- **What was measured:** of 2627 task transitions this system has recorded,
+  2576 are drawn by the document and 51 are not, across four shapes in
+  production and two more in dev:
+  - `queued -> cancelled` (37) - cancelling a task before a worker claims it.
+    The document draws cancel only from running, paused and waiting_*.
+  - `running -> queued` (10) - the recovery ladder re-queues directly; the
+    document routes that through retry_scheduled or recovering.
+  - `preparing -> waiting_for_provider` (2) - a credential failure during
+    preparation; the document allows preparing to queued or failed_terminal.
+  - `queued -> succeeded` (2) - finished with no running row. This is the one
+    that needs explaining rather than blessing.
+  - `queued -> waiting_for_user` - parked from the queue, e.g. a projectless
+    heavy task.
+  - `queued -> running` - claimed with no preparing row.
+- **What I need you to decide:** for each, whether the document gains the
+  transition or the code stops making it. Five look like the document simply
+  never drew ordinary behaviour; the fourth may be a real defect.
+- **Why there is no guard yet:** "illegal transitions are API 409" is law that
+  nothing enforces, and I measured before enforcing it. A guard added blind
+  would have refused 37 legitimate cancellations to satisfy a document.
+  `scripts/s18b-conformance-test.sh` reports drift instead, and fails on
+  anything NEW.
+
+
 ## Merging pull requests is no longer permitted from this session
 
 - **Step:** S29 (and everything after it)
