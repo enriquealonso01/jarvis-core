@@ -18,7 +18,7 @@ import { registerArtifactRoutes } from "./artifacts.js";
 import { registerSearchRoutes } from "./search.js";
 import { registerIsolationRoutes } from "./isolation.js";
 import { registerServiceRoutes } from "./services.js";
-import { registerConnectionRoutes } from "./connections.js";
+import { connectionExtras, registerConnectionRoutes } from "./connections.js";
 import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } from "./blockers.js";
 import { ceilings, readQuota } from "./quota.js";
 import type { RawRequest } from "./hmac.js";
@@ -621,7 +621,21 @@ async function main() {
 
        ORDER BY scope, slug`,
     );
-    return { connections: r.rows };
+    /*
+     * S31's fields, merged into the endpoint that already existed rather than
+     * served from a second one: the tab shows a CAPABILITY rather than a tool
+     * name, what is still waiting on a person, and any denial from this week.
+     */
+    const extras = await connectionExtras(pool);
+    return {
+      connections: r.rows.map((row) => {
+        const slug = (row as { slug: string }).slug;
+        return {
+          ...row,
+          ...(extras[slug] ?? { capabilities: [], waitingOnYou: 0, recentDenials: [] }),
+        };
+      }),
+    };
   });
 
   // The browsers connect here, so this is the process that listens. Started

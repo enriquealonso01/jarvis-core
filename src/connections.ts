@@ -168,13 +168,33 @@ export async function revokeConnection(
   };
 }
 
-export function registerConnectionRoutes(app: FastifyInstance, pool: pg.Pool): void {
-  app.get("/api/connections", async (req, reply) => {
-    const user = await requireUser(pool, req, reply);
-    if (!user) return;
-    return { connections: await connectionViews(pool) };
-  });
+/**
+ * The S31 fields, keyed by slug, for the endpoint that already exists.
+ *
+ * `/api/connections` was already serving the console before this step, with a
+ * shape the page is built against. Adding a second route for the same noun
+ * would have been the easy move and it is how a console ends up with two ideas
+ * of what a connection is - so this returns a map the existing handler merges
+ * in, and there is still one endpoint.
+ *
+ * (The second route was not a hypothetical: registering one crashed the API on
+ * boot with FST_ERR_DUPLICATED_ROUTE, which is how this was found.)
+ */
+export async function connectionExtras(
+  pool: pg.Pool,
+): Promise<Record<string, Pick<ConnectionView, "capabilities" | "waitingOnYou" | "recentDenials">>> {
+  const out: Record<string, Pick<ConnectionView, "capabilities" | "waitingOnYou" | "recentDenials">> = {};
+  for (const v of await connectionViews(pool)) {
+    out[v.slug] = {
+      capabilities: v.capabilities,
+      waitingOnYou: v.waitingOnYou,
+      recentDenials: v.recentDenials,
+    };
+  }
+  return out;
+}
 
+export function registerConnectionRoutes(app: FastifyInstance, pool: pg.Pool): void {
   app.post<{ Params: { slug: string } }>("/api/connections/:slug/revoke", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;
