@@ -130,3 +130,31 @@ fi
 # build leaves the old dist in place and every check short of this one passes.
 echo "==> verifying"
 ssh "$HOST" "test -f $CORE/dist/index.js && echo 'dist present' && sudo find /opt/jarvis -uid 197609 | wc -l | xargs -I{} echo 'files owned by the phantom uid: {}'"
+
+# Did the API actually come back?
+#
+# On 2026-09-03 a migration of mine referenced a column that does not exist.
+# Migrations run before the API serves, so it threw on startup and the container
+# crash-looped - and this script printed "dist present" and exited 0 through the
+# whole outage, because everything above verifies the BUILD. The deploy was
+# green and the service was down, which is the exact failure this project keeps
+# finding in other people's code.
+#
+# Polled rather than checked once: a healthy API still takes a few seconds to
+# run migrations and bind, so a single immediate probe would fail every good
+# deploy and get deleted within a week.
+echo "==> waiting for the API to answer"
+if ssh "$HOST" 'for i in $(seq 1 30); do
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:8080/api/health || true)
+      if [ "$code" = "200" ]; then echo "    API healthy after ${i}s"; exit 0; fi
+      sleep 1
+    done
+    echo "    API DID NOT COME BACK - last status: ${code:-no response}" >&2
+    docker ps --filter name=jarvis-api --format "    {{.Names}} {{.Status}}" >&2
+    docker logs --tail 15 jarvis-api-1 2>&1 | sed "s/^/    /" >&2
+    exit 1'; then
+  :
+else
+  echo "the deploy finished but the API is not serving - see the log above" >&2
+  exit 1
+fi
