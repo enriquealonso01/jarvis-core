@@ -34,10 +34,14 @@ const CCID = `s41w-${Math.random().toString(36).slice(2, 8)}`;
 
 async function main(): Promise<void> {
   let artifactId: string | null = null;
+  let secondArtifact: string | null = null;
+  let secondCall = "";
+  let project = "";
   try {
     await pool.query(
       `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns)
        VALUES ($1,$1,'+15550000111','listening', now(), 2)`, [CCID]);
+
 
     console.log("1. ending a real call classifies its transcript");
     artifactId = await finalizeCall(pool, CCID, "hangup");
@@ -64,13 +68,39 @@ async function main(): Promise<void> {
       : bad("the stamped transcript would still be read aloud");
 
     console.log("");
-    console.log("2. the evidence is written beside the stamp");
-    const call = (await pool.query<{ discussed: string[] | null }>(
-      `SELECT discussed_projects AS discussed FROM calls WHERE call_control_id = $1`,
-      [CCID])).rows[0];
-    Array.isArray(call.discussed)
-      ? ok(`calls.discussed_projects is recorded (${call.discussed.length} projects today)`)
-      : bad("the evidence column was not written");
+    console.log("2. the stamp follows what the call actually touched");
+    /*
+     * The assertion that proves the WIRING rather than the rule. A second call
+     * has a real confidential project in its discussed list, so if finalizeCall
+     * reads that list and passes it through, the artifact comes out
+     * `confidential` rather than the fail-closed `restricted`.
+     *
+     * The first version seeded a random uuid and asserted the column afterwards -
+     * which could not fail, because finalizeCall writes the same list back and a
+     * neutered write leaves it identical. Sabotage found that.
+     */
+    secondCall = `${CCID}-b`;
+    project = (await pool.query<{ id: string }>(
+      `INSERT INTO projects (slug,name,project_type,confidentiality)
+       VALUES ($1,$1,'personal','confidential') RETURNING id`, [`${CCID}-p`])).rows[0].id;
+    await pool.query(
+      `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns,
+                          discussed_projects)
+       VALUES ($1,$1,'+15550000222','listening', now(), 1, ARRAY[$2::uuid])`,
+      [secondCall, project]);
+    secondArtifact = await finalizeCall(pool, secondCall, "hangup");
+    const stamped = (await pool.query<{ confidentiality: string | null }>(
+      `SELECT confidentiality FROM artifacts WHERE id = $1`, [secondArtifact])).rows[0];
+    stamped?.confidentiality === "confidential"
+      ? ok("a call that touched a confidential project stamps its transcript confidential")
+      : bad(`THE CALL'S OWN EVIDENCE WAS NOT PASSED THROUGH: stamp is ${stamped?.confidentiality}`);
+    /*
+     * And both directions, or this proves only that everything is restricted:
+     * the first call, which touched nothing, stamped restricted above.
+     */
+    stamped?.confidentiality !== row.confidentiality
+      ? ok("while the call that touched nothing stamped differently, so the stamp is not a constant")
+      : bad("both calls stamped the same, so the evidence changes nothing");
 
     console.log("");
     console.log("3. a second hangup does not write a second transcript");
@@ -83,9 +113,15 @@ async function main(): Promise<void> {
     again === artifactId
       ? ok("the same artifact comes back, so stamping did not make it write twice")
       : bad(`a second transcript was written: ${again}`);
+    /*
+     * The exact path, not a LIKE. The second call's id extends the first's, so a
+     * prefix match counted both and reported a duplicate that was not one -
+     * which is the same prefix mistake the desktop allowlist test guards against,
+     * arriving in a test rather than in a boundary.
+     */
     Number((await pool.query<{ n: string }>(
-      `SELECT count(*) AS n FROM artifacts WHERE path LIKE $1`,
-      [`phone/transcript-${CCID}%`])).rows[0].n) === 1
+      `SELECT count(*) AS n FROM artifacts WHERE path = $1`,
+      [`phone/transcript-${CCID}.md`])).rows[0].n) === 1
       ? ok("and exactly one transcript exists for the call")
       : bad("more than one transcript artifact");
   } finally {
@@ -94,8 +130,11 @@ async function main(): Promise<void> {
      * teardown by the foreign keys rather than by the order things were created
      * is a lesson this repo has already paid for once.
      */
-    await pool.query(`DELETE FROM calls WHERE call_control_id = $1`, [CCID]);
-    if (artifactId) await pool.query(`DELETE FROM artifacts WHERE id = $1`, [artifactId]);
+    await pool.query(`DELETE FROM calls WHERE call_control_id = ANY($1)`, [[CCID, secondCall]]);
+    for (const a of [artifactId, secondArtifact].filter(Boolean)) {
+      await pool.query(`DELETE FROM artifacts WHERE id = $1`, [a]);
+    }
+    if (project) await pool.query(`DELETE FROM projects WHERE id = $1`, [project]);
   }
 
   console.log("");
