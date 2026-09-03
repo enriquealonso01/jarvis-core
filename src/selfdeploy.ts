@@ -191,7 +191,16 @@ export type DeployShape =
  * fixing.
  */
 export function deployShapeFor(plan: MigrationPlan): DeployShape {
-  if (plan.backwardCompatible) {
+  /*
+   * `=== true`, not truthy.
+   *
+   * A plan arriving from JSON, a row or an env var can carry the STRING "false",
+   * which is truthy, and this shipped it as an ordinary deploy - meaning an
+   * automatic rollback over a migration the previous image cannot read. The doc
+   * above calls that "an automated way to make things worse", and a truthy check
+   * was the way in.
+   */
+  if (plan.backwardCompatible === true) {
     return {
       shape: "ordinary",
       why: "the previous image still runs against this schema, so a rollback is safe",
@@ -288,6 +297,26 @@ export function runnerUpdate(args: {
         + "thing applying it",
     };
   }
+  /*
+   * Only the system worker, proven rather than assumed.
+   *
+   * This refused `running_task` and let EVERYTHING ELSE through, so any requester
+   * that was neither string - a renamed caller, a value off a queue, an empty
+   * string - got `{apply: true, by: "system_worker"}`. Not merely permissive:
+   * the answer then NAMES the system worker as the actor, so the audit row says
+   * the update came from the one caller allowed to make it.
+   *
+   * The refusal is written as an allow-list for the same reason `restorerSurvives`
+   * is, twenty lines up: it names the two places that survive and everything else
+   * is false. A deny-list of one is right about the caller somebody thought of.
+   */
+  if (args.requestedBy !== "system_worker") {
+    return {
+      apply: false,
+      why: `${JSON.stringify(args.requestedBy)} is not the system worker, and the runner's binary `
+        + "changes only between runs, by the one caller that is not inside it",
+    };
+  }
   if (args.runnerBusy) {
     return { apply: false, why: "the runner is mid-run; the update waits for the gap between runs" };
   }
@@ -317,7 +346,17 @@ export function mayPromote(args: {
   migration: MigrationPlan;
   touches: string[];
 }): PromotionDecision {
-  if (!args.acceptanceSuitePassed || !args.evalSuitePassed) {
+  /*
+   * Proven green, not merely not-falsy.
+   *
+   * This is rule ONE of this file applied to the file's own inputs: "a check that
+   * cannot run reports `unknown` and counts as failure". `!args.acceptanceSuitePassed`
+   * is false for the string "false", for "no", for "0" and for "off" - so a
+   * serialised result that says the canary FAILED promoted the release to prod
+   * core. `healthVerdict` already refuses to read absence as a pass; the gate in
+   * front of it was reading a failure as one.
+   */
+  if (args.acceptanceSuitePassed !== true || args.evalSuitePassed !== true) {
     return {
       promote: false,
       stage: "canary",
