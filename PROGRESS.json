@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T21:41:56Z",
-  "current_step": "S42",
+  "updated_at": "2026-09-03T21:49:10Z",
+  "current_step": "S43",
   "steps": [
     {
       "id": "S1",
@@ -349,7 +349,8 @@
       "id": "S43",
       "title": "Change anything, from anywhere",
       "stage": 9,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "NO NEW TABLE AND NO SECOND WRITER. S27's config_versions already has scope, key, value, version, supersedes, conversation_id and caused_by_message, and S43 says outright that 'S27 already does these; this generalises the entrance'. THE FIRST VERSION OF prefs.ts INSERTED DIRECTLY AND S27'S OWN SUITE CAUGHT IT: s27-config-test went from 85 passed to 84/1 the moment the file landed, on an assertion that exactly one file writes a version row. Delegating to applyConfigChange and rollbackConfig was the right response rather than working around the guard - preferences now inherit the immutable-domain refusal, the version numbering and the supersedes chain instead of reimplementing three things that would have to be kept in step. THE CHANNEL IS A DIMENSION OF THE VALUE, NOT THE OWNER OF THE RECORD, which is the design decision and comes straight from the Debug note: 'if preferences apply on one channel and not another, they are being read at the wrong layer - preferences belong to the conversation and the user, not to the transport'. So 'be more detailed in chat but keep WhatsApp short' is ONE preference with a byChannel map: one row, one version, one rollback. Separate web.detail_level and whatsapp.detail_level keys would put the transport in charge, and then a general preference reaches nothing and a rollback rolls back one surface. Two sentences about two channels are two EDITS to one preference, so the second is merged onto the first rather than replacing it. ACTUALLY CONSULTED: nothing in the suite asserts a row was written. Every preference assertion goes through composeReply, an OUTPUT - a suite that checked the table would pass on a system where nothing ever read it, which is exactly the failure the plan names. Sabotages 4 and 5 store the preference and ignore it, and both go red. THE CONSOLE GATE IS AN ALLOW-LIST OF WHAT IS COSMETIC, not a deny-list of what is sensitive, and that is the whole safety property: the console will grow areas, and under a deny-list an unclassified one is treated as cosmetic - the wrong direction for that error. Here the cost of not having classified something is one question. The plan's pair is asserted in both directions every time ('tidy up the approvals page' confirms, 'move the queue above the health strip' does not), because one without the other proves only that the gate is stuck in one position - and sabotages 8 and 9 are exactly those two stuck positions. scripts/s43-prefs-test.ts, 27 assertions, green; s27-config-test back to 85/0. Sabotaged ten ways, all red. ONE FAILURE ON THE FIRST RUN WAS MY OWN ARITHMETIC - the history assertion expected four versions where three was correct - so it was rewritten as a property (the rollback ADDED a version and the undone one is still present) rather than a magic number. NOT BUILT for S43: the entrance itself - nothing routes an incoming message through owningSurface, so he cannot yet change anything by asking; UI changes do not become tasks running the S6 workflow; and the console deploy health-check/rollback that must not depend on the console being up is untouched. What exists is the decision layer and the preference store, held by tests."
     },
     {
       "id": "S44",
@@ -391,5 +392,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S42 built in both halves - approval by external impact, and objections that are said once and never block. What remains for S42 is WIRING: nothing calls approvalFor or objectOnce from the task path, so no prompt has disappeared and no objection has been said in practice. That touches live task execution and wants the Tester watching. Next: S43 (change anything, from anywhere)."
+  "working_on": "S43's decision layer built: per-channel preferences on S27's config_versions (channel is a dimension of the value, not the owner of the record), consulted through an output rather than a row, and a console gate that is an allow-list of what is cosmetic. NOT built: the entrance - nothing routes an incoming message through owningSurface, UI changes do not become S6 tasks, and the console deploy health-check/rollback is untouched. Next: S44."
 }
