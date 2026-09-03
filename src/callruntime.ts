@@ -1,9 +1,10 @@
 import type pg from "pg";
 import { pickLine, recordSpeech, subjectOf, type SpeechKind } from "./callbank.js";
 import { triage } from "./callagent.js";
-import { speakable } from "./speakable.js";
+import { speakableWithLinks } from "./speakable.js";
 import { ingestUserMessage } from "./inbox.js";
 import { createTask } from "./work.js";
+import { enqueueNotification } from "./notify.js";
 
 /**
  * The conversational orchestration runtime (plan S21).
@@ -418,7 +419,21 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
    * the caller heard seven seconds of it, and the rest was cut off. The
    * transcript read beautifully and the call delivered almost none of it.
    */
-  const spokenForm = speakable(written);
+  /*
+   * speakableWithLinks, not speakable.
+   *
+   * S39's rule is that A URL NEVER GOES DOWN THE PHONE - "when a voice workflow
+   * needs one, Jarvis says it is sending it to WhatsApp, and sends it". The
+   * regression it was written for was real and was on this line: speakable()
+   * strips markdown links and leaves BARE ones alone, so an auth link went down
+   * the wire verbatim, one-time token and all, dictated into whatever the room
+   * could hear.
+   *
+   * Both halves travel together below, because they come apart in opposite and
+   * equally bad ways: stripping the URL and saying nothing leaves him waiting for
+   * a link that never arrives, and promising it without sending is a spoken lie.
+   */
+  const spokenForm = speakableWithLinks(written);
   let answer = spokenForm.say;
 
   // Say where it came from, when it came from somewhere.
@@ -426,6 +441,28 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
   if (source && !answer.toLowerCase().includes(source.toLowerCase())) {
     answer = `${answer.replace(/\s+$/, "").replace(/\.$/, "")} — that is from ${source}.`;
   }
+  /*
+   * The other half of the promise. Sent BEFORE the line is spoken, so the
+   * sentence "I am sending you the link on WhatsApp" is true by the time he
+   * hears it rather than shortly afterwards - and so a call that drops during
+   * the answer still delivers what it said it would.
+   *
+   * Idempotent on the turn: a retried turn must not send the same link twice.
+   */
+  for (const [i, link] of spokenForm.links.entries()) {
+    await enqueueNotification(pool, {
+      level: "whatsapp_degraded",
+      messageType: "status",
+      body: link,
+      objectType: "call_turn",
+      idempotencyKey: `call-link:${turnId}:${i}`,
+    }).catch((err) => {
+      console.error("a link lifted from a spoken answer could not be queued:",
+        err instanceof Error ? err.message : err);
+      return null;
+    });
+  }
+
   const ttsAt = Date.now();
   const said = await saySafely(t, ctx, answer, "answer");
   await finishTurn(pool, turnId, {
