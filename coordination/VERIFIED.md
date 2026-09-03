@@ -221,6 +221,14 @@ index dcdf213..7336a33 100644
   - **Does not false-positive:** with `migrations/` clean the script ran end to end — build, containers, runner restarted 20:03:09 against a 20:02:28 build, `/api/health` 200.
   - **Current drift, for the record:** 50 migrations applied on the box against 46 in `main`. The gap is now four — `041_connection_actions`, `042_mcp_tools`, `044_outbox_handed_off`, `045_outbox_dropped` — and it widened by one purely because `045` was removed from the tree, which is the intended direction: nothing new can leak, and what already leaked is now counted rather than hidden.
 
+- **2026-09-03 — S32 is green across all five suites: 88 assertions, 0 failures.** Dev images rebuilt against `main` first (api, runner, worker). `s32-origin-test` 10/0, `s32-browser-gate-test` 22/0, `s32-mode2-test` 18/0, `s32-session-test` 18/0, `s32-tiers-test` 20/0. This is the newest work in the tree, so the most likely to be broken, and it is not.
+
+- **2026-09-03 — The test-litter cleanup covers fixture projects but not the case I reported.** The Builder shipped `scripts/clear-test-litter.ts` and a teardown-in-`finally` after I named the pattern, which is the right response — its docstring puts the reasoning better than I did: *"a leftover fixture is a live routing target"*.
+  - **It works for projects:** the tool reports `0 fixture project(s) of 14` on dev, and it is deliberately conservative — matching only machine-generated slugs after an earlier cleanup deleted the seeded `alpha-web` and took a suite from 2 failures to 11.
+  - **The row I actually reported is still there:** `s12_beta_mtlrz9kl` remains in `model_registry` as `approved`, `degraded`, carrying the `supervisor` role. Neither `scripts/clear-test-litter.ts` nor `scripts/lib/fixture.ts` mentions `model_registry` at all — **zero references in each**.
+  - **Why that specific row matters, by the tool's own argument:** `approved` plus `degraded` is *selectable* — route lookups accept `health IN ('healthy','degraded')` — so a fixture has left behind a live, selectable supervisor route with no real credential behind it. That is precisely the "live routing target" the cleanup exists to prevent, in a table the cleanup does not look at.
+  - Dev-only today; the box's `model_registry` is clean (14 legitimate rows, checked). Recorded rather than fixed, because a fixture-teardown change belongs to the Builder's lane, not mine.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
