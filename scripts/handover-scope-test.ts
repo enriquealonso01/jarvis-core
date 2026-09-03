@@ -32,7 +32,10 @@ const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails++; };
 async function main() {
   const made: string[] = [];
 
-  console.log("1. a conversation with no project files no task");
+  console.log("1. routing decided it was not work, so nothing is filed");
+  // "Hello, can you finish what you were saying?" - the router classified this
+  // `question` and filed nothing. The handover turning it into a heavy run is
+  // how a pleasantry became a task that landed in an empty directory.
   const unscoped = await pool.query<{ id: string }>(
     `INSERT INTO conversations (channel) VALUES ('phone') RETURNING id`,
   );
@@ -40,11 +43,35 @@ async function main() {
     conversationId: unscoped.rows[0].id,
     inboxId: null,
     heard: "Hello, can you finish what you were saying?",
+    routerHandled: true,
   });
-  id1 === null ? ok("no task") : bad(`filed task ${id1} with no project`);
+  id1 === null ? ok("no task") : bad(`filed task ${id1} for a pleasantry`);
   if (id1) made.push(id1);
 
-  console.log("2. a scoped conversation still gets its task, carrying the project");
+  console.log("2. routing never answered, so the request is NOT dropped");
+  /*
+   * The case the first fix broke. Keying on the project meant an unscoped call
+   * whose desk was slow filed nothing at all, so a real request vanished - and
+   * S21 requires the handover to carry the FULL request to a task.
+   */
+  const id2 = await handoverTaskFor(pool, {
+    conversationId: unscoped.rows[0].id,
+    inboxId: null,
+    heard: "check the alpha migration",
+    routerHandled: false,
+  });
+  if (!id2) bad("a real request was dropped when routing timed out");
+  else {
+    made.push(id2);
+    const t = await pool.query<{ objective: string; lane: string }>(
+      `SELECT objective, lane FROM tasks WHERE id = $1`, [id2]);
+    ok(`filed task ${id2.slice(0, 8)}`);
+    t.rows[0]?.objective === "check the alpha migration"
+      ? ok("carrying the full request, not a summary")
+      : bad(`objective is ${t.rows[0]?.objective}`);
+  }
+
+  console.log("3. a scoped conversation files against its project");
   const proj = await pool.query<{ id: string }>(
     `INSERT INTO projects (slug, name, project_type)
      VALUES ($1, 'Handover scope test', 'professional') RETURNING id`,
@@ -54,35 +81,34 @@ async function main() {
     `INSERT INTO conversations (channel, project_id) VALUES ('phone', $1) RETURNING id`,
     [proj.rows[0].id],
   );
-  const id2 = await handoverTaskFor(pool, {
+  const id3 = await handoverTaskFor(pool, {
     conversationId: scoped.rows[0].id,
     inboxId: null,
     heard: "add retries to the importer",
+    routerHandled: false,
   });
-  if (!id2) bad("a scoped handover filed nothing");
+  if (!id3) bad("a scoped handover filed nothing");
   else {
-    made.push(id2);
-    const t = await pool.query<{ project_id: string | null; lane: string }>(
-      `SELECT project_id, lane FROM tasks WHERE id = $1`, [id2],
-    );
+    made.push(id3);
+    const t = await pool.query<{ project_id: string | null }>(
+      `SELECT project_id FROM tasks WHERE id = $1`, [id3]);
     t.rows[0]?.project_id === proj.rows[0].id
-      ? ok(`task ${id2.slice(0, 8)} carries its project`)
+      ? ok("the task carries its project")
       : bad(`task project_id is ${t.rows[0]?.project_id}`);
-    t.rows[0]?.lane === "heavy" ? ok("still the heavy lane") : bad(`lane is ${t.rows[0]?.lane}`);
   }
 
-  console.log("3. no call-created task anywhere is unscoped");
-  // The guarantee Enrique asked for, stated over the table rather than over one
-  // code path: whatever route created it, a task born of a conversation has a
-  // project. Scoped to this test's own rows so it cannot be tripped by history.
-  const orphans = await pool.query<{ n: string }>(
-    `SELECT count(*) AS n FROM tasks
-      WHERE lane = 'heavy' AND project_id IS NULL AND id = ANY($1)`,
-    [made],
+  console.log("4. and unscoped work still cannot RUN");
+  /*
+   * The harm this all started from is prevented in the runner, not by refusing
+   * to write the words down: a heavy task with no project parks instead of
+   * starting a harness in an empty directory (scripts/unscoped-heavy-test.sh).
+   */
+  const guard = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM tasks WHERE id = $1 AND project_id IS NULL`, [id2 ?? null],
   );
-  Number(orphans.rows[0]?.n ?? 0) === 0
-    ? ok("none")
-    : bad(`${orphans.rows[0]?.n} unscoped task(s) created by this test`);
+  Number(guard.rows[0]?.n ?? 0) === 1
+    ? ok("the unscoped one exists, and the runner is what refuses it")
+    : bad("expected the unscoped task to exist and be left to the runner");
 
   for (const t of made) {
     await pool.query(`DELETE FROM task_transitions WHERE task_id = $1`, [t]);
@@ -96,10 +122,9 @@ async function main() {
   await pool.query(`DELETE FROM projects WHERE id = $1`, [proj.rows[0].id]);
   await pool.end();
 
-  console.log(`
-==== ${passes} passed, ${fails} failed ====`);
-
-  console.log(fails === 0 ? "\nHandover scope PASS" : `\nHandover scope FAIL (${fails})`);
+  console.log("");
+  console.log(`==== ${passes} passed, ${fails} failed ====`);
+  console.log(fails === 0 ? "Handover scope PASS" : `Handover scope FAIL (${fails})`);
   process.exit(fails === 0 ? 0 : 1);
 }
 
