@@ -1261,9 +1261,27 @@ how much of it the agent has done.
 ### The data
 
 `PROGRESS.json` at the repo root — root rather than `docs/` (owned by the plan)
-or `src/` (it is data, not code). The building agent writes it; the console reads
-it directly. No endpoint, no table: the file is versioned in git, so the bar's
+or `src/` (it is data, not code). **It has more than one writer**, which the
+original sentence — *"the building agent writes it"* — did not anticipate, and the
+console reads it directly. No endpoint, no table: the file is versioned in git, so the bar's
 whole history is auditable and a state change is a diff with a timestamp.
+
+### Two writers, and the write has to be a merge
+
+In practice this file is written by whoever advances the build **and** by whoever
+edits the plan, because `total_steps` and `plan_sha` are facts about the plan
+while the step states are facts about the work. Two writers is the right
+arrangement — each knows something the other does not — but **the write pattern
+was not designed for it.**
+
+Rewriting the whole object on every touch means two edits to *different* steps
+still collide, because both rewrote `updated_at`. **Every independent change
+conflicts, so the conflicts stop carrying information** — and a conflict that is
+always noise gets resolved by whichever side is quicker to overwrite.
+
+- **Update your own keys, never the whole object.** Steps are keyed by id: a writer touching S37 writes S37. Then a conflict means both writers touched the same step, **which is the case that should conflict** and the only one worth a human deciding.
+- **Nobody is the authority on the whole file.** The builder owns step state and evidence; the plan's editor owns `total_steps` and `plan_sha`; `current_step` and `working_on` are derived, not asserted, so nothing has to arbitrate them.
+- **On a conflict, keep the other writer's states.** They know something you do not — and the cost is asymmetric: re-deriving a sha costs nothing, while overwriting a step state silently un-does someone's real observation. This is the file's *whole purpose* being at stake: **a progress bar is worth exactly as much as it is believed.**
 
 ```json
 {
@@ -1375,6 +1393,7 @@ next deploy.
 - Every state renders distinguishably, including on a phone and in the colour-blind-safe palette. Blocked must not read as done.
 - Add a step to the plan → the denominator grows on the next update and the percentage **goes down**. That is correct behaviour and the bar must not hide it.
 - Stale file → the staleness notice appears; back-date `updated_at` to force it.
+- **Two writers, one file**: advance a step and edit the plan in the same window, from two places. Both land, **and neither silently overwrites the other's states.** This is the case that actually happens.
 - **Divergence**: serve a `PROGRESS.json` whose `total_steps` disagrees with the deployed plan, and whose `updated_at` is *recent*. The bar must flag it. **This is the case the age check misses, and it is the one that actually occurred** — a confident wrong number is worse than an obviously old one.
 - Update `PROGRESS.json` by copying one file, with no rebuild, and confirm the bar changes. If that is not possible, the file is in the wrong place.
 - A step marked `done` whose PR is not merged → the console flags the inconsistency rather than trusting the file. **The bar is a claim, and the console is allowed to check it.**
