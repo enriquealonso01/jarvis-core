@@ -64,8 +64,11 @@ Tester's session.
 ## B5 — budget-spending live tests authorized  ·  Status: CLEARED 2026-09-03
 Authorization from Enrique (2026-09-03) with full cost disclosure. He green-lit
 running all four live tests knowing the spend:
-- **S23** and **s22-live-call-to-pr** — place REAL Telnyx calls (per-minute
-  charges to his account; his actual phone rings).
+- **S23** — places a REAL Telnyx call (per-minute charge; his actual phone rings).
+  **Correction (Tester, 2026-09-03):** `s22-live-call-to-pr` does NOT ring his
+  phone — it synthesises the Telnyx webhooks and only the carrier is simulated, so
+  this entry originally overstated that one. The genuinely phone-ringing script is
+  `s23-place-one.ts` (one call, needs an existing outbound_calls row).
 - **s37-ingest-live** — spends Groq minutes.
 - **s28-parity-live** — creates a real GitHub repo and runs two harnesses (model
   usage on the anthropic subscription plus codex/cursor).
@@ -74,5 +77,75 @@ each result in `VERIFIED.md`. A defect surfaced by a live test is a finding, not
 failure of the go-ahead.
 - **CHECK:** proceed once this line reads `CLEARED`.
 
-## B6 — (add as they arise)
+## B6 — S35 off-machine restore proof deferred  ·  Status: CLEARED 2026-09-03
+Enrique's decision (2026-09-03): the box itself IS the backup. We do NOT need a
+second machine now, nor to prove off-machine export/restore right now. S35's
+"restore on a second machine with the first switched off" Done-when is DEFERRED by
+decision — revisit when there is a reason. The local backup mechanism stays; the
+cross-machine proof is out of scope for now. Agents stop treating S35 as
+blocked-on-hardware.
+
+## B7 — Composio credential provided (S31)  ·  Status: CLEARED 2026-09-03
+Enrique connected Composio via the Control Center; the `composio` connection row
+now has a credential (verified 2026-09-03 19:57Z). NOTE its health currently reads
+`degraded`, not `healthy` — the credential is present but a real Composio call is
+not yet proven. Builder: proceed to S31's Done-when ("a heavy task does real work
+through a Composio connection"); a successful heavy-task run IS the proof. If
+`degraded` blocks real work, flag it as a finding rather than claiming done.
+
+## B8 — S32 fetch tier-2 TLS client = powhttp  ·  Status: CLEARED 2026-09-03
+"Paw HTTPS" = **powhttp** — <https://github.com/usestring/powhttp-mcp> (verified
+real; an MCP server that fetches via powhttp). Builder: implement the
+declared-but-unimplemented S32 tier-2 rung against this, not pyhttpx/curl_cffi.
+
+## B9 — Confidentiality: services eligible; restricted deferred; no restriction work  ·  Status: CLEARED 2026-09-03
+Enrique's decision (2026-09-03): a confidential project MAY use all three services
+— **telnyx, elevenlabs, composio** (all have credentials; telnyx/elevenlabs
+healthy). The `restricted` tier stays **EMPTY** until a professional project is
+started. **Do NOT build or tighten restriction logic now** — restriction choices
+are Enrique's to make later, by hand. Models for confidential remain at the
+existing position (paid subscription logins eligible, free tiers not) unless
+Enrique says otherwise.
+
+## B10 — Notification policy for 3 unhandled failure classes  ·  Status: CLEARED 2026-09-03
+Enrique confirmed these (2026-09-03), replacing the silent `worker.crash` /
+`ui_only` inheritance:
+- `agent.repeat` (fires in prod) → severity **error**, notify **Issue + WhatsApp**
+- `dependency.unavailable` → severity **warning**, notify **Issue + ui_only**
+- `resource.cpu` → severity **warning**, notify **ui_only** (Issue if sustained)
+
+## B11 — Orphan cleanup authorized: delete all + reap  ·  Status: CLEARED 2026-09-03
+Enrique authorized (2026-09-03) deleting ALL of the following, and having the
+parity fixture auto-reap going forward:
+- the 14 orphan `s28-parity-*` GitHub repos + their 14 project rows
+- the orphan schema: tables `connection_actions` and `mcp_tools` + stray
+  `schema_migrations` rows 041, 042, 044, 045
+- the stale deployed source `adapters.ts` and `connector.ts` on the box (imported
+  by nothing)
+Execution: the repo deletions need the `delete_repo` scope resolved (see B13); the
+schema drop is destructive prod DB work (Tester proposes the migration and executes
+under this authorization); removing the source is a prod deletion. Tester executes;
+if its permission layer gates a step, Enrique approves in the Tester's session — no
+self-granting scopes.
+- **CHECK:** proceed once this line reads `CLEARED`.
+
+## B12 — S29 benchmark spend authorized (generous)  ·  Status: CLEARED 2026-09-03
+Enrique authorized (2026-09-03) running the S29 benchmark to populate the
+escalation pool, with generous budget: "spend as much as you need; the accounts I
+provided have limits, so don't optimise for cheapness." The account-level limits
+are the guardrail. Run it and record results in `VERIFIED.md`.
+
+## B13 — `delete_repo` scope to execute the authorized repo deletions  ·  Status: OPEN
+The repo deletions authorised in B4 (the 2 e2e repos) and B11 (the 14 s28-parity
+repos) cannot execute: `gh repo delete` returns 403 "needs the delete_repo scope",
+and the Tester correctly refuses to self-widen its own credential
+(`gh auth refresh -s delete_repo`) — Enrique's authorization to delete repos is not
+authorization for the Tester to grant itself a scope. Awaiting Enrique's method:
+either (a) grant/refresh the `delete_repo` scope on the credential the Tester uses,
+or (b) delete the repos himself. NOTE B4's order still holds: PR #1's evidence must
+be captured into the durable record BEFORE `jarvis-e2e-3e4adc11` is deleted.
+- **CHECK:** proceed once this line reads `CLEARED`; done when all authorised repos
+  are gone.
+
+## B14 — (add as they arise)
 The Blockers session appends new items here as agents report things only you can do.
