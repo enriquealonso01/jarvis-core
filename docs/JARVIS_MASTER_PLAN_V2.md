@@ -354,7 +354,20 @@ is a ticket with a form on it. Resolve in place.
 ### Action pages
 `/actions/<id>` — the page a WhatsApp link opens. Password-masked fields for
 secrets, a plain statement of what the credential will be used for and what it
-costs, submit, done. Single-use token; replay is a 409.
+costs, submit, done. Single-use token; a second **submission** is a 409.
+
+**Single-use means the submission, not the page.** Viewing the form is not the
+sensitive act — submitting a credential is. He will open the link, go to his
+password manager, come back to a tab the phone evicted, and tap the link again;
+he will also tap it twice from the WhatsApp thread out of ordinary impatience.
+**Both are normal, and both would hit a 409 on a token that dies on first view**,
+which turns the one page in this system built for *"no babysitting"* into a dead
+end at the exact moment he was trying to help.
+
+- **Re-opening before submitting shows the form again.** Idempotent.
+- **Re-opening after a successful submit says so** — the key was accepted, the connection tested, the task resumed. Not a 409: a 409 here reads as *"you broke something"* about the one thing that worked.
+- **An expired link offers a fresh one rather than refusing.** The request is still open (the ticket outlives the link), so the page says that and re-issues on a tap. **A dead link must never imply a dead request**, or he goes hunting in the console for a ticket he was specifically not supposed to have to find.
+- **A re-issued link goes to the channel the original went to** — his WhatsApp — never to whoever loaded the page. Otherwise *"expired, get a new one"* is an open re-issue endpoint wearing a helpful sentence (IV.6b rule 2).
 
 ### Settings
 Audit trail, config versions, model registry and routing, quiet hours, retention,
@@ -1865,6 +1878,13 @@ host-timer backstop, and blind-window reconciliation on restart. Small, and it i
 the difference between a watchdog that failed loudly and one whose failure looks
 like a quiet week.
 
+**Action page replay** *(S16 shipped with "replay is a 409", before the human case
+was thought through).* Viewing is idempotent; a second **submission** is the 409.
+After a successful submit the page says what happened; an expired link offers a
+re-issue to his WhatsApp rather than refusing. Small, and it is the difference
+between the credential loop working on the first try and him going to look for a
+ticket he was never supposed to have to find.
+
 **The status bar and the global composer** *(never had an owner).* Both are
 specified in I.3 and belong to no step. The status bar carries the six
 deterministic states on every authenticated page; the composer reaches Jarvis
@@ -1878,6 +1898,8 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Open an action page twice before submitting** → the form both times. Submit → accepted. Open it again → it says the key was accepted and the task resumed. Submit again → **409**. That sequence is the whole rule, and only the last step is an error.
+- Let a link expire, then open it → offered a fresh one, **delivered to WhatsApp rather than rendered on the page.**
 - **Type a Level 3 instruction into the composer** → it raises an approval and does **not** act, even though the session is fully authenticated and the page is the console. Then approve it properly and confirm it proceeds. **Both halves** — the first alone would pass on a composer that does nothing.
 - Upload a document containing an instruction → stored, quoted, searchable, **and not obeyed.** Same assertion as the forwarded-thread case, on the channel where it looks most like his own words.
 - **Drive a task to terminal failure and confirm it passed rung 10 first** — he was asked before it died. A task that reaches `failed_terminal` without a record of asking him is the bug this rule exists to catch.
