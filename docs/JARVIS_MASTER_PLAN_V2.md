@@ -2010,11 +2010,42 @@ It must **act**.
 - It opens by saying who it is and why it is calling, in one sentence, before anything else.
 - No answer → voicemail-safe behaviour, then fall back to WhatsApp. Never redial in a loop.
 
-**Test**
+### Outbound has no idea who answered
+
+S19 graded inbound authority carefully by what the channel can establish. **Outbound
+establishes nothing at all.** Jarvis dials a number and starts talking, and the
+person who picks up may be a colleague, a family member, or the room — the phone
+is on the table on speaker, in a meeting, and the opening sentence above is
+*"calling about a security incident on TicketFlipping production."*
+
+The asymmetry is easy to miss because inbound looks like the risky direction. It
+is not the only one: inbound risks someone reaching Jarvis, **outbound risks
+Jarvis reaching someone.**
+
+- **Identify before disclosing.** The opening line is content-free: *"This is Jarvis, calling for Enrique."* The reason follows only once the other party has identified themselves as him.
+- **A spoken confirmation gates disclosure, not action.** It is not authentication and must not be treated as any — but action already requires the console (S19), so the only thing riding on it is whether Jarvis says the next sentence.
+- **The reason follows S41's metadata rule.** Name the project and the urgency, not the content. *"Something on Alpha needs you in the next hour"* is enough to get him to a channel that can carry the rest.
+
+### A voicemail is a copy Jarvis cannot delete
+
+*"Voicemail-safe behaviour"* was one clause with nothing behind it, and it is the
+one place Jarvis speaks into a system it does not control: recorded on his
+carrier's infrastructure, frequently auto-transcribed and emailed onward,
+retained indefinitely, and audible to whoever next picks up the phone.
+
+- **Jarvis never states the reason on voicemail.** It leaves who it is, that it needs him, and where to look. Nothing else.
+- **A call whose reason is itself sensitive leaves less, not more.** *"Calling about the security incident"* **is** the disclosure. For those, the message is that he should check the console — and that is all.
+- **The reason then goes to a channel with a boundary**, under S38's rule: linked for a confidential project, sent for a normal one.
+
+### Test
 - Trigger each of the six reasons and confirm a call for those and **only** those. A routine completion must never ring the phone.
 - Set the clock to 20:00 → refused, WhatsApp + Issue instead, retried at 08:00 (L13).
 - A **security incident** at 02:00 → rings. A production outage at 02:00 → does **not**. That pair is the whole override, and testing only the first half proves nothing.
 - Saturday 10:00 → allowed.
+- **Someone other than Enrique answers** → Jarvis identifies itself, does not state the reason, and ends the call. **Assert on what was synthesised, not on what was heard** — a careful summary and a lucky one sound identical.
+- Outbound for a security incident, no answer → **the voicemail contains no project name and no reason.** Then a scheduled call, no answer → naming the subject is fine. **Both halves**, or the rule is switched off in one position.
+- After a voicemail, the reason reaches him on a channel that can carry it, classified per S38.
+- Never redials. Assert on the dial log, not on the absence of a complaint.
 - Schedule a call for a specific time → it rings then, with its subject ready, and does not ring twice after a restart.
 - Decline the call → one WhatsApp, no redial loop.
 - Answer it → the reason is stated in the first sentence.
