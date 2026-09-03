@@ -65,6 +65,21 @@ async function hasIdColumn(pool: pg.Pool, table: string): Promise<boolean> {
   return has;
 }
 
+/** Whether a column may be set to NULL - how a cycle is broken safely. */
+const nullableCache = new Map<string, boolean>();
+
+async function isNullable(pool: pg.Pool, table: string, column: string): Promise<boolean> {
+  const key = `${table}.${column}`;
+  const hit = nullableCache.get(key);
+  if (hit !== undefined) return hit;
+  const r = await pool.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+      WHERE table_name = $1 AND column_name = $2`, [table, column]);
+  const nullable = r.rows[0]?.is_nullable === "YES";
+  nullableCache.set(key, nullable);
+  return nullable;
+}
+
 /**
  * Delete rows, and whatever depends on them, depth first.
  *
@@ -82,8 +97,37 @@ async function deleteRows(
   values: string[],
   removed: Record<string, number>,
   depth = 0,
+  path: string[] = [],
 ): Promise<void> {
-  if (!values.length || depth > 4) return;
+  if (!values.length) return;
+
+  /*
+   * A cycle, broken rather than truncated.
+   *
+   * tasks -> issues -> tasks: an issue belongs to a task, and a task can be
+   * blocked BY an issue. The descent used to stop at `depth > 4` and return
+   * quietly, which did not stop the deletes - every frame above it still ran
+   * its DELETE, so tasks were removed while their issues were still there and
+   * the whole teardown rolled back on a foreign key. A guard that silently
+   * gives up mid-graph turns a hang into a corrupt delete.
+   *
+   * The link that closes the cycle is optional, so it is set to NULL and the
+   * descent stops there honestly. If it were ever NOT nullable the cycle would
+   * be unbreakable and the teardown says so rather than half-deleting.
+   */
+  if (path.includes(table)) {
+    if (!(await isNullable(pool, table, column))) {
+      throw new Error(
+        `cycle through ${path.join(" -> ")} -> ${table}.${column}, which cannot be set to NULL`,
+      );
+    }
+    const r = await pool.query(
+      `UPDATE ${table} SET ${column} = NULL WHERE ${column} = ANY($1)`, [values],
+    );
+    if (r.rowCount) removed[`${table}.${column}=NULL`] = (removed[`${table}.${column}=NULL`] ?? 0) + r.rowCount;
+    return;
+  }
+  if (depth > 12) throw new Error(`teardown descended past ${depth} levels at ${table}.${column}`);
 
   /*
    * Asked of the catalog, not of a failed query.
@@ -101,7 +145,7 @@ async function deleteRows(
     const ids = mine.rows.map((r) => r.id);
     if (ids.length) {
       for (const child of await referencing(pool, table)) {
-        await deleteRows(pool, child.table, child.column, ids, removed, depth + 1);
+        await deleteRows(pool, child.table, child.column, ids, removed, depth + 1, [...path, table]);
       }
     }
   }

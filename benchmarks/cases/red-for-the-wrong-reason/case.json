@@ -1,0 +1,12 @@
+{
+  "id": "red-for-the-wrong-reason",
+  "title": "a test run that failed to load is reported as a failing test",
+  "source": "Jarvis itself, 2026-09-03: the benchmark corpus checked that a case's hidden tests FAIL against its unfixed seed, and one case shipped a CommonJS seed under \"type\": \"module\". Its suite died on 'require is not defined' before a single test ran, the check watched it go red and called it a good case, and every run of that case scored hidden_tests 0 no matter what the agent wrote. The dimension was dead for hours and looked like a finding about the engines. Then, on the day it was written, this case was REJECTED by the gradeability checker that validates the corpus - the checker matched the load-error words appearing in the case's own test data before checking for an assertion failure. The check had the exact defect the case describes, which is the best evidence the case is worth keeping.",
+  "objective": "verdict(output, exitCode) returns \"failed\" for a run whose test file could not be loaded at all, and returns \"passed\" for a run in which no tests were found. Neither is true: a suite that never executed says nothing about the code, and a green from zero tests is the most misleading output a runner can produce. Both must return \"did_not_run\". Fix verdict() and add a regression test.",
+  "expectedFiles": [
+    "src/verdict.js",
+    "test/verdict.test.js"
+  ],
+  "difficulty": "hard",
+  "note": "Two traps, and the first one punishes the obvious fix. Node reports a file that failed to load as one failing test, so counting failures cannot separate the cases - the natural next move is to grep the output for SyntaxError and ReferenceError. But a test may legitimately assert ON an error message, so those words appear in a run that executed and failed honestly; matching them first silently reclassifies a real failure as a harness problem. The assertion check has to come first. The second trap is that zero tests with exit code 0 looks exactly like success, and a fix that only handles load errors leaves it reporting \"passed\"."
+}
