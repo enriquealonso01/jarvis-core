@@ -57,6 +57,20 @@ async function adminToken(): Promise<string> {
   return cred.api_key as string;
 }
 
+async function gh(url: string, init: RequestInit = {}): Promise<Response> {
+  const tok = await adminToken();
+  return fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${tok}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "jarvis-core",
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
 async function waitForTask(id: string, seconds: number): Promise<string> {
   const until = Date.now() + seconds * 1000;
   let last = "";
@@ -226,8 +240,25 @@ main()
           console.error(`  LEFT BEHIND: ${t.leftBehind.map((l) => `${l.table}(${l.rows})`).join(", ")}`);
         }
       }
-      // Never deleted here: irreversible, and Enrique's call.
-      console.log(`  the GitHub repository is still there: ${createdRepo ?? "(none)"}`);
+      /*
+       * And the repository, which this fixture used to leave standing.
+       *
+       * The old comment here read "Never deleted here: irreversible, and
+       * Enrique's call" - correct when written, and the reason SIXTEEN
+       * s28-parity repositories had accumulated on the account by 2026-09-03,
+       * one per run since the fixture was written. B11 settled the call:
+       * delete them, and reap going forward.
+       *
+       * JARVIS_KEEP_REPO=1 keeps it, for the case where the run failed and the
+       * repository is the evidence. Failures already skip this block entirely.
+       */
+      if (createdRepo && process.env.JARVIS_KEEP_REPO !== "1") {
+        await gh(`https://api.github.com/repos/${createdRepo}`, { method: "DELETE" })
+          .then((r) => console.log(`  cleaned up the repo ${createdRepo} (${r.status})`))
+          .catch((e) => console.error(`  repo cleanup failed: ${e instanceof Error ? e.message : e}`));
+      } else {
+        console.log(`  the GitHub repository is still there: ${createdRepo ?? "(none)"}`);
+      }
     } else if (createdProjectId) {
       console.log(`  kept for inspection: project ${createdProjectId}, repo ${createdRepo ?? "(none)"}`);
     }
