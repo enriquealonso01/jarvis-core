@@ -85,12 +85,42 @@ export type LoopDecision =
  * fixed time" is a property of what this function can see rather than a note
  * asking the next person not to add a timer.
  */
+/**
+ * A count, or nothing.
+ *
+ * Every guard below is a `>=` against a number, and `NaN >= n` is false for
+ * every n — so the four numbers that stand between this file and its own
+ * opening sentence ("an unbounded fan-out of leases and spend that ... bills
+ * without limit") were all skippable by a value a number column can hold. A
+ * null column, a failed parse, an absent field: the ceiling is simply not there,
+ * and `NaN + 1` keeps it not there on the next round.
+ *
+ * Strings are rejected rather than coerced. `"3" >= 4` happens to work and `""`
+ * happens to mean zero, which is exactly what makes coercion dangerous: it is
+ * right often enough that the one time it is not looks like something else.
+ *
+ * Negative is rejected too. A count cannot be below zero, so a negative one is
+ * a corrupted reading, and the safe response to "I cannot tell how many" is not
+ * "fewer than the limit".
+ */
+function isCount(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0;
+}
+
 export function shouldContinue(
   condition: DoneCondition,
   iterationsSoFar: number,
 ): LoopDecision {
   if (isDone(condition)) {
     return { continue: false, reason: "done", why: "the plan covers the goal with no open gaps" };
+  }
+  if (!isCount(iterationsSoFar)) {
+    return {
+      continue: false,
+      reason: "ceiling",
+      why: `the iteration count is unreadable (${String(iterationsSoFar)}), and a loop that cannot `
+        + "count its rounds is the bill with a heartbeat this ceiling exists to stop",
+    };
   }
   if (iterationsSoFar >= MAX_ITERATIONS) {
     return {
@@ -133,6 +163,19 @@ export function admitAgent(args: {
   agentsInThisOrchestration: number;
   agentsSystemWide: number;
 }): Admission {
+  if (!isCount(args.agentsInThisOrchestration) || !isCount(args.agentsSystemWide)) {
+    /*
+     * Queued, not refused, for the reason the doc gives: a refused agent is work
+     * he asked for that silently never happens. An unreadable count is a reason
+     * to wait, not a reason to drop it.
+     */
+    return {
+      admit: false,
+      queue: true,
+      why: "the agent counts are unreadable, so the next agent waits rather than being admitted "
+        + "against a ceiling nothing could check",
+    };
+  }
   if (args.agentsInThisOrchestration >= PER_ORCHESTRATION_CEILING) {
     return {
       admit: false,
@@ -200,6 +243,13 @@ export function watchdogVerdict(args: {
   if (real.length > 0) {
     return { stop: false, why: `made real progress: ${real.join(", ")}` };
   }
+  if (!isCount(args.roundsWithoutProgress)) {
+    return {
+      stop: true,
+      why: `cannot tell how many rounds have passed without progress `
+        + `(${String(args.roundsWithoutProgress)}) — stopped rather than left running unwatched`,
+    };
+  }
   if (args.roundsWithoutProgress >= IDLE_ROUNDS_ALLOWED) {
     return {
       stop: true,
@@ -225,6 +275,21 @@ export type SpendVerdict =
  * and both are his to choose.
  */
 export function spendCheck(spentCents: number, ceilingCents: number): SpendVerdict {
+  if (!isCount(spentCents) || !isCount(ceilingCents)) {
+    /*
+     * An unreadable ceiling is not an absent ceiling. This returned
+     * `{proceed: true, remaining: NaN}` for a null ceiling, which is the whole
+     * failure of this file in one value: spending continues and the number that
+     * would have stopped it is not a number.
+     */
+    return {
+      proceed: false,
+      paused: true,
+      say: "Paused: I cannot read the spend figures "
+        + `(spent ${String(spentCents)}, ceiling ${String(ceilingCents)}), and I will not spend `
+        + "against a ceiling I cannot check.",
+    };
+  }
   if (spentCents >= ceilingCents) {
     return {
       proceed: false,
