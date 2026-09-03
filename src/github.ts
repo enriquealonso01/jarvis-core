@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type pg from "pg";
 import { readJsonCredential } from "./credentials.js";
+import { audit } from "./audit.js";
 import { encryptGcm, loadMasterKey, newDek, wrapDek } from "./crypto.js";
 
 async function adminToken(pool: pg.Pool): Promise<string> {
@@ -73,13 +74,21 @@ export async function githubProvisionApiCredential(
       credentialId,
     ]);
 
-    await client.query(
-      `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-       VALUES ('broker', 'github.api_credential.provision', $1, $2, $3)`,
-      [label, projectId, JSON.stringify({ credential_id: credentialId })],
-    );
-
     await client.query("COMMIT");
+    // Audited through the one helper rather than a hand-written INSERT. That
+    // costs atomicity - `audit` takes the pool, so the row lands just after the
+    // commit rather than inside it - and the S12b sweep is deliberate that the
+    // count of hand-written INSERTs may fall and may not rise. `audit` never
+    // throws and logs loudly, so the failure mode is a logged missing row
+    // rather than a lost credential.
+    await audit(pool, {
+      actor: "broker",
+      action: "github.api_credential.provision",
+      target: label,
+      projectId,
+      outcome: "allowed",
+      extra: { credential_id: credentialId },
+    });
     return credentialId;
   } catch (err) {
     await client.query("ROLLBACK");
