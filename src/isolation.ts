@@ -60,14 +60,36 @@ export async function checkConnectionAccess(
     project_id: string | null;
     auth_profile_id: string | null;
     permitted_actions: string[] | null;
+    disabled_at: string | null;
+    disabled_reason: string | null;
   }>(
-    `SELECT id, slug, scope, project_id, auth_profile_id, permitted_actions
+    `SELECT id, slug, scope, project_id, auth_profile_id, permitted_actions,
+            disabled_at, disabled_reason
        FROM connections WHERE slug = $1`,
     [args.connectionSlug],
   );
   const c = conn.rows[0];
   if (!c) {
     return { allowed: false, code: "security.broker_deny", reason: "unknown connection" };
+  }
+
+  /*
+   * Disabled means disabled, for everyone (S31).
+   *
+   * This sits with "connection exists" rather than beside the action check
+   * because a connection Jarvis has switched off is not a thing a caller can
+   * argue its way past - including the paths that ask the weaker question of
+   * whether a project may reach it at all. A server that stopped answering
+   * twice in a row is one the broker stops offering.
+   */
+  if (c.disabled_at) {
+    return {
+      allowed: false,
+      code: "security.broker_deny",
+      reason: c.disabled_reason
+        ? `${c.slug} is disabled: ${c.disabled_reason}`
+        : `${c.slug} is disabled`,
+    };
   }
 
   /*
