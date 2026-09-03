@@ -231,6 +231,33 @@ export type DialDecision =
  * politely between calls is still a loop from the restaurant's side.
  */
 export function mayDial(attemptsSoFar: number): DialDecision {
+  /*
+   * A counter that is not a count refuses the call.
+   *
+   * `attemptsSoFar >= MAX_ATTEMPTS` is false for NaN, and `NaN + 1` is NaN. So a
+   * counter that arrived as NaN - a null column, a failed parse, an absent field
+   * - returned `{dial: true, attempt: NaN}`, wrote NaN back, and did the same
+   * thing on the next pass, and the one after that. The single guard against
+   * "does not redial in a loop" was itself the loop, and against a stranger's
+   * phone rather than his own. An empty string was quieter and equally wrong:
+   * `"" + 1` is the STRING "1", so the count stopped being a number at the first
+   * increment.
+   *
+   * Refusing rather than coercing to zero, because the two errors are not
+   * comparable. Treating an unreadable counter as zero means calling a
+   * restaurant that may already have been called twice; refusing means one
+   * booking he places himself, and a report that says why. The whole file is
+   * built on the reading that a miss is a question rather than an improvisation,
+   * and this is that rule applied to its own bookkeeping.
+   */
+  if (!Number.isInteger(attemptsSoFar) || attemptsSoFar < 0) {
+    return {
+      dial: false,
+      why: `attempts so far is not a count (${String(attemptsSoFar)})`,
+      report: "I could not tell how many times this number has already been tried, so I have not "
+        + "called it again.",
+    };
+  }
   if (attemptsSoFar >= MAX_ATTEMPTS) {
     return {
       dial: false,
