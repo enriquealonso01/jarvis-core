@@ -679,15 +679,28 @@ export async function finalizeCall(pool: pg.Pool, ccid: string, reason: string):
      * problem than a lost one, and the read side treats NULL as unstamped rather
      * than as normal.
      */
-    const discussed = await pool.query<{ ids: string[] }>(
+    const { projectsDiscussedOn, stampTranscript } = await import("./recall.js");
+    /*
+     * DERIVED from what the call produced - an inbox event routed to a project,
+     * or a task created in one, on this call's conversation - rather than read
+     * from a list something had to remember to append to. A missed append would
+     * understate what was discussed and under-classify the transcript, which is
+     * the wrong direction to be wrong in.
+     *
+     * Anything already on the row is kept alongside, so a caller that DOES know
+     * something this cannot derive is not overwritten by the derivation.
+     */
+    const recorded = await pool.query<{ ids: string[] }>(
       "SELECT discussed_projects AS ids FROM calls WHERE call_control_id = $1",
       [ccid],
     ).catch(() => ({ rows: [] as { ids: string[] }[] }));
-    const { stampTranscript } = await import("./recall.js");
+    const derived = await projectsDiscussedOn(pool, row.conversation_id)
+      .catch(() => [] as string[]);
+    const discussedProjectIds = [...new Set([...(recorded.rows[0]?.ids ?? []), ...derived])];
     await stampTranscript(pool, {
       callControlId: ccid,
       transcriptArtifactId: artifact.id,
-      discussedProjectIds: discussed.rows[0]?.ids ?? [],
+      discussedProjectIds,
     }).catch((err) => {
       console.error("call transcript could not be classified:",
         err instanceof Error ? err.message : err);

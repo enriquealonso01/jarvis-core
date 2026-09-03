@@ -227,3 +227,41 @@ export async function stampTranscript(
   );
   return { classification, discussed };
 }
+
+/**
+ * Which projects a call actually touched.
+ *
+ * DERIVED, not maintained — the same preference the rest of this codebase runs
+ * on. A `discussed_projects` list that something had to remember to append to is
+ * a list that is wrong on the first call where somebody forgot, and wrong in the
+ * permissive direction: a missed append understates what was discussed and
+ * under-classifies the transcript.
+ *
+ * What counts as touching a project is what the call PRODUCED: an inbox event
+ * routed to it, or a task created in it, on this call's conversation. Both carry
+ * `conversation_id` already, so this is a read rather than a new bookkeeping
+ * obligation.
+ *
+ * Note the shape of the failure this cannot fix: a call that discussed Alpha and
+ * produced nothing leaves no trace here, and the transcript falls back to
+ * `restricted`. That is the fail-closed direction — the answer is stricter than
+ * the truth rather than looser.
+ */
+export async function projectsDiscussedOn(
+  pool: pg.Pool,
+  conversationId: string | null,
+): Promise<string[]> {
+  if (!conversationId) return [];
+  const r = await pool.query<{ project_id: string }>(
+    `SELECT DISTINCT project_id FROM (
+       SELECT project_id FROM inbox_events WHERE conversation_id = $1
+       UNION ALL
+       SELECT project_id FROM tasks WHERE conversation_id = $1
+       UNION ALL
+       SELECT project_id FROM conversations WHERE id = $1
+     ) touched
+      WHERE project_id IS NOT NULL`,
+    [conversationId],
+  );
+  return r.rows.map((x) => x.project_id);
+}
