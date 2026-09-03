@@ -8,6 +8,7 @@ The whole scheme rests on one rule: **every shared file has exactly one writer.*
 | **Builder** (loop 5m) | code in `src/ deploy/ migrations/ scripts/`, and `PROGRESS.json` | plan, `BLOCKERS.md`, `VERIFIED.md` |
 | **Tester/Operator** (loop 5m, SSH) | code on `fix/*` branches, and `coordination/VERIFIED.md` | `PROGRESS.json`, `BLOCKERS.md` |
 | **Blockers** (human + Claude, no loop) | `coordination/BLOCKERS.md` | everything |
+| **Requirements** (human + Claude, no loop) | `docs/` (the plan) and `coordination/PLAN_CHANGES.md` | everything |
 
 Never write a file another session owns. If you think you need to, stop and say so instead.
 
@@ -17,6 +18,16 @@ Never write a file another session owns. If you think you need to, stop and say 
 - One branch + one PR per change set. **Merge your own PR. Pull `main` before you merge.**
 - Builder branches `build/<step>`. Tester branches `fix/<feature>`. Blockers edits only `BLOCKERS.md`.
 - Because shared files are single-writer, real conflicts only happen in code — keep to your lane and they almost never happen.
+
+## The plan is live — re-read it every loop
+
+The plan (`docs/JARVIS_MASTER_PLAN_V2.md`) is edited while you work, by the
+**Requirements** session, whenever Enrique adds or changes what he wants. So:
+
+- **Builder & Tester: re-read the plan AND `coordination/PLAN_CHANGES.md` at the start of every loop.** A step that changed or appeared since last loop is normal, not a mistake.
+- `PLAN_CHANGES.md` is a short append-only log (Requirements-owned): each entry says what changed, which steps it touches, and whether it affects work already built.
+- **If a change touches an already-built step**, the Builder rebuilds it and the Tester re-verifies it — the entry will say so. A new requirement on unbuilt work is just picked up in order.
+- Requirements never edits `PROGRESS.json`. When a new step appears in the plan, the **Builder** adds its `PROGRESS.json` entry when it picks it up (so `total_steps` may lag by one step briefly — that self-heals).
 
 ## Build vs verified — two different words
 
