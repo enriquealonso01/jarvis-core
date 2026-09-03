@@ -16,7 +16,7 @@
  * cost of acting on noise is paid by every task that routes afterwards.
  */
 import { createPool } from "../src/db.js";
-import { rank, routeOrderFrom, type BenchRow } from "../src/ranking.js";
+import { rankBySolving, routeOrderFrom, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
 const WRITE = process.argv.includes("--write");
@@ -36,14 +36,30 @@ async function main(): Promise<void> {
     scores: (x.scores.scores ?? {}) as Record<string, number | null>,
   }));
 
-  const verdict = rank(rows);
+  /*
+   * Ranked by how often each engine SOLVES, not by its average score.
+   *
+   * The mean was the wrong summary for this data and the two methods disagree
+   * on exactly the decision that matters: by mean claude leads by 0.083, which
+   * clears the eyeballed 0.072 band; by solve rate the same runs are 7/12
+   * against 3/10, a gap of 1.39 standard errors, which is noise. Scores are
+   * bimodal, so a mean tracks the MIX of solved and unsolved runs and turns a
+   * difference in how OFTEN an engine succeeds into a decimal that invites
+   * comparison against a threshold. The proportion carries its own sampling
+   * error, so the refusal is computed instead of judged.
+   */
+  const verdict = rankBySolving(rows);
+  for (const h of verdict.order) {
+    console.log(`  ${h.harness.padEnd(7)} solved ${h.solved}/${h.runs} = ${(h.rate * 100).toFixed(0)}%`);
+  }
   if (!verdict.ok) {
     console.log(`REFUSED: ${verdict.reason}`);
+    if (verdict.needed) console.log(`  ~${verdict.needed} runs per engine would settle it`);
     console.log("nothing changed - a suite that cannot separate them must not reorder them");
     return;
   }
   const order = verdict.order.map((h) => h.harness);
-  console.log(`ranking: ${order.join(" > ")} (margin ${verdict.margin.toFixed(3)}, ${rows.length} runs)`);
+  console.log(`ranking: ${order.join(" > ")} (${verdict.sigma.toFixed(2)} standard errors, ${rows.length} runs)`);
 
   const reg = await pool.query<{ model_id: string; harness: string; route_order: number }>(
     `SELECT model_id, harness, route_order FROM model_registry
@@ -89,9 +105,9 @@ async function main(): Promise<void> {
       JSON.stringify({
         summary: `senior_engineer order set from the benchmark: ${order.join(" > ")}`,
         order,
-        margin: verdict.margin,
+        sigma: verdict.sigma,
         runs: rows.length,
-        per_harness: verdict.order.map((h) => ({ harness: h.harness, runs: h.runs, mean: h.mean, cases: h.cases })),
+        per_harness: verdict.order.map((h) => ({ harness: h.harness, runs: h.runs, solved: h.solved, rate: h.rate, cases: h.cases })),
         changes,
       }),
     ],
