@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T17:31:08Z",
-  "current_step": "S31",
+  "updated_at": "2026-09-03T17:38:50Z",
+  "current_step": "S32",
   "steps": [
     {
       "id": "S1",
@@ -273,7 +273,8 @@
       "id": "S32",
       "title": "Browser and scraping",
       "stage": 5,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "THE CLICK THAT MUST STOP IS BUILT, which the plan calls the test that matters most in this step: 'a browser agent that deletes without stopping has quietly repealed IV.6'. The framing that decides the design is the step's own - Mode 1 is an authorization BYPASS. Everything the broker gates can be done by clicking, and a model driving a browser makes no typed call at all, so the gate cannot live in the broker for this route; it lives at the click. src/browsergate.ts is that gate. EVERY BRANCH THAT CANNOT PROVE AN INTERACTION IS READ-ONLY RETURNS approval_required, because of the asymmetry the plan states outright: a false stop costs one message, a false proceed cannot be undone by definition. Reading, navigating and screenshotting are free. Every form submit stops whatever its button says, since a form is the mechanism by which a page changes state and its button frequently says Save. Any non-GET method stops whatever the label says. A destructive, purchasing or outbound label stops. An UNLABELLED or AMBIGUOUS control stops - 'OK' and 'Continue' sit on a save button and a delete confirmation alike. A production system stops for anything but a read. An interaction kind nobody wrote a rule for stops rather than throwing, so a kind added a year from now by someone who never read the file gets the safe answer. IT IS DELIBERATELY NOT A MODEL CALL and must not become one: a model asked 'is this button dangerous' is being asked to judge text the SITE wrote, which is the same mistake as letting a tool description set its own blast radius, and a page that wants a destructive button to look harmless will always win that argument - it cannot change what an HTTP method is. Migration 050 records every action including the allowed ones, because a log in which every entry is alarming has lost the browsing that led up to one, and 'how did it get to that page' is the question actually asked afterwards. An approval SATISFIES a stop without rewriting it into an allow: the row keeps approval_required with the approval beside it, because 'this needed a person and got one' and 'this never needed anyone' are different facts and only one is reassuring in an audit. scripts/s32-browser-gate-test.ts, 22 assertions, with perform() as a spy so 'it stopped' means the click never happened rather than that something said it stopped. Sabotaged five ways: let unsure proceed (3 red), let a friendly label beat the method (2 red), refuse and click anyway (2 red), record an approved action as a plain allow (1 red) - and one that FOUND A HOLE IN MY OWN TEST. Deleting the submit rule entirely left the suite GREEN, because a submit then fell through to the unknown-kind catch-all and stopped for a completely different reason: the assertion was satisfied by the safety net rather than by the rule it claimed to test. It asserts the RULE by name now, and the same sabotage goes red. NOT BUILT: Mode 2 in full (the design pass that emits a deterministic scraper, and the model-call count that proves it is not Mode 1 in a costume), the strategy ladder, project-scoped browser profiles and their isolation, session ageing and revocation clearing the profile, and robots/politeness. AND A GAP I CANNOT CLOSE MYSELF: the plan opens S32 with 'Write ADR 016 before any code - this has never been designed.' That number is already taken by per-project unix users, so the plan's reference is stale, and docs/ is not the Builder's to write. The reasoning is carried in the module header instead, which is not a substitute for the ADR."
     },
     {
       "id": "S33",
@@ -382,5 +383,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S31: the Connections tab reads capabilities and revoke takes them away; Composio is blocked on an API key only Enrique can provide."
+  "working_on": "S32: Mode 1 stops before it clicks anything irreversible; Mode 2, profiles and sessions remain."
 }
