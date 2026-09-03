@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T19:26:18Z",
-  "current_step": "S35",
+  "updated_at": "2026-09-03T19:31:52Z",
+  "current_step": "S38",
   "steps": [
     {
       "id": "S1",
@@ -314,7 +314,8 @@
       "id": "S38",
       "title": "Brevity everywhere, and the document channel",
       "stage": 8,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "THE TWO DECISIONS S38 SAYS MUST NOT BE JUDGEMENT CALLS. src/brevity.ts. FIRST, document-or-message is decided from the content's shape and size BEFORE any prose exists - 'the model does not decide this by taste' - and the Debug note says why it cannot be done afterwards: a length check running after the model truncates, and 'truncating a long answer produces a bad short answer, which is worse than either'. A decision packet is a document at ANY length, because what makes it one is that a decision is taken from it rather than that it is big; asserted at 120 characters. And a short answer stays short - the rule must not turn 'yes' into a PDF - including a short answer from a confidential project, since rendering it as a document would put the same words on Meta's infrastructure with extra steps. SECOND, and this is the one that reads like a convenience setting and is not: ATTACHMENT OR LINK IS A CONFIDENTIALITY DECISION. 'An attachment sent over WhatsApp has left the isolation boundary permanently. It is on Meta's infrastructure, on his phone, and in whatever backs his phone up. Jarvis cannot un-send it, retention policy does not reach it, and deleting the artifact afterwards deletes only the copy Jarvis still holds.' Normal projects attach, confidential and restricted link, and a document spanning several takes the STRICTEST class present because a mixed document is a confidential document. This is ADR 005's reasoning about models applied one surface along - a confidential body does not go to a consumer endpoint, and a channel is an endpoint too. THE TWO QUESTIONS ARE ANSWERED SEPARATELY AND IN ORDER, because answering them together is how 'it is short, so it can go inline' ends up applying to a confidential body. A document whose projects nobody could determine is RESTRICTED rather than normal: an unclassifiable document is not one to attach on that basis, and a permissive default there is the quiet version of this bug. A LINK IS ONLY WORTH SENDING IF IT NEEDS A SESSION. The plan says 'no token in the URL that works without one', and the reason is that a URL travels exactly the way an attachment does - so a tokenised link IS the attachment it was meant to replace, and linkIsSafe refuses t, token, key, access_token, sig and signature, and refuses plain http. scripts/s38-brevity-test.ts, 17 assertions, and every confidentiality assertion has its opposite beside it because the plan demands both halves: 'a rule that only ever links has not been tested, it has been disabled'. Sabotaged six ways: attach everything (4 red), link everything (3 red - which is the disabled-rule case, and it fails), take the first class rather than the strictest (2 red), default unknown provenance to normal (1 red), accept a tokenised link (2 red), and decide document-ness by length alone (1 red). NOT BUILT: the PDF renderer itself and the styling, the length threshold being configurable per conversation (S43), and the acceptance case - the weekly Improvement report arriving as a document with a two-line message - which needs the renderer and a live channel."
     },
     {
       "id": "S39",
@@ -386,5 +387,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S18b: the action-page re-issue is built; what is left on the register is console-side work in the other repository."
+  "working_on": "S38: the document-or-message and attach-or-link decisions are rules rather than taste; the renderer itself remains."
 }
