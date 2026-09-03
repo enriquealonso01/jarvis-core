@@ -46,5 +46,33 @@ not "manual patching."
   after the deliberate engine grant, takes a plain-English `/api/inbox` bug to a
   real PR on the box.
 
-## B4 — (add as they arise)
+## B4 — e2e fixture cleanup: capture evidence, then delete both repos  ·  Status: CLEARED 2026-09-03
+Authorization from Enrique (2026-09-03), recorded here so the Tester can
+corroborate an irreversible action against this file rather than a bare relay.
+Enrique's decision: **capture PR #1's diff + metadata into the durable record
+FIRST** (so the `VERIFIED.md` citation to that PR does not 404), **then delete
+BOTH throwaway repos** — `jarvis-e2e-gbbqkr` and `jarvis-e2e-3e4adc11` — **and
+their project rows.** Order is load-bearing: evidence capture precedes deletion.
+The Tester (jarvis-1f) raised and owns these fixtures and is authorized to perform
+the deletion; the Blockers session does not delete. If the Tester's own permission
+layer gates the repo delete or the row DELETE, Enrique approves that in the
+Tester's session.
+- **CHECK:** proceed once this line reads `CLEARED`. Done when PR #1's diff +
+  metadata live in a durable non-throwaway location (VERIFIED.md or an artifact it
+  references) AND both repos + both project rows are gone.
+
+## B5 — budget-spending live tests authorized  ·  Status: CLEARED 2026-09-03
+Authorization from Enrique (2026-09-03) with full cost disclosure. He green-lit
+running all four live tests knowing the spend:
+- **S23** and **s22-live-call-to-pr** — place REAL Telnyx calls (per-minute
+  charges to his account; his actual phone rings).
+- **s37-ingest-live** — spends Groq minutes.
+- **s28-parity-live** — creates a real GitHub repo and runs two harnesses (model
+  usage on the anthropic subscription plus codex/cursor).
+None is destructive; the cost is money and a ringing phone. Run all four, record
+each result in `VERIFIED.md`. A defect surfaced by a live test is a finding, not a
+failure of the go-ahead.
+- **CHECK:** proceed once this line reads `CLEARED`.
+
+## B6 — (add as they arise)
 The Blockers session appends new items here as agents report things only you can do.
