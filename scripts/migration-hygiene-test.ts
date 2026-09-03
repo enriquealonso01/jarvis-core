@@ -115,6 +115,50 @@ function main(): void {
     : bad("001 no longer keys schema_migrations on filename; rule 4 is now checking the wrong column");
 
   console.log("");
+  console.log("5. no source file contains a control character");
+  /*
+   * THE TRAP THIS PROJECT HAS NOW PAID FOR THREE TIMES, and DEBUG_NOTES records
+   * the first: a regex written as backslash-b reaches the file as a literal
+   * 0x08 BACKSPACE, because some layer between the generator and the disk ate
+   * the escape. It compiles. It survives grep - the byte is invisible in a
+   * terminal, and searching for the text you meant to write finds the line. And
+   * it matches nothing, so the assertion built on it passes forever while
+   * testing nothing at all.
+   *
+   * Twice it was found by sabotage, which is luck: sabotage only finds it if the
+   * dead assertion happens to be the one under test. This finds it by looking.
+   *
+   * Tab, newline and carriage return are the only control characters a source
+   * file has any business containing.
+   */
+  const ALLOWED = new Set([9, 10, 13]);
+  const NEWLINE = String.fromCharCode(10);
+  const roots = ["src", "scripts"];
+  const controlOffenders: string[] = [];
+  let scanned = 0;
+  for (const root of roots) {
+    const dir = path.resolve(process.cwd(), root);
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(ts|mjs|js|sh|sql)$/.test(name)) continue;
+      const text = fs.readFileSync(path.join(dir, name), "utf8");
+      scanned += 1;
+      for (let i = 0; i < text.length; i += 1) {
+        const code = text.charCodeAt(i);
+        if (code < 32 && !ALLOWED.has(code)) {
+          const line = text.slice(0, i).split(NEWLINE).length;
+          controlOffenders.push(
+            `${root}/${name}:${line} contains 0x${code.toString(16).padStart(2, "0")}`);
+          break;
+        }
+      }
+    }
+  }
+  controlOffenders.length === 0
+    ? ok(`${scanned} source files, no invisible control characters`)
+    : bad(`an escape was eaten before it reached the file: ${controlOffenders.join("; ")}`);
+
+  console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);
   process.exit(fails === 0 ? 0 : 1);
 }
