@@ -24,6 +24,25 @@ cd "$(dirname "$0")/.."
 
 COMPOSE="docker compose -f deploy/compose.dev.yaml"
 
+# Say WHICH MACHINE this is about to test on.
+#
+# This script was written to stop a suite running against stale code, and it
+# does. It said nothing about staleness of PLACE, which is the other half and
+# reads identically in the output: `compose.dev.yaml` runs against whatever the
+# local docker context points at, and on this workstation that is Docker
+# Desktop. A green suite there is a local fixture — the exact thing the standing
+# brief says never to call verified.
+#
+# So the endpoint is printed on every run rather than checked, because there is
+# no correct answer to enforce: the dev stack running locally is *useful*, it is
+# just not proof. Printing it costs one line and makes the distinction
+# impossible to forget while reading a result.
+ENDPOINT=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo unknown)
+case "$ENDPOINT" in
+  ssh://*|tcp://*) echo "==> suite runs against $ENDPOINT" ;;
+  *) echo "==> suite runs LOCALLY ($ENDPOINT) — a green result here is a fixture, not the box" ;;
+esac
+
 # Always rebuild, rather than rebuilding when the tree looks newer.
 #
 # The first version of this compared source mtimes against the image's Created
