@@ -24,6 +24,7 @@ Currently verifying: _front-door bugs. #1 and #2 done. Next: WhatsApp inbound pe
   - Before: `POST /api/projects` → 200, and all three dirs `uid=0 gid=0 mode=750`; `sudo -u jarvis touch .../probe` → **Permission denied**. That is what killed every heavy task on an API-onboarded project.
   - After: all three dirs `uid=1000 gid=988 mode=750`, and `sudo -u jarvis touch` **succeeds**.
   - Probe projects use the `proj-accept-` slug prefix, so the acceptance sweep archives them.
+  - **Scope of this claim, after a monitor challenge from Enrique on 2026-09-03:** this verifies the *mechanism* — the directories an API-onboarded project gets are now runner-writable — and nothing more. It does **not** claim the front door works end to end. No real (non-health) task has run on the box since 14:47, and item #3 below means an API-onboarded project still cannot open a PR, so a full "plain-English bug in, real PR out, unaided" run cannot pass yet. Deploying is not verifying, and neither is proving one mechanism in isolation. The end-to-end run is owed once #3 is fixed; until then treat the front door as unproven.
 
 ## ✗ BROKEN — Tester backlog (start here)
 
