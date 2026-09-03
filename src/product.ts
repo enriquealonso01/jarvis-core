@@ -1582,7 +1582,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
     const projectId = (req.params as { id: string }).id;
     const proj = await pool.query<{ id: string; slug: string; github_owner: string | null; github_repo: string | null }>(
-      `SELECT id, slug, github_owner, github_repo FROM projects WHERE id = $1 OR slug = $1`,
+      `SELECT id, slug, github_owner, github_repo FROM projects WHERE id::text = $1 OR slug = $1`,
       [projectId],
     );
     const p = proj.rows[0];
@@ -1602,7 +1602,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
     const projectId = (req.params as { id: string }).id;
     const proj = await pool.query<{ github_owner: string | null; github_repo: string | null; default_branch: string | null }>(
-      `SELECT github_owner, github_repo, default_branch FROM projects WHERE id = $1 OR slug = $1`,
+      `SELECT github_owner, github_repo, default_branch FROM projects WHERE id::text = $1 OR slug = $1`,
       [projectId],
     );
     const p = proj.rows[0];
@@ -1628,7 +1628,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     const projectId = (req.params as { id: string }).id;
     const pullNumber = Number((req.params as { number: string }).number);
     const proj = await pool.query<{ id: string; github_owner: string | null; github_repo: string | null }>(
-      `SELECT id, github_owner, github_repo FROM projects WHERE id = $1 OR slug = $1`,
+      `SELECT id, github_owner, github_repo FROM projects WHERE id::text = $1 OR slug = $1`,
       [projectId],
     );
     const p = proj.rows[0];
