@@ -151,7 +151,9 @@ const ALLOWED: Record<CallState, CallState[]> = {
 };
 
 export function canMove(from: CallState, to: CallState): boolean {
-  return (ALLOWED[from] ?? []).includes(to);
+  // See artifacts.canTransition: a bare index picks up inherited keys, so an
+  // unknown state threw instead of being refused.
+  return Object.hasOwn(ALLOWED, from) && ALLOWED[from].includes(to);
 }
 
 export async function openCall(
