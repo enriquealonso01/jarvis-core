@@ -35,6 +35,7 @@ import { audit, type Outcome } from "./audit.js";
 import { checkConnectionAccess, type Denial } from "./isolation.js";
 import { isAlwaysConfirm } from "./policy.js";
 import { SANDBOX_NETWORKS, type SandboxNetwork } from "./mcp.js";
+import { composioAdapter } from "./composio.js";
 import { toolStatus } from "./tools.js";
 
 export type ConnectorKind = "composio" | "mcp" | "direct" | "api" | "native";
@@ -612,6 +613,15 @@ function networkFrom(value: unknown): SandboxNetwork | undefined {
   );
 }
 
+/*
+ * Registered like any other kind, and last on purpose. S31's warning is that
+ * "two adapters are not an interface" and that Composio is the one that would
+ * shape the seam around itself - so the seam was fixed by the four kinds that
+ * had to fit through it before this one arrived to fit through it too. The
+ * plan's test, "remove the Composio adapter and the other kinds keep working",
+ * is a fact about this line rather than a thing to remember.
+ */
+registerAdapter(composioAdapter());
 registerAdapter(mcpAdapter);
 registerAdapter(nativeAdapter);
 registerAdapter(directAdapter);
