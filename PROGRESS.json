@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T21:14:28Z",
-  "current_step": "S40",
+  "updated_at": "2026-09-03T21:20:18Z",
+  "current_step": "S41",
   "steps": [
     {
       "id": "S1",
@@ -335,7 +335,8 @@
       "id": "S41",
       "title": "Recall across channels and time",
       "stage": 8,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "A PHONE CALL IS THREE ENDPOINTS AND THE CONFIDENTIAL BODY REACHES NONE OF THEM. S38 established that a channel is an endpoint; a call is three - the text goes to ElevenLabs to be synthesised, the audio crosses Telnyx, and what he says back goes to Whisper - so explaining a confidential report aloud hands its contents to a TTS vendor, which is what ADR 005 forbids for models, arriving through a vendor nobody thought to classify. Blocking it outright would be wrong because he asked for this feature specifically, so confidential documents are explained at METADATA level, and the mechanism is structural rather than a rule that remembers: explainableFacts() projects a document to things that are not its contents - there is no body field - and the confidential rendering is built from that projection alone. The suite asserts on ttsPayload(), WHAT LEAVES THE BOX, exactly as the plan instructs ('assert on the outbound payload, not on what was heard'), because a system that decides correctly and synthesises the document anyway passes every assertion made one step earlier. The assertion is also not vacuous: an empty payload would satisfy 'no body reached the vendor', so the spoken sentence is held to naming the document, giving the recommendation and offering the shape. BOTH HALVES, or the rule is just switched off - a system that explains everything at metadata level passes every confidentiality assertion in the suite and is a worse assistant, so the normal path is held to actually carrying the document. Sabotage 3 is exactly that and goes red. THE TRANSCRIPT IS A COPY AND IT OUTLIVES THE CALL. Migration 061: calls.discussed_projects is the EVIDENCE, artifacts.confidentiality the STAMP downstream reads - derived then written down, rather than re-derived on every read, because a recall asking 'may I say this aloud' must get its answer from the artifact in front of it and not by reconstructing a call from rows that may have been pruned. NULL means unstamped and is NOT normal; defaulting would have quietly declassified every transcript already on disk. transcriptClassification is S38's strictestOf itself rather than a second function that agrees today, and mayReadAloud is one rule for documents and transcripts alike, so 'a later voice recall will not read IT aloud either' is not a transcript exception. Relative dates resolve to a whole DAY rather than an instant: sabotage 8 anchors to the moment and the suite catches the bug that hides behind it - he asks in the evening for a document written that morning and an instant-anchored window excludes it. A miss says so and says it will not guess, as a written sentence rather than a prompt instruction, because the failure mode is a model filling a silence. forSpeaking strips the furniture of a written document per the Debug note ('if the voice agent reads headings aloud, it is reciting rather than explaining'); the first run caught table padding surviving as runs of spaces, which a synthesiser reads as a pause in the wrong place. scripts/s41-voicerecall-test.ts, 27 assertions, green; s38-brevity-test re-run green. Sabotaged ten ways, all red: let the confidential branch reach the body (2), read everything aloud (5), explain everything (2), take the laxest classification for a mixed document (1), spread the document into the projection (2), treat an unstamped artifact as normal (1), have transcripts inherit nothing (3), anchor relative dates to the moment (2), recite headings (2), improvise on a miss (2). NOT BUILT: the recall QUERY itself - nothing yet searches artifacts by date, kind, project and content to produce a RecalledDocument, so 'the one about scraping' resolves no rows; S30's index is what that has to be built on. Nothing writes artifacts.confidentiality or calls.discussed_projects yet either - the columns and the rules exist and are held by tests, but the call path does not stamp them. And no live call has been made through this."
     },
     {
       "id": "S42",
@@ -389,5 +390,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S31's composio adapter built - it did not exist, so B7's Done-when could not have been met whatever the health said. The Done-when itself (a heavy task doing real work through Composio) needs the box and a real credential and is not something I can run from the dev stack; flagging rather than claiming it. Next: S41 (recall across channels and time), forward from S40."
+  "working_on": "S41 built at the rule level: confidential documents are explained from a projection with no body field, asserted on the outbound TTS payload, and transcripts inherit via S38's strictestOf. NOT built: the recall query over S30's index, and the call path stamping artifacts.confidentiality / calls.discussed_projects. Next: finish those two halves, then S42."
 }
