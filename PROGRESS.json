@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T19:31:52Z",
-  "current_step": "S38",
+  "updated_at": "2026-09-03T19:39:45Z",
+  "current_step": "S39",
   "steps": [
     {
       "id": "S1",
@@ -321,7 +321,8 @@
       "id": "S39",
       "title": "Channel-aware execution",
       "stage": 8,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "A URL NO LONGER GOES DOWN THE PHONE, AND IT USED TO. speakable() stripped markdown links and left BARE ones alone, so an auth link went down the line verbatim - confirmed against the real function before the change: 'Open https://jarvis.example.com/action/9f2c?t=Yy3kPq7sD2nE4vB8 and paste the key' was spoken in full, which is a one-time token dictated aloud into whatever the room can hear. speakableWithLinks lifts every address out - schemed, schemeless with a path, www, and email, since none of those is followable at walking pace - and returns them for delivery. BOTH HALVES, and they come apart in opposite and equally bad ways: stripping the URL and saying nothing leaves him waiting for a link that never arrives, which is worse than dictating it because a dictated URL at least tells him one exists; saying the promise and not queueing anything is a spoken lie. So the promise is part of the same breath, and the link comes back to the caller, and the suite asserts both together. THE PROMISE IS APPENDED AFTER THE LENGTH CAP, because a cap that can eat the sentence explaining where the link went produces exactly the silence the rule exists to prevent - and a long answer is precisely when a link is most likely to be attached. The handoff is queued through S33's closed list as auth_handoff rather than as a new path. scripts/s39-channel-test.ts, 16 assertions. THE FIRST RUN FAILED 10 OF 16 AND THE CAUSE IS ONE THIS PROJECT HAS ALREADY PAID FOR: the generated regex shipped with an ACTUAL BACKSPACE CHARACTER where backslash-b was intended - the exact trap in DEBUG_NOTES, where eleven patterns 'survived grep, survived tsc, compiled, and matched nothing'. Rebuilt with new RegExp from an explicit string, backslashes constructed from chr(92) so no layer can eat them, and the file asserted to contain zero control bytes. Then a SECOND escaping bug behind it: inside a RegExp string, backslash-s is JS-string-escaped down to a bare s, so the class meant as not-whitespace became not-the-letter-s and split the URL at every s - caught because the suite asserts the EXTRACTED LINKS and not only that no scheme was spoken. Sabotaged four ways: leave addresses in (10 red), strip silently with no promise (3 red), put the promise before the cap (2 red), and lift only scheme-prefixed addresses so bare hosts and emails are still spoken (3 red). NOT BUILT for S39: cross-channel continuity - one task and one conversation across voice, WhatsApp and console with nothing restated - and its Debug check that a per-channel conversation is not being created instead of the existing one joined."
     },
     {
       "id": "S40",
@@ -387,5 +388,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S38: the document-or-message and attach-or-link decisions are rules rather than taste; the renderer itself remains."
+  "working_on": "S39: no address reaches the spoken line and the promise travels with it; cross-channel continuity remains."
 }
