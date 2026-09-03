@@ -224,6 +224,11 @@ export function needsCoreDeploy(form: CapabilityForm): boolean {
  * and a call from anywhere else is denied — the same rule S5 applies to every
  * other connection, not a new one written for homegrown tools.
  */
+/** Is this one of the four shapes a capability can actually be called as? */
+function isAttachableForm(f: unknown): f is AttachableForm {
+  return typeof f === "string" && (ATTACHABLE_FORMS as readonly string[]).includes(f);
+}
+
 export function mayCall(args: {
   form: CapabilityForm;
   /** Null until a person has assigned a blast radius. */
@@ -234,13 +239,52 @@ export function mayCall(args: {
   builtForProject: string | null;
   callingFromProject: string | null;
 }): { allowed: boolean; why: string } {
-  if (args.form === "core_change") {
-    return { allowed: false, why: "a core change is not a tool and is not callable as one" };
+  /*
+   * An ALLOW-LIST of forms, not a refusal of the one that is obviously wrong.
+   *
+   * This refused `core_change` and let everything else through, so a form that
+   * was neither - a value off a row, a renamed shape, an empty string - came
+   * back callable. Today `core_change` happens to be the only non-attachable
+   * form, which is what makes the deny-list look complete; the fifth form added
+   * to `CapabilityForm` would be callable the moment it was declared and nobody
+   * would have chosen that.
+   */
+  if (!isAttachableForm(args.form)) {
+    return {
+      allowed: false,
+      why: args.form === "core_change"
+        ? "a core change is not a tool and is not callable as one"
+        : `${JSON.stringify(args.form)} is not a shape a capability can be called as`,
+    };
   }
-  if (args.level === null) {
+  /*
+   * `typeof`, not `=== null`.
+   *
+   * The field is documented "null until a person has assigned a blast radius",
+   * and `undefined === null` is false - so a manifest that simply had no `level`
+   * key, or a row selected without the column, sailed past the one check that
+   * makes an unclassified tool wait for a person. The comment below is the whole
+   * reason this matters: the scrutiny is the point, and absence was skipping it.
+   */
+  if (typeof args.level !== "number" || !Number.isFinite(args.level)) {
     return {
       allowed: false,
       why: "nobody has classified this yet — a tool Jarvis wrote gets the scrutiny a stranger's would",
+    };
+  }
+  /*
+   * Two absent hashes are not a match.
+   *
+   * `null !== null` is false, so a capability carrying no classified hash and no
+   * manifest hash was "unchanged since it was classified" - a sentence that is
+   * true only because neither half exists. The comparison has to be between two
+   * hashes that are actually there before it means anything.
+   */
+  if (!args.classifiedHash || !args.manifestHash) {
+    return {
+      allowed: false,
+      why: "this has no manifest hash to compare, so nothing here can say it is the tool that was "
+        + "classified",
     };
   }
   if (args.classifiedHash !== args.manifestHash) {
