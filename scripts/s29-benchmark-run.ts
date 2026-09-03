@@ -20,9 +20,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createPool } from "../src/db.js";
-import { githubCreatePrivateRepo, githubProvisionDeployKey } from "../src/github.js";
+import { githubCreatePrivateRepo, githubGetRepo, githubProvisionDeployKey } from "../src/github.js";
 import { giveProjectApiCredential } from "./lib/projectcred.js";
-import { teardownFixtureProject } from "./lib/fixture.js";
+import { teardownTask } from "./lib/fixture.js";
 import {
   ensureProjectCheckout, gitEnv, loadProject, materialiseDeployKey, repoDir, sshUrl,
 } from "../src/checkout.js";
@@ -53,7 +53,84 @@ async function nodeTest(cwd: string): Promise<boolean> {
   return await run("node", ["--test"], { cwd, timeout: 120_000 }).then(() => true).catch(() => false);
 }
 
-let createdProjectId: string | null = null;
+/*
+ * Only the task is torn down now, not the project.
+ *
+ * The project and its repository are reused across runs of a case, so deleting
+ * them would put the leak back one run later. What must not accumulate is the
+ * per-run record - tasks, events, attempts - because those are what
+ * collectEvidence reads, and yesterday's events scoring today's run is the same
+ * class of mistake as yesterday's tests.
+ */
+let createdTaskId: string | null = null;
+
+/**
+ * The project and repository this case runs in, created once and reused.
+ *
+ * Every run used to create a private GitHub repository and nothing deletes them
+ * - deletion is irreversible and Enrique's call - so ten runs left ten repos
+ * behind, and the campaign the suite now asks for (about 23 runs per engine)
+ * would have left fifty. The repository is not what varies between runs. The
+ * seed is force-pushed each time and the agent works on a fresh branch, so one
+ * repository per case is all a run has ever needed.
+ *
+ * Reused rather than recreated also means one deploy key per case instead of
+ * one per run, which is the same problem in a quieter form.
+ */
+async function ensureBenchProject(caseId: string): Promise<{
+  pid: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  slug: string;
+}> {
+  const slug = `jarvis-bench-${caseId}`;
+  const existing = await pool.query<{ id: string; github_owner: string; github_repo: string; default_branch: string }>(
+    `SELECT id, github_owner, github_repo, default_branch FROM projects WHERE slug = $1`, [slug]);
+
+  /*
+   * The owner comes from a project that already has one rather than from
+   * configuration: this repository is created by the same account that owns
+   * every other project checkout, and asking the database avoids inventing a
+   * second source of truth for it.
+   */
+  const knownOwner = await pool.query<{ github_owner: string }>(
+    `SELECT github_owner FROM projects WHERE github_owner IS NOT NULL LIMIT 1`);
+  const owner = existing.rows[0]?.github_owner ?? knownOwner.rows[0]?.github_owner ?? null;
+
+  let repo = owner ? await githubGetRepo(pool, owner, slug) : null;
+  if (!repo) {
+    const made = await githubCreatePrivateRepo(pool, slug);
+    if ("error" in made) throw new Error(`repo: ${made.error}`);
+    repo = { full_name: made.full_name, owner: made.owner, name: made.name, default_branch: made.default_branch };
+    console.log(`  created ${repo.full_name} (first run of this case)`);
+  }
+
+  if (existing.rows[0]) {
+    return {
+      pid: existing.rows[0].id,
+      owner: repo.owner,
+      name: repo.name,
+      defaultBranch: repo.default_branch,
+      slug,
+    };
+  }
+
+  const project = await pool.query<{ id: string }>(
+    `INSERT INTO projects (slug,name,project_type,confidentiality,github_owner,github_repo,default_branch)
+     VALUES ($1,$1,'personal','normal',$2,$3,$4) RETURNING id`,
+    [slug, repo.owner, repo.name, repo.default_branch]);
+  const pid = project.rows[0].id;
+  const key = await githubProvisionDeployKey(pool, pid, repo.owner, repo.name);
+  if ("error" in key) throw new Error(`key: ${key.error}`);
+  await giveProjectApiCredential(pool, pid, slug);
+  await pool.query(
+    `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+     SELECT id, $1, ARRAY['senior_engineer'] FROM auth_profiles WHERE auth_type = 'subscription_login'
+     ON CONFLICT DO NOTHING`, [pid]);
+  console.log(`  provisioned project ${slug}`);
+  return { pid, owner: repo.owner, name: repo.name, defaultBranch: repo.default_branch, slug };
+}
 
 async function main(): Promise<void> {
   const cases = await loadCases("benchmarks");
@@ -61,25 +138,26 @@ async function main(): Promise<void> {
   if (!c) throw new Error(`no case ${CASE_ID}; have ${cases.map((x) => x.id).join(", ")}`);
   console.log(`benchmark: ${c.id} on ${RUNTIME}`);
 
-  const repo = await githubCreatePrivateRepo(pool, SLUG);
-  if ("error" in repo) throw new Error(`repo: ${repo.error}`);
-  const project = await pool.query<{ id: string }>(
-    `INSERT INTO projects (slug,name,project_type,confidentiality,github_owner,github_repo,default_branch)
-     VALUES ($1,$1,'personal','normal',$2,$3,$4) RETURNING id`,
-    [SLUG, repo.owner, repo.name, repo.default_branch]);
-  const pid = project.rows[0].id;
-  createdProjectId = pid;
-  const key = await githubProvisionDeployKey(pool, pid, repo.owner, repo.name);
-  if ("error" in key) throw new Error(`key: ${key.error}`);
-  await giveProjectApiCredential(pool, pid, SLUG);
-  await pool.query(
-    `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
-     SELECT id, $1, ARRAY['senior_engineer'] FROM auth_profiles WHERE auth_type = 'subscription_login'
-     ON CONFLICT DO NOTHING`, [pid]);
+  const bench = await ensureBenchProject(c.id);
+  const pid = bench.pid;
+  const repo = { owner: bench.owner, name: bench.name, default_branch: bench.defaultBranch, full_name: `${bench.owner}/${bench.name}` };
 
   const checkout = await ensureProjectCheckout(pool, pid);
   if (!checkout.ok) throw new Error(`checkout: ${checkout.error}`);
-  const dir = repoDir(SLUG);
+  const dir = repoDir(bench.slug);
+
+  /*
+   * Back to the seed, discarding whatever the last run left.
+   *
+   * The repository persists now, so the previous run's branch and commits are
+   * still here. The base has to be exactly the seed or red-green measures the
+   * wrong thing: it reverts src/ to the base, and a base carrying the last
+   * agent's fix would make every test look green without the current one.
+   */
+  await run("git", ["fetch", "-q", "origin"], { cwd: dir }).catch(() => undefined);
+  await run("git", ["checkout", "-q", repo.default_branch], { cwd: dir }).catch(() => undefined);
+  await run("git", ["reset", "-q", "--hard", `origin/${repo.default_branch}`], { cwd: dir }).catch(() => undefined);
+  await run("git", ["clean", "-qfd"], { cwd: dir }).catch(() => undefined);
 
   // The seed, and ONLY the seed: the hidden suite never touches the repository
   // the agent works in.
@@ -93,12 +171,24 @@ async function main(): Promise<void> {
   await fs.writeFile(path.join(dir, "AGENTS.md"),
     `# ${c.id}\n\n## How to test\n    node --test\n`);
   await run("git", ["add", "-A"], { cwd: dir });
-  await run("git", ["-c", "user.email=b@j", "-c", "user.name=Bench", "commit", "-q", "-m", c.id], { cwd: dir });
+  /*
+   * Empty is expected, not an error.
+   *
+   * The base was just reset to the previous run's seed, and the seed does not
+   * change between runs - so copying it in produces no diff at all and `git
+   * commit` exits non-zero on the second run of a case. The commit is here to
+   * guarantee the base IS the seed, and it already being so is success.
+   */
+  await run("git", ["-c", "user.email=b@j", "-c", "user.name=Bench", "commit", "-q",
+    "--allow-empty", "-m", c.id], { cwd: dir });
   const p = await loadProject(pool, pid);
   const mat = await materialiseDeployKey(pool, p!);
   if ("error" in mat) throw new Error(mat.error);
-  await run("git", ["push", "-q", sshUrl(repo.owner, repo.name), `HEAD:${repo.default_branch}`],
+  // Forced: the branch already exists from previous runs and its history is
+  // irrelevant - what matters is that the base is the seed, exactly.
+  await run("git", ["push", "-q", "--force", sshUrl(repo.owner, repo.name), `HEAD:${repo.default_branch}`],
     { cwd: dir, env: gitEnv(mat.sshCommand) });
+  await run("git", ["fetch", "-q", "origin"], { cwd: dir, env: gitEnv(mat.sshCommand) }).catch(() => undefined);
   console.log("  seeded and pushed");
 
   const t = await pool.query<{ id: string }>(
@@ -106,6 +196,7 @@ async function main(): Promise<void> {
      VALUES ($1, $2, 'heavy', 'queued', 'normal', $3, $4) RETURNING id`,
     [`${c.title} (${RUNTIME})`, c.objective, pid, RUNTIME]);
   const taskId = t.rows[0].id;
+  createdTaskId = taskId;
   console.log(`  task ${taskId}, runtime=${RUNTIME}`);
   const state = await waitForTask(taskId, 2400);
 
@@ -188,8 +279,11 @@ async function main(): Promise<void> {
 main()
   .catch((err) => { console.error(err instanceof Error ? err.message : err); process.exitCode = 1; })
   .finally(async () => {
-    if (createdProjectId && process.env.KEEP !== "1") {
-      const t = await teardownFixtureProject(pool, createdProjectId).catch(() => null);
+    if (createdTaskId && process.env.KEEP !== "1") {
+      const t = await teardownTask(pool, createdTaskId).catch((e: unknown) => {
+        console.log(`  task teardown failed: ${e instanceof Error ? e.message : e}`);
+        return null;
+      });
       if (t) console.log(`  cleaned up ${Object.entries(t.removed).map(([k, v]) => `${k}:${v}`).join(" ")}`);
     }
     await pool.end().catch(() => undefined);

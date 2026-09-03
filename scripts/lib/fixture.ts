@@ -225,3 +225,46 @@ export async function teardownFixtureProject(
   }
   return { removed, leftBehind };
 }
+
+/**
+ * Remove one task and everything that points at it, leaving its project alone.
+ *
+ * The benchmark reuses a project per case now, so the per-run cleanup is a task
+ * rather than a project. Same descent, same transaction, same refusal to leave
+ * half a task behind - what changes is only where the walk starts.
+ *
+ * Worth the shared code rather than a DELETE: a task has fifteen referencing
+ * tables and one of them, `issues`, closes a cycle back to tasks. A hand-written
+ * delete would meet that the same way the project teardown did.
+ */
+export async function teardownTask(pool: pg.Pool, taskId: string): Promise<Teardown> {
+  const removed: Record<string, number> = {};
+  const client = await pool.connect();
+  const tx = {
+    query: (text: string, values?: unknown[]) => client.query(text, values as never),
+  } as unknown as pg.Pool;
+  const refs = await referencing(pool, "tasks");
+  try {
+    await client.query("BEGIN");
+    for (const ref of refs) {
+      await deleteRows(tx, ref.table, ref.column, [taskId], removed, 0, ["tasks"]);
+    }
+    const r = await client.query(`DELETE FROM tasks WHERE id = $1`, [taskId]);
+    if (r.rowCount) removed.tasks = (removed.tasks ?? 0) + r.rowCount;
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const leftBehind: Teardown["leftBehind"] = [];
+  for (const ref of refs) {
+    const r = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM ${ref.table} WHERE ${ref.column} = $1`, [taskId]);
+    const rows = Number(r.rows[0]?.n ?? 0);
+    if (rows) leftBehind.push({ table: ref.table, column: ref.column, rows });
+  }
+  return { removed, leftBehind };
+}
