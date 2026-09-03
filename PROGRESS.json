@@ -1,8 +1,8 @@
 {
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
-  "plan_sha": "8879f76c26b869b957ab43a78aec5911af838cc5",
+  "plan_sha": "6b832f0a7068112f3c09b18e2a8d9288941cbc6b",
   "total_steps": 51,
-  "updated_at": "2026-09-03T02:05:00Z",
+  "updated_at": "2026-09-03T02:45:00Z",
   "current_step": "S37",
   "steps": [
     {
@@ -170,9 +170,9 @@
       "id": "S18b",
       "title": "The retrofit sweep",
       "stage": 3,
-      "state": "done",
+      "state": "partial",
       "pr": 77,
-      "evidence": "All five retrofit items, 66 assertions. Checkpoints record WHY and the resume path reads them. The three taxonomy-only error classes exist, with a real liveness-vs-progress detector for agent.repeat. Internal posts dedupe atomically. The recovery ladder climbs ten rungs cheapest-first, records each including the two that are not available yet, respects every limit and ends at Enrique. The status bar has all six states, forced individually. The composer's inbox row is byte-shape-identical to WhatsApp's."
+      "evidence": "Five items complete (66 assertions). The step now lists eight; watchdog self-observation was added after completion. Reopened per its standing rule: done means empty right now, not closed."
     },
     {
       "id": "S19",
@@ -242,11 +242,11 @@
       "evidence": "Built and tested. applyConfigChange is the only way configuration changes - versioning, provenance and audit are the same statement as the write - and the suite proves that architecturally by reading src/ and asserting exactly one file INSERTs into either version table. It found two bypasses when written (the schedule route and S26 onboarding), both now routed through it. Migration 029 adds the conversation and his own words to both version tables and scopes the version sequence to (project, key), which was previously global per key. The section 59 immutable list is data, refuses, and raises an approval rather than discarding the ask; ambiguity returns one question and writes nothing; rollback restores a value exactly as a NEW version. Tools resolve the project from what he NAMED, not the conversation. 85 assertions, seen red three times (30, 7, 1). BLOCKED on the Done-when: it needs a spoken sentence, and 'auditable a week later' is so far proved by backdating a row, which tests the query and not the passage of time. See BLOCKED.md."
     },
     {
-        "id": "S28",
-        "title": "The runtime interface and a second harness",
-        "stage": 5,
-        "state": "partial",
-        "evidence": "The interface and the registry landed and are asserted: src/runtime.ts with ClaudeLikeRuntime and CodexRuntime, migration 030 (tasks.runtime, tasks.ran_on_runtime, projects.default_runtime), and the runner selecting by runtime rather than by vendor. scripts/s28-runtime-test.sh passes 40 and scripts/s28-park-test.sh passes 11 - an unknown runtime parks, names itself, and nothing is recorded as having run it. NOT done: the plan's Done-when is one task running on EITHER harness by changing one field, which is scripts/s28-parity-live.ts, and that has never completed a run - it parked at the pull-request step because its fixture provisioned no GitHub API credential (fixed in #167, not yet re-run)."
+      "id": "S28",
+      "title": "The runtime interface and a second harness",
+      "stage": 5,
+      "state": "partial",
+      "evidence": "The interface and the registry landed and are asserted: src/runtime.ts with ClaudeLikeRuntime and CodexRuntime, migration 030 (tasks.runtime, tasks.ran_on_runtime, projects.default_runtime), and the runner selecting by runtime rather than by vendor. scripts/s28-runtime-test.sh passes 40 and scripts/s28-park-test.sh passes 11 - an unknown runtime parks, names itself, and nothing is recorded as having run it. NOT done: the plan's Done-when is one task running on EITHER harness by changing one field, which is scripts/s28-parity-live.ts, and that has never completed a run - it parked at the pull-request step because its fixture provisioned no GitHub API credential (fixed in #167, not yet re-run)."
     },
     {
       "id": "S29",
