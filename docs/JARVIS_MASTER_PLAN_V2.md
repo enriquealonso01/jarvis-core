@@ -2936,6 +2936,32 @@ Crawlee, curl, and hand-written scrapers. The mode and tier used are recorded on
 the task, so a slow or costly scrape can be explained afterwards rather than
 guessed at.
 
+### Chosen backends, resolved 2026-09-03 (feeds ADR 016)
+
+From the Round-1 skill review (`docs/SKILLS_RESEARCH_ROUND1.md`,
+`docs/SKILLS_ROUND1_APPROVED.md`), Enrique fixed the two backends this step no
+longer has to choose between:
+
+- **Mode 2 fetch/crawl backend: self-hosted Firecrawl.** Run the Firecrawl
+  engine inside the browser container's network (`FIRECRAWL_API_URL` at a local
+  address, auth auto-skipped, no cloud key), so no page content and no query
+  leaves the box. The emitted specification targets only Firecrawl's read-only
+  surface — `scrape` / `search` / `crawl` / `map` / `parse`. Its `interact`
+  (clicks/forms) and `agent` (autonomous) surfaces are **not** read-only and are
+  gated at Mode-1 levels, never adopted as Mode 2. Firecrawl is the fetch tier
+  the constrained emitter calls — it does **not** replace the emitter rule above.
+  Pin the CLI and the self-hosted engine to the versions in the approved-skills
+  doc (engine is AGPL-3.0 — fine for an internal server).
+- **Browser tier: Playwright** (already named above), driven only through the
+  Mode-1 gate. **`browser-use` was evaluated and rejected**: it is a second
+  agent that makes its own model calls and takes its own browser actions, so it
+  would bypass both the model router and the broker gate, it overlaps Playwright,
+  and its cloud tier solves CAPTCHAs — none of which this step permits.
+
+ADR 016 still has to record the fingerprinted-HTTP-client choice (the "Paw
+HTTPS" tier — `curl_cffi` / `pyhttpx`, to confirm with Enrique) and the browser
+container's egress policy; this note settles the two backends, not the whole ADR.
+
 ### Build
 
 ### A saved session is a credential the broker never issued
