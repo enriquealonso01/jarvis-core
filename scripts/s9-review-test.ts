@@ -155,6 +155,40 @@ async function main(): Promise<void> {
   check("it does NOT report a clean review", false, rEmpty.ok);
   contains("and says the diff was empty", "empty", rEmpty.error ?? "");
 
+  // ------------------------------------------- a route that blinks once
+  /*
+   * A run reaches review having already reproduced, fixed, tested and
+   * committed. Throwing that away because one call came back empty puts
+   * finished work in front of a human for no reason, so the reviewer is asked
+   * twice. Driven through the injected asker: an empty answer cannot be
+   * provoked on demand from a real route.
+   */
+  console.log("");
+  console.log("=== a reviewer that answers nothing once is asked again ===");
+  const GOOD = JSON.stringify({ summary: "fine", findings: [] });
+  let calls = 0;
+  const blinkOnce = async () => { calls += 1; return calls === 1 ? "" : GOOD; };
+  const rBlink = await reviewTask(pool, tFlawed, blinkOnce);
+  check("it asked twice", 2, calls);
+  check("and returned the second answer rather than parking", true, rBlink.ok);
+
+  console.log("");
+  console.log("=== a throw is retried too, and a reviewer truly down still parks ===");
+  let thrown = 0;
+  const throwsOnce = async () => {
+    thrown += 1;
+    if (thrown === 1) throw new Error("socket hang up");
+    return GOOD;
+  };
+  const rThrow = await reviewTask(pool, tFlawed, throwsOnce);
+  check("a first-attempt throw does not park the task", true, rThrow.ok);
+  let down = 0;
+  const alwaysEmpty = async () => { down += 1; return ""; };
+  const rDown = await reviewTask(pool, tFlawed, alwaysEmpty);
+  check("two empty answers stop, rather than looping", 2, down);
+  check("and that is reported as a failed review", false, rDown.ok);
+  contains("naming the reason", "no reviewer route answered", rDown.error ?? "");
+
   // ------------------------------------------- junk findings are discarded
   console.log("\n=== a finding with no file and no detail is not a finding ===");
   const junk = parseFindings('{"findings":[{"severity":"blocking"},{"severity":"note","file":"a.js"},'
