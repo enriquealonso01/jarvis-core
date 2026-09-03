@@ -782,3 +782,137 @@ recorded as done.
 |---|---|
 | filename | text pk |
 | applied_at | timestamptz |
+
+## connection_tools
+
+The tools one connection offers, and what has been decided about each. S31's
+rule is that a classification is pinned to the tool's MANIFEST rather than to a
+version string the provider controls: `manifest_hash` is taken over name,
+description and schema, and a tool is callable only while `classified_hash`
+still equals it. A provider that silently rewrites a tool's description
+therefore loses its classification rather than keeping it.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| connection_id | uuid | which connection offers it |
+| name | text | as the server reports it |
+| description | text | untrusted text, held as data and never interpolated |
+| input_schema | jsonb | |
+| manifest_hash | text | sha256 over name + description + schema |
+| level | integer | null until classified; null means not callable |
+| classified_hash | text | the manifest that was classified; drift disables the tool |
+| classified_at | timestamptz | |
+| classified_by | text | |
+| capability | text | required; classification refuses a tool that claims none |
+| first_seen_at | timestamptz | |
+
+## browser_actions
+
+Every interaction the browser was asked to perform, and what was decided about
+it. Written for allowed and refused actions alike — a gate that records only
+refusals cannot answer "what did it actually do on my behalf", which is the
+question that matters after the fact.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| project_id | uuid | |
+| task_id | uuid | |
+| at | timestamptz | |
+| url | text | |
+| kind | text | navigate, type, click, submit … |
+| element | text | |
+| label | text | the visible label, which is what a person would have read |
+| method | text | GET/POST where known; a POST is not a navigation |
+| destination | text | |
+| decision | text | allow / confirm / refuse |
+| reason | text | in words, for the person reading it later |
+| rule | text | which rule decided, so the decision is traceable to a line |
+| approval_id | uuid | set when a person confirmed it |
+| before_artifact_id | uuid | screenshot before |
+| after_artifact_id | uuid | screenshot after |
+
+## browser_sessions
+
+One row per site a project has a live browser session with. Expiry is decided at
+USE rather than by a sweep: a session marked live by a timer that has not run
+yet is a session that fails in the middle of a task instead of at the start.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| project_id | uuid | sessions never cross a project, which is why this is not null |
+| connection_slug | text | |
+| domain | text | |
+| established_at | timestamptz | |
+| expires_at | timestamptz | null means no declared expiry, not "never expires" |
+| last_ok_at | timestamptz | |
+| state | text | live / failed; default live |
+| state_reason | text | |
+
+## unprompted_messages
+
+Messages Jarvis wants to start a conversation with, before anyone asked it
+anything. `reason` is drawn from a CLOSED list — the point of S33 is that the
+set of reasons to interrupt him is enumerated in code rather than judged per
+message — and `send_after` carries quiet hours, so a message wanted at 02:00 is
+queued rather than suppressed.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| reason | text | one of the closed set; an unknown reason is refused, not sent |
+| subject | text | |
+| link | text | delivered here rather than spoken, per S39 |
+| project_id | uuid | |
+| wanted_at | timestamptz | when it became worth saying |
+| send_after | timestamptz | when it may be said |
+| sent_at | timestamptz | |
+| batch_id | uuid | several things worth saying at once arrive as one message |
+| refused_reason | text | why it was never sent, kept rather than dropped |
+
+## improvement_candidates
+
+What the weekly Improvement scan proposed, and what was decided. A decline is
+pinned to `declined_fingerprint` — a hash of the PROPOSAL, not of prose — so a
+candidate returns on its own when what it proposes actually changes, and stays
+declined when only its wording does. Nothing here activates itself; `approve`
+creates a queued task and that task is what does the work.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| candidate_key | text unique | stable identity across scans: what it is about |
+| title | text | |
+| pitch | text | |
+| fingerprint | text | sha256 over the proposal; two scans of an unchanged system agree |
+| status | text | proposed / declined / approved |
+| declined_fingerprint | text | what was declined; a changed proposal is not it |
+| declined_at | timestamptz | |
+| approved_task_id | uuid | the real task; approval creates work, it does not do work |
+| approved_at | timestamptz | |
+| first_seen_at | timestamptz | |
+| last_seen_at | timestamptz | |
+| times_seen | integer | |
+
+## briefs
+
+What Jarvis said it was about to do before doing it, and the plan it is doing.
+`plan` is the USER-FACING plan — intent, handoffs, completion channel — and it
+is the object execution reads, which is what lets a reply of "send it to the
+console instead" change where things actually go. Recorded beside the plan
+instead, a redirection would update the record of the conversation while the
+work carried on to WhatsApp. The step decomposition is deliberately absent, so
+nothing downstream can report internal steps back to him.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| conversation_id | uuid | nullable: losing the brief is worse than losing the link |
+| project_id | uuid | |
+| intent | text | the outcome he asked for, in one clause |
+| plan | jsonb | the user-facing plan; execution reads THIS |
+| brief_text | text | verbatim, never re-rendered — a redirect must not rewrite what he was told |
+| sent_at | timestamptz | |
+| redirected_at | timestamptz | null means he ignored it, which is a legitimate answer |
