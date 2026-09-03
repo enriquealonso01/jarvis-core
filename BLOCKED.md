@@ -94,8 +94,12 @@ unblocked, finish it before starting anything new.
   permission classifier. Every one of the 193 pull requests before this was
   merged from here; as of 2026-09-03 07:4x that is no longer possible.
 - **What I need you to do:** Merge the open pull requests, or grant the
-  permission back. Open now: **#194** (S29 corpus + benchmark runner, which also
-  carries the push-instruction fix) and **#195** (reviewer retries once).
+  permission back. Open as of 2026-09-03 11:4x: **#248** (suites clean up when
+  they fail, plus the litter guard blind spot) and **#249** (S29 ranks only on
+  runs that faced the current corpus - this is the one that made the ranking
+  defensible, and S29 is marked done on the strength of it). Earlier pairs named
+  here have since been merged; the list is rewritten rather than appended so it
+  says what is waiting now.
 - **Why it matters more than it looks:** deploys are cut from a tarball of the
   working tree, so while a fix sits on an unmerged branch, the box and `main`
   disagree. That bit today: deploying #195 from a branch cut off `main` silently

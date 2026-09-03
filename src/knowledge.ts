@@ -352,11 +352,15 @@ export function tierOrderFor(question: string): Tier[] {
  * Sanitised to letters and digits before it reaches `to_tsquery`, which is
  * strict about syntax and will throw on the punctuation a task title carries.
  */
-export function anyOfQuery(text: string): string | null {
-  const words = [...new Set(
+export function contentTerms(text: string): string[] {
+  return [...new Set(
     text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
       .filter((w) => w.length > 2 && !STOPWORDS_FOR_QUERY.has(w)),
   )].slice(0, 12);
+}
+
+export function anyOfQuery(text: string): string | null {
+  const words = contentTerms(text);
   return words.length ? words.join(" | ") : null;
 }
 
@@ -367,6 +371,89 @@ const STOPWORDS_FOR_QUERY = new Set([
   "fix", "add", "make", "use", "using", "task", "please", "need", "needs",
 ]);
 
+/**
+ * The second attempt, for a question no single chunk contains every word of.
+ *
+ * `websearch_to_tsquery` ANDs every term, and requires them in the SAME chunk.
+ * N2 found the limit of that immediately: "why did the cutover move, and to
+ * what date" returned nothing, even though the answer was indexed - the chunk
+ * reads "the cutover moves to the 14th, because the 7th is a bank holiday" and
+ * never says "date", while the word "date" sits in a different chunk of the
+ * thread. Every word was present in the corpus; no chunk held them all.
+ *
+ * Dropping the words the corpus does not know was the first fix and it was
+ * wrong for exactly that reason - all three words WERE known. What actually
+ * distinguishes the answer from the noise is how much of the question a chunk
+ * covers: the answering chunk matches two of the three meaningful words, the
+ * thread chunks match one.
+ *
+ * So this ORs the terms and keeps only chunks that carry at least half of them,
+ * ranked by how many they carry and then by density. The floor is what keeps
+ * this from being a fishing expedition - answering from the one word that
+ * happened to match is the confident-nonsense failure N2 exists to catch - and
+ * two is the minimum whenever the question has two words to give, so a single
+ * common word can never carry an answer on its own.
+ *
+ * Documents only, deliberately. This fires for a typed question, which is what
+ * documents are there to answer; memory and activity are reached through the
+ * "any" mode their callers already pass, and widening every tier at once would
+ * make the quietest failure - a wrong tier answering confidently - more likely
+ * rather than less.
+ */
+export async function relaxedKnowledge(
+  pool: pg.Pool, question: string, projectId: string | null, limit: number,
+): Promise<{ hits: Hit[]; covered: number; of: number }> {
+  const terms = contentTerms(question);
+  if (terms.length < 2) return { hits: [], covered: 0, of: 0 };
+
+  const r = await pool.query<{
+    id: string; body: string; locator: string | null; char_offset: number | null;
+    path: string | null; rank: string; at: string | null; superseded: boolean;
+    matched: string; of: string;
+  }>(
+    `WITH m AS (
+       SELECT plainto_tsquery('english', w) AS tq
+         FROM unnest($1::text[]) AS w
+        WHERE plainto_tsquery('english', w)::text <> ''
+     ), n AS (SELECT count(*)::int AS total FROM m)
+     SELECT k.id::text, k.body, k.locator, k.char_offset, a.path,
+            (k.source_artifact_id IS NOT NULL AND EXISTS (
+               SELECT 1 FROM artifacts newer WHERE newer.supersedes_id = k.source_artifact_id
+             )) AS superseded,
+            ts_rank_cd(k.search, to_tsquery('english', $4))::text AS rank,
+            COALESCE(k.source_date, k.created_at)::text AS at,
+            (SELECT count(*) FROM m WHERE k.search @@ m.tq)::text AS matched,
+            (SELECT total FROM n)::text AS of
+       FROM knowledge_chunks k
+       LEFT JOIN artifacts a ON a.id = k.source_artifact_id
+      WHERE ($2::uuid IS NULL OR k.project_id = $2)
+        AND (SELECT count(*) FROM m WHERE k.search @@ m.tq)
+            >= GREATEST(2, CEIL((SELECT total FROM n) / 2.0))
+      ORDER BY superseded ASC,
+               (SELECT count(*) FROM m WHERE k.search @@ m.tq) DESC,
+               ts_rank_cd(k.search, to_tsquery('english', $4)) DESC,
+               COALESCE(k.source_date, k.created_at) DESC
+      LIMIT $3`,
+    [terms, projectId, limit, terms.join(" | ")],
+  );
+
+  return {
+    hits: r.rows.map((x) => ({
+      tier: "knowledge" as const,
+      id: x.id,
+      body: x.body,
+      citation: x.superseded
+        ? `${citationFor(x.path, x.locator, x.char_offset)} (superseded)`
+        : citationFor(x.path, x.locator, x.char_offset),
+      rank: Number(x.rank),
+      at: x.at,
+      superseded: x.superseded,
+    })),
+    covered: Number(r.rows[0]?.matched ?? 0),
+    of: Number(r.rows[0]?.of ?? 0),
+  };
+}
+
 export async function retrieve(
   pool: pg.Pool,
   args: {
@@ -376,16 +463,21 @@ export async function retrieve(
     /**
      * "all" for a typed question, "any" for "what might be relevant to this".
      * A task title ANDed together matches nothing at all.
+     *
+     * "auto" is the default and is "all" with one second chance: if requiring
+     * every word in one chunk found nothing, the documents are searched again
+     * for chunks covering at least half the question. See `relaxedKnowledge`.
      */
-    match?: "all" | "any";
+    match?: "all" | "any" | "auto";
   },
 ): Promise<Retrieved> {
   const q = args.q.trim();
   if (!q) return { tiers: [], total: 0 };
   const limit = args.limit ?? 5;
   const projectId = args.projectId ?? null;
-  const anyTerms = args.match === "any" ? anyOfQuery(q) : null;
-  if (args.match === "any" && !anyTerms) return { tiers: [], total: 0 };
+  const mode = args.match ?? "auto";
+  const anyTerms = mode === "any" ? anyOfQuery(q) : null;
+  if (mode === "any" && !anyTerms) return { tiers: [], total: 0 };
   const qArg = anyTerms ?? q;
   const useAny = anyTerms !== null;
 
@@ -407,6 +499,39 @@ export async function retrieve(
     .map((tier) => ({ tier, hits: byTier[tier] }))
     .filter((t) => t.hits.length);
 
+  const out = { tiers, total: tiers.reduce((n, t) => n + t.hits.length, 0) };
+
+  /*
+   * The second chance. Only when the strict pass found NOTHING, so a question
+   * that was already answerable is answered from exactly the same rows as
+   * before - this can add answers, never change one.
+   */
+  if (out.total === 0 && mode === "auto") {
+    const relaxed = await relaxedKnowledge(pool, q, projectId, limit);
+    if (relaxed.hits.length) {
+      return { tiers: [{ tier: "knowledge", hits: relaxed.hits }], total: relaxed.hits.length };
+    }
+  }
+
+  return out;
+}
+
+/** The body of `retrieve`, once the query text and mode are settled. */
+async function retrieveWith(
+  pool: pg.Pool, qArg: string, useAny: boolean, projectId: string | null, limit: number, forOrder: string,
+): Promise<Retrieved> {
+  const [knowledge, projectMemory, globalMemory, activity] = await Promise.all([
+    knowledgeTier(pool, qArg, useAny, projectId, limit),
+    projectId ? memoryTier(pool, qArg, useAny, projectId, limit, false) : Promise.resolve([]),
+    memoryTier(pool, qArg, useAny, null, limit, true),
+    activityTier(pool, qArg, useAny, projectId, limit),
+  ]);
+  const byTier: Record<Tier, Hit[]> = {
+    activity, knowledge, project_memory: projectMemory, global_memory: globalMemory,
+  };
+  const tiers = tierOrderFor(forOrder)
+    .map((tier) => ({ tier, hits: byTier[tier] }))
+    .filter((t) => t.hits.length);
   return { tiers, total: tiers.reduce((n, t) => n + t.hits.length, 0) };
 }
 
