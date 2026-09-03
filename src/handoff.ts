@@ -84,6 +84,31 @@ export function mintAuthLink(flow: ConnectionFlow, now = new Date()): AuthLink {
   if (url.protocol !== "https:") {
     throw new Error(`refusing to hand over a ${url.protocol} sign-in link for ${flow.provider}`);
   }
+  /*
+   * Credentials in the URL, which is the phishing shape this whole file is about.
+   *
+   * `https://accounts.google.com@evil.com/signin` is a valid https URL whose host
+   * is evil.com and whose first twenty characters are the provider he trusts.
+   * On a phone, in a chat bubble, the part he reads is the part before the `@`.
+   *
+   * The message below does already name the real host on its own line, and that
+   * line is not decoration - it is what makes a swapped DESTINATION visible. But
+   * this file's stated method is that its rules are "enforced by type rather than
+   * by care", and a link that is safe only because he read the third line is
+   * enforced by care. The two mechanisms are for different attacks: line three
+   * survives a flow pointed somewhere else entirely, and this survives a flow
+   * pointed somewhere that is spelled like somewhere else.
+   *
+   * `linkIsSafe` (brevity.ts) already refuses this shape for a link to a
+   * DOCUMENT. Refusing it for the one message the plan calls the highest-trust
+   * in the system, and not for that one, was the inconsistency rather than this.
+   */
+  if (url.username || url.password) {
+    throw new Error(
+      `refusing to hand over a sign-in link for ${flow.provider} that carries credentials in the `
+      + `URL: it reads as ${url.username} and resolves to ${url.host}`,
+    );
+  }
   return {
     provenance: "connection_flow",
     url: url.toString(),
