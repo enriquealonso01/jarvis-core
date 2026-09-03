@@ -72,8 +72,16 @@ export const IMMUTABLE_KEYS: Record<string, string> = {
 /** The protected domain a key belongs to, or null if it is ordinary config. */
 export function immutableDomain(key: string): string | null {
   const k = key.trim().toLowerCase();
-  if (IMMUTABLE_KEYS[k]) return IMMUTABLE_KEYS[k];
-  return IMMUTABLE_DOMAINS[k.split(/[.:]/)[0]] ?? null;
+  // Both lookups guard against inherited keys. `immutableDomain("constructor")`
+  // returned the Object constructor - a function where the signature promises
+  // `string | null`, which then travels into a refusal's `domain` field and an
+  // audit row. It failed CLOSED, so nothing was wrongly permitted; it was
+  // simply not answering the question it was asked. Note the lowercasing above
+  // hides most of this by accident: only `constructor` and `__proto__` survive
+  // it unchanged, which is exactly the kind of accident not to rely on.
+  if (Object.hasOwn(IMMUTABLE_KEYS, k)) return IMMUTABLE_KEYS[k];
+  const domain = k.split(/[.:]/)[0];
+  return Object.hasOwn(IMMUTABLE_DOMAINS, domain) ? IMMUTABLE_DOMAINS[domain] : null;
 }
 
 export type ConfigOutcome =

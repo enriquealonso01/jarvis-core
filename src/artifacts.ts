@@ -64,7 +64,10 @@ const NEXT: Record<string, string[]> = {
 };
 
 export function canTransition(from: string, to: string): boolean {
-  return (NEXT[from] ?? []).includes(to);
+  // Object.hasOwn, not a bare index: `NEXT["constructor"]` is inherited and
+  // truthy, so `?? []` never fires and `.includes` is not a function. A state
+  // machine asked about an unknown state must answer no, not throw.
+  return Object.hasOwn(NEXT, from) && NEXT[from].includes(to);
 }
 
 /** Nothing outside the artifacts directory is ever readable through this. */
