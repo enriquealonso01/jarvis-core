@@ -428,6 +428,24 @@ unblocked, finish it before starting anything new.
   signpost that explains why it now does nothing. Verified live: the URL
   returned `S26 / 40 steps` with nobody running a script, alongside the
   `charset=utf-8` and `Last-Modified` it had never sent before.
+- **Reopened and resolved again:** 2026-09-03 07:50Z. The resolution above did
+  not hold, and the way it failed is worth keeping. Serving from
+  `/opt/jarvis/core/PROGRESS.json` ties the bar to the deploy tree, and every
+  code deploy extracts a tarball over that tree - so a deploy cut from a feature
+  branch silently republished that branch version of the truth. The file moved
+  to `/var/lib/jarvis/state`, out of the deploy path, and publishing became
+  `scripts/publish-progress.sh` run by hand. That is where the staleness came
+  back: found three hours old today, for the same reason as the original 21
+  hours. A script that runs on the workstation and pushes over scp cannot be
+  structural - the workstation is not always on, and nothing on the box knows it
+  is behind. Now the box pulls: `scripts/publish-progress-pull.ts` reads both
+  files from the repository with the admin token it already holds, on
+  `jarvis-progress-publish.timer`, every five minutes. Verified exactly as
+  Enrique asked: a marker string was committed to `main` and appeared at the
+  live URL with nobody running anything. Also covered by
+  `tests/s13b-publish-live.sh` (6 assertions), including that a publish which
+  fails to parse keeps the previous good file - sabotaging that order leaves the
+  console being served markdown.
 
 ## Deployed files are owned by a Windows uid that does not exist on the box
 
