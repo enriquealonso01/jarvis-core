@@ -70,19 +70,27 @@ async function main(): Promise<void> {
       `SELECT id, token_hash FROM user_action_requests
         WHERE issue_id = $1 AND id <> $2 ORDER BY created_at DESC LIMIT 1`,
       [issueId, first.id])).rows[0];
+    /*
+     * Guarded, because a sabotage that EXTENDS the old request instead of
+     * replacing it leaves no new row - and the first version of this then threw
+     * on `fresh.id`, so the suite reported one failure and crashed before the
+     * three assertions that matter most. A test that stops at the first problem
+     * hides the rest of them.
+     */
     fresh ? ok(`a new request row exists (${fresh.id.slice(0, 8)})`) : bad("no new request was created");
+    const freshId = fresh?.id ?? "<none>";
     /*
      * The absence, checked against the whole body rather than against the field
      * a token would obviously live in. A leak through some other key would pass
      * the narrow version of this.
      */
-    !raw.includes(fresh.id)
+    !raw.includes(freshId)
       ? ok("the response does not even name the new request")
       : bad("the new request id is in the response body");
     const queued = (await pool.query<{ link: string | null }>(
       `SELECT link FROM unprompted_messages WHERE reason = 'auth_handoff'
         ORDER BY wanted_at DESC LIMIT 1`)).rows[0];
-    queued?.link?.includes(fresh.id)
+    queued?.link?.includes(freshId)
       ? ok("while the queued WhatsApp message carries the link")
       : bad(`the message has no link: ${queued?.link}`);
     const token = queued?.link?.split("t=")[1] ?? "";
@@ -108,8 +116,8 @@ async function main(): Promise<void> {
 
     console.log("");
     console.log("6. a consumed link is finished, not re-issuable");
-    await pool.query(`UPDATE user_action_requests SET consumed_at = now() WHERE id = $1`, [fresh.id]);
-    const afterUse = await fetch(`${API}/api/action-requests/${fresh.id}/reissue`, { method: "POST" });
+    await pool.query(`UPDATE user_action_requests SET consumed_at = now() WHERE id = $1`, [freshId === "<none>" ? first.id : freshId]);
+    const afterUse = await fetch(`${API}/api/action-requests/${freshId === "<none>" ? first.id : freshId}/reissue`, { method: "POST" });
     const usedBody = await afterUse.json() as { error?: string };
     afterUse.status === 409 && usedBody.error?.includes("already used")
       ? ok(`a used link is not reopened: "${usedBody.error}"`)
