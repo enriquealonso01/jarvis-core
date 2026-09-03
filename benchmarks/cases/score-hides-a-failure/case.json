@@ -1,0 +1,9 @@
+{
+  "id": "score-hides-a-failure",
+  "title": "a flat average lets a wrong answer score well",
+  "source": "Jarvis itself, 2026-09-03: the first version of scoreRun averaged every dimension evenly, and a run that reproduced the bug, kept its scope tight, opened a tidy pull request and fixed NOTHING scored 0.75. Deleting the failing test scored the same.",
+  "objective": "score({correct: 0, tidy: 1, scoped: 1, reported: 1, cost: 120000}) returns a high score even though correct is 0, and a run that spent fewer tokens scores higher than one that spent more. A run that did not do the thing must not score well, and cost must not raise the score. Fix score() and add a regression test.",
+  "expectedFiles": ["src/score.js", "test/score.test.js"],
+  "difficulty": "hard",
+  "note": "Three traps, and a fix that only clears one of them fails the hidden suite. Capping the result when correct is 0 satisfies the complaint as stated and still lets cost dominate. Dropping cost from the average satisfies that and still counts an unmeasured dimension as a zero, so two runs are ranked by whether something happened to be measurable. The bug is that the shape of the calculation is wrong, not that a number is wrong - which is exactly why it took a real iteration to find in the original."
+}
