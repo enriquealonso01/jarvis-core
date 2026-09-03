@@ -37,6 +37,14 @@ async function main(): Promise<void> {
   let secondArtifact: string | null = null;
   let secondCall = "";
   let project = "";
+  let derivedCall = "";
+  let derivedArtifact: string | null = null;
+  let derivedTask = "";
+  let conversationId = "";
+  let inboxCall = "";
+  let inboxArtifact: string | null = null;
+  let inboxEvent = "";
+  let conversationId2 = "";
   try {
     await pool.query(
       `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns)
@@ -103,7 +111,74 @@ async function main(): Promise<void> {
       : bad("both calls stamped the same, so the evidence changes nothing");
 
     console.log("");
-    console.log("3. a second hangup does not write a second transcript");
+    console.log("3. and it derives what the call touched, rather than being told");
+    /*
+     * THE ASSERTION THIS TICK EXISTS FOR. Nothing seeds discussed_projects here.
+     * A task is created in a confidential project on the call's own conversation
+     * - which is what actually happens when a call produces work - and the
+     * transcript must come out confidential because finalizeCall DERIVED that.
+     *
+     * A list something had to remember to append to would be wrong on the first
+     * call where somebody forgot, and wrong in the permissive direction.
+     */
+    derivedCall = `${CCID}-c`;
+    const conv = (await pool.query<{ id: string }>(
+      `INSERT INTO conversations (project_id, title, channel, channels, last_activity_at)
+       VALUES (NULL,$1,'phone',ARRAY['phone'],now()) RETURNING id`,
+      [`${CCID} derived`])).rows[0].id;
+    conversationId = conv;
+    await pool.query(
+      `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns,
+                          conversation_id)
+       VALUES ($1,$1,'+15550000333','listening', now(), 1, $2)`, [derivedCall, conv]);
+    derivedTask = (await pool.query<{ id: string }>(
+      `INSERT INTO tasks (project_id, title, state, priority, lane, conversation_id)
+       VALUES ($1,$2,'succeeded','normal','heavy',$3) RETURNING id`,
+      [project, `${CCID} work from the call`, conv])).rows[0].id;
+
+    derivedArtifact = await finalizeCall(pool, derivedCall, "hangup");
+    const derivedStamp = (await pool.query<{ confidentiality: string | null }>(
+      `SELECT confidentiality FROM artifacts WHERE id = $1`, [derivedArtifact])).rows[0];
+    derivedStamp?.confidentiality === "confidential"
+      ? ok("a call that created work in a confidential project stamps confidential, with nothing seeded")
+      : bad(`the derivation did not happen: stamp is ${derivedStamp?.confidentiality}`);
+    const evidence = (await pool.query<{ ids: string[] }>(
+      `SELECT discussed_projects AS ids FROM calls WHERE call_control_id = $1`,
+      [derivedCall])).rows[0];
+    evidence.ids.includes(project)
+      ? ok("and the project it touched is written down as the evidence for that stamp")
+      : bad(`evidence: ${JSON.stringify(evidence.ids)}`);
+
+    /*
+     * The OTHER branch of the derivation, and the more common one: a call
+     * utterance routed to a project produces an inbox event, not necessarily a
+     * task. Sabotage found this untested - the suite only ever created a task, so
+     * removing the inbox_events branch changed nothing.
+     */
+    inboxCall = `${CCID}-d`;
+    const conv2 = (await pool.query<{ id: string }>(
+      `INSERT INTO conversations (project_id, title, channel, channels, last_activity_at)
+       VALUES (NULL,$1,'phone',ARRAY['phone'],now()) RETURNING id`,
+      [`${CCID} routed`])).rows[0].id;
+    conversationId2 = conv2;
+    await pool.query(
+      `INSERT INTO calls (call_control_id, call_leg_id, from_e164, state, started_at, turns,
+                          conversation_id)
+       VALUES ($1,$1,'+15550000444','listening', now(), 1, $2)`, [inboxCall, conv2]);
+    inboxEvent = (await pool.query<{ id: string }>(
+      `INSERT INTO inbox_events (channel, project_id, conversation_id, raw_text)
+       VALUES ('phone',$1,$2,$3) RETURNING id`,
+      [project, conv2, `${CCID} something routed to the confidential project`])).rows[0].id;
+
+    inboxArtifact = await finalizeCall(pool, inboxCall, "hangup");
+    const routedStamp = (await pool.query<{ confidentiality: string | null }>(
+      `SELECT confidentiality FROM artifacts WHERE id = $1`, [inboxArtifact])).rows[0];
+    routedStamp?.confidentiality === "confidential"
+      ? ok("a call whose utterance was merely ROUTED to a project stamps confidential too")
+      : bad(`the inbox-event branch did not count: ${routedStamp?.confidentiality}`);
+
+    console.log("");
+    console.log("4. a second hangup does not write a second transcript");
     /*
      * finalizeCall is idempotent by design - "a second hangup event for the same
      * call must not produce a second transcript that supersedes nothing" - and
@@ -114,10 +189,10 @@ async function main(): Promise<void> {
       ? ok("the same artifact comes back, so stamping did not make it write twice")
       : bad(`a second transcript was written: ${again}`);
     /*
-     * The exact path, not a LIKE. The second call's id extends the first's, so a
-     * prefix match counted both and reported a duplicate that was not one -
-     * which is the same prefix mistake the desktop allowlist test guards against,
-     * arriving in a test rather than in a boundary.
+     * The exact path, not a LIKE. The later calls' ids extend the first's, so a
+     * prefix match counted them and reported a duplicate that was not one - the
+     * same prefix mistake the desktop allowlist guards against, arriving in a
+     * test rather than in a boundary.
      */
     Number((await pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM artifacts WHERE path = $1`,
@@ -125,14 +200,15 @@ async function main(): Promise<void> {
       ? ok("and exactly one transcript exists for the call")
       : bad("more than one transcript artifact");
   } finally {
-    /*
-     * The call row REFERENCES the artifact, so the call goes first. Ordering
-     * teardown by the foreign keys rather than by the order things were created
-     * is a lesson this repo has already paid for once.
-     */
-    await pool.query(`DELETE FROM calls WHERE call_control_id = ANY($1)`, [[CCID, secondCall]]);
-    for (const a of [artifactId, secondArtifact].filter(Boolean)) {
+    await pool.query(`DELETE FROM tasks WHERE id = $1`, [derivedTask]).catch(() => undefined);
+    await pool.query(`DELETE FROM inbox_events WHERE id = $1`, [inboxEvent]).catch(() => undefined);
+    await pool.query(`DELETE FROM calls WHERE call_control_id = ANY($1)`,
+      [[CCID, secondCall, derivedCall, inboxCall].filter(Boolean)]);
+    for (const a of [artifactId, secondArtifact, derivedArtifact, inboxArtifact].filter(Boolean)) {
       await pool.query(`DELETE FROM artifacts WHERE id = $1`, [a]);
+    }
+    for (const c of [conversationId, conversationId2].filter(Boolean)) {
+      await pool.query(`DELETE FROM conversations WHERE id = $1`, [c]);
     }
     if (project) await pool.query(`DELETE FROM projects WHERE id = $1`, [project]);
   }
