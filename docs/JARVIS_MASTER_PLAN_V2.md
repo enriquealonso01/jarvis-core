@@ -597,6 +597,19 @@ because models and harnesses are both replaceable parts (II.2b).
 `running → stalled → recovering → running`, each step written down and visible in
 the console. **The task never disappears.**
 
+### `failed_terminal` appears in the diagram and nowhere else
+
+The requirement is that Jarvis *"works relentlessly until it completes the entire
+queue"*. The state machine has an exit called `failed_terminal`, mentioned once,
+in the diagram, and never explained — **so the queue can drain without the work
+being done, and nothing distinguishes that from success at the level of "the
+queue is empty."**
+
+- **Nothing reaches `failed_terminal` without passing rung 10.** The ladder's last rung is *ask Enrique*, which is not a failure — it is the point of having him. A task that died without ever reaching him did not exhaust its options; it exhausted its retries, which is a different thing. This is the rule that makes "relentlessly" mean something checkable.
+- **A terminal failure produces an account, not a red row.** What was attempted, what was observed, what is blocking, and what would unblock it. S8 already requires this when reproduction is impossible — it is the general case, and it is the only thing that makes a failure useful rather than merely final.
+- **Most things that look terminal are parks.** A dead credential, an exhausted subscription, an unreachable workstation, a missing answer — all of those are `waiting_for_*`, and they resume. **True terminal failure is narrow: the request cannot be satisfied as asked.** If `failed_terminal` is common in practice, the queue is losing work while reporting an empty queue, and **the count of terminal failures per week is the measure that catches it** — not the ratio of successes.
+- **It is not a closed door.** *"Try again, but use the staging database"* resumes from the checkpoint rather than starting over. The work already done is still there; what changed is one constraint.
+
 ### The event stream and the account of what happened are different objects
 
 `task_events` is the highest-volume table in the system by a wide margin — every
@@ -1807,6 +1820,8 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Drive a task to terminal failure and confirm it passed rung 10 first** — he was asked before it died. A task that reaches `failed_terminal` without a record of asking him is the bug this rule exists to catch.
+- Its Work detail reads as an account: attempted, observed, blocking, what would unblock. Then say *"try again with X"* → **it resumes from the checkpoint** rather than restarting.
 - **Prune a completed task's events, then open its Work detail.** It still reads as an account of what happened — phases, tests, findings, PR — rather than an empty page. Then confirm a task **without** an account is not pruned at all.
 - **Run a task through a long test suite and watch the console.** No paused banner — it says what the task is doing and for how long. Then **kill the SSE connection** and confirm the banner *does* appear. Both halves: a banner that never appears is as wrong as one that always does.
 - **Kill the watchdog with a task running, then hang the task** → nothing recovers, which is expected — and **the health page says the watchdog is not sweeping** rather than showing a calm system. Assert on what the console claims while blind; that is the actual defect.
