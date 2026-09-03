@@ -78,7 +78,15 @@ async function main(): Promise<void> {
 
     console.log("1. by relative date");
     const twoDaysAgo = await findDocuments(pool, { when: "two days ago", now: NOW, projectId: null, limit: 20 });
-    const mine = twoDaysAgo.filter((d) => d.title.startsWith(SLUG) || d.artifactId === scraping || d.artifactId === alpha);
+    /*
+     * Filtered to THIS RUN'S three documents, `old` included. The first version
+     * listed only the two that should match, which meant a widened date window
+     * returned `old` and the filter quietly dropped it again - the assertion
+     * could not fail in the direction it existed to check. Sabotaging the
+     * window is what found that.
+     */
+    const ours = new Set([scraping, alpha, old]);
+    const mine = twoDaysAgo.filter((d) => ours.has(d.artifactId));
     mine.length === 2
       ? ok("both documents written that day are found, and the nine-day-old one is not")
       : bad(`found ${mine.length} from two days ago: ${mine.map((d) => d.title).join(", ")}`);
