@@ -145,7 +145,18 @@ export async function diffForTask(
  * findings", and "no findings" from a review that never happened is the single
  * most dangerous output this function could return.
  */
-export async function reviewTask(pool: pg.Pool, taskId: string): Promise<ReviewResult> {
+/**
+ * How the reviewer is asked. Injectable so the retry below can be tested
+ * without a network: the failure it exists for is a route returning nothing,
+ * and that cannot be provoked on demand from a real one.
+ */
+export type AskReviewer = (system: string, diff: string) => Promise<string | null>;
+
+export async function reviewTask(
+  pool: pg.Pool,
+  taskId: string,
+  ask?: AskReviewer,
+): Promise<ReviewResult> {
   const d = await diffForTask(pool, taskId);
   if ("error" in d) return { ok: false, findings: [], blocking: [], error: d.error, model: "none" };
   if (!d.diff.trim()) {
@@ -162,17 +173,42 @@ export async function reviewTask(pool: pg.Pool, taskId: string): Promise<ReviewR
   // files changed, and losing that makes every finding unattributable.
   const diff = d.diff.length > 60_000 ? `${d.diff.slice(0, 60_000)}\n[... diff truncated]` : d.diff;
 
+  const askReviewer: AskReviewer =
+    ask ?? ((system, body) => quickCompletion(pool, system, body, { maxTokens: 1500, role: "reviewer" }));
+
+  /*
+   * Asked twice before giving up.
+   *
+   * An empty answer parks a task as waiting_for_user, and a heavy run reaches
+   * review having already reproduced the bug, fixed it, tested it and committed
+   * - so a route that blinks once throws away finished work and puts it in front
+   * of a human. Seen in production on 2026-09-03: a run that had done everything
+   * right parked on "no reviewer route answered", and the same route answered a
+   * 113KB diff three times out of three a minute later.
+   *
+   * One retry, not a loop: if the reviewer is genuinely down, parking is the
+   * right outcome and retrying at length only delays it. The retry re-enters
+   * routing, so a second attempt can land on a different route.
+   */
   let raw: string | null = null;
-  try {
-    raw = await quickCompletion(pool, systemPrompt(), diff, { maxTokens: 1500, role: "reviewer" });
-  } catch (err) {
-    return {
-      ok: false,
-      findings: [],
-      blocking: [],
-      error: `the reviewer failed: ${err instanceof Error ? err.message : String(err)}`,
-      model: "none",
-    };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      raw = await askReviewer(systemPrompt(), diff);
+    } catch (err) {
+      // A throw on the first attempt is retried too - a dead socket and an
+      // empty body are the same event from here.
+      if (attempt === 1) {
+        return {
+          ok: false,
+          findings: [],
+          blocking: [],
+          error: `the reviewer failed: ${err instanceof Error ? err.message : String(err)}`,
+          model: "none",
+        };
+      }
+      raw = null;
+    }
+    if (raw && raw.trim()) break;
   }
   if (!raw || !raw.trim()) {
     return { ok: false, findings: [], blocking: [], error: "no reviewer route answered", model: "none" };
