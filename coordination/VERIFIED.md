@@ -298,6 +298,13 @@ index dcdf213..7336a33 100644
   - **Fixed the blindness, not the state** (PR #332): the deploy now diffs the box's source list against the tree and names anything extra. Verified on a real deploy — it printed both files and continued. It **reports rather than deletes**, because removing files from the production tree is a decision, and a deploy script that quietly deletes is how the wrong thing goes at the wrong moment.
   - **For Enrique, alongside the orphan migrations:** removing `adapters.ts`, `connector.ts` and their compiled `dist` output is safe today — nothing imports them — but it is a production deletion and therefore his call, not mine.
 
+- **2026-09-03 — S34's one-fire-per-minute is a real constraint on the box, not a convention.** The Builder's commit message makes a claim worth testing rather than reading: the worker had the right idempotency key but enforced it with a `SELECT` then an `INSERT`, which two workers — or one worker restarted between the two statements — both pass.
+  - Deployed (migration `055_schedule_idempotency`), and the index is on the box: `schedule_runs_once_per_minute UNIQUE, btree (schedule_id, scheduled_for) WHERE scheduled_for IS NOT NULL`.
+  - **I did not settle for reading the index definition — I tried to violate it.** Inside a transaction, against a real `schedule_id` so the foreign key held: the first insert for `2030-01-01 00:00` succeeded, the duplicate was **refused by the database** — `ERROR: duplicate key value violates unique constraint "schedule_runs_once_per_minute"` — and a different minute inserted fine.
+  - **The partial clause does its job too:** two rows with `scheduled_for IS NULL` — the inbox-created path, which has no clock minute — were both accepted. A plain unique index would have broken that path, so the `WHERE` is load-bearing rather than decorative.
+  - **Nothing persisted.** Every insert ran inside `BEGIN … ROLLBACK`, and `schedule_runs` holds 0 rows dated 2029 or later afterwards. Probing a production constraint is worth doing; leaving fixture rows behind to prove it is not.
+  - `s34-schedule-test` 17/0.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
