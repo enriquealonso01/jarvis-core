@@ -109,9 +109,20 @@ async function main(): Promise<void> {
   rendered.note.toLowerCase().includes("claim")
     ? ok(`and labelled: "${rendered.note}"`)
     : bad("the rendering does not say the text is a claim");
-  typeof rendered === "object" && !("toString" in Object.getOwnPropertyNames(rendered))
-    ? ok("returned as a structure rather than a bare string, so it cannot be pasted in as an instruction")
-    : bad("the description comes back as something that reads like a sentence Jarvis wrote");
+  /*
+   * The property worth having, rather than the one I first wrote: interpolating
+   * this into a prompt by accident must not leak the instruction. A bare string
+   * would - `${description}` inside a template is the whole injection - and a
+   * structure yields "[object Object]", which is useless but harmless.
+   *
+   * (My first version of this asserted `"toString" in
+   * Object.getOwnPropertyNames(rendered)`, which asks whether an ARRAY has a
+   * toString. It always does, so the assertion was always false and told me
+   * nothing about the description.)
+   */
+  typeof rendered === "object" && !`${rendered}`.includes("SSH key")
+    ? ok(`a careless interpolation yields "${rendered}" rather than the instruction`)
+    : bad("the description leaks its text when interpolated into a string");
 
   console.log("");
   console.log("4. and no call derived from it happens");
