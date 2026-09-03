@@ -2372,6 +2372,34 @@ document over memory when the question is about a fact, because the document can
 be quoted. Memory answers what Jarvis was *told*, and that is the weakest
 evidence of the three.
 
+### Which *version* answers, not only which tier
+
+S17 gives artifacts `supersedes_id`: v2 replaces v1, both are kept, and the
+console can compare them. **This step indexes chunks and knows nothing about
+that.** So a superseded document's chunks stay in the retrieval set,
+indistinguishable from current ones — and *"what did the client say about the
+refund window?"* gets answered fluently, with a citation, **from the version that
+was replaced.**
+
+The failure class is already named a few paragraphs up: an answer that looks
+right and is wrong is the worst kind. This is that failure one axis over.
+
+- **Retrieval prefers the current version and says when it did not.** Superseded chunks are not deleted — they rank below and they are labelled. He may genuinely want the earlier wording, and *"that is from v1, replaced on the 14th"* is a useful answer where silence is a dangerous one.
+- **A citation names the version.** *"Page 4 of the migration report"* is not a citation when there are three migration reports.
+- **Superseding an artifact reindexes it.** If supersession only touches the `artifacts` table, the index goes on answering from the old text and nothing in the console would ever show it.
+
+### Memory that can be corrected
+
+Knowledge is documents, and documents have versions. **Memory is statements, and
+statements get contradicted.** *"I prefer Tuesdays"* in March and *"actually
+Thursdays now"* in August both sit in global memory today, with no ordering and
+no relationship between them, and `memory_search` will return both.
+
+- **A new statement about the same thing supersedes the old rather than joining it.** The old one is kept, marked, and not retrieved by default — the shape S17 already uses, applied to a different object.
+- **"Forget that" is a real operation**, and it has to work by name: he will say *"forget what I said about the refund policy"*, not delete a row. It supersedes with nothing, so the audit still shows something was there.
+- **Contradiction is a signal, not an error.** When a new statement contradicts one Jarvis holds, it says so in one line — *"noted, that replaces the Tuesday preference from March"* — because **silent replacement is how memory becomes a thing he cannot check.**
+- **Never inferred from a passing remark.** Memory changes when he states a preference, not when a sentence could be read as one. A wrongly forgotten preference is invisible until it produces a wrong action months later.
+
 **Add embeddings when, and only when, a measured recall failure demands it.**
 Keep a file of queries that returned the wrong thing; when lexical search is
 demonstrably the cause of several, that is the evidence for ADR 017b and a local
@@ -2396,6 +2424,11 @@ embedding model on the system lane. Not before.
 - **One document of each type**, then ask a question only answerable from the middle of each. A PDF, a chat export, a call transcript, a source file, a spreadsheet and a three-line note. The note must come back whole.
 - Ask something answerable from two tiers → the more precisely citable one answers, and the other is offered rather than hidden.
 - A 200-page PDF and a 3-word note both ingest without special-casing.
+- **Ingest a document, supersede it with v2, ask something answerable from both** → answered from v2, with the v1 chunk offered *as superseded* rather than silently dropped or silently winning. **Both halves.**
+- Supersede an artifact and **assert the index changed**. Do not assert on the answer alone — an answer can be right for the wrong reason.
+- State a preference, contradict it, then ask → the current one answers, Jarvis said so **at the moment of the replacement**, and the old one is still visible in the audit.
+- *"Forget what I told you about X"* → not retrieved afterwards, still present as a superseded record.
+- A passing remark that merely resembles a preference does not overwrite one.
 
 ### Debug
 
@@ -2409,6 +2442,10 @@ erroring. Assert on chunk count after boot.
 
 If ranking looks random, check the chunking before the ranking. Chunks split
 mid-sentence, or a whole 40-page document as one chunk, will defeat any ranker.
+
+If an answer cites a document he already replaced, look at the **reindex on
+supersession** before the ranker. The ranker is doing its job on the corpus it
+was given; the corpus is what is wrong.
 
 **Done when:** N2 passes across a restore from backup, with correct citations, no
 cross-project leakage, and an honest "I don't know" when the answer is not there.
