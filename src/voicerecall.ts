@@ -147,9 +147,18 @@ export function voiceRendering(doc: RecalledDocument): VoiceRendering {
  */
 function explainAloud(f: ExplainableFacts): string {
   const parts: string[] = [];
+  /*
+   * Titles are derived from filenames, so "alpha-migration-report.md" already
+   * ends in the kind and "the alpha migration report report" is what naive
+   * concatenation says. Nobody driving would parse that as a stutter rather
+   * than a mistake.
+   */
+  const name = f.title.toLowerCase().endsWith(f.kind.toLowerCase())
+    ? f.title
+    : `${f.title} ${f.kind}`;
   parts.push(f.recommendation
-    ? `The ${f.title} ${f.kind} recommends ${f.recommendation}.`
-    : `The ${f.title} ${f.kind} is from ${plainDate(f.writtenAt)}.`);
+    ? `The ${name} recommends ${f.recommendation}.`
+    : `The ${name} is from ${plainDate(f.writtenAt)}.`);
   if (f.optionCount) parts.push(`It weighs ${count(f.optionCount)} option${f.optionCount === 1 ? "" : "s"}.`);
   if (f.tradeoffCount) {
     parts.push(`There ${f.tradeoffCount === 1 ? "is" : "are"} ${count(f.tradeoffCount)} tradeoff${f.tradeoffCount === 1 ? "" : "s"}.`);
