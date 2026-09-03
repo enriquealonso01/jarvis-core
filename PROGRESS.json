@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T22:05:56Z",
-  "current_step": "S45",
+  "updated_at": "2026-09-03T22:12:47Z",
+  "current_step": "S46",
   "steps": [
     {
       "id": "S1",
@@ -370,7 +370,8 @@
       "id": "S46",
       "title": "Handoffs that do not block",
       "stage": 9,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE HANDOFF IS THE HIGHEST-TRUST MESSAGE IN THE SYSTEM, AND THE STEP TREATS IT AS A CONVENIENCE FEATURE UNTIL IT DOES NOT: 'an auth link is the exact shape a phishing attempt would want Jarvis to deliver - a sign-in page Jarvis vouched for, arriving in the channel he trusts most.' So both defences are types rather than habits. AuthLink carries a provenance with exactly ONE permitted value and the only producer takes a ConnectionFlow rather than a URL, so there is no parameter through which a string lifted out of an email, a page or a tool result could arrive - it is not that it should not be widened into an auth link, it cannot be. And the request origin is required and closed: message_content and tool_result are not lesser sources to be handled carefully, they are not sources of authority at all, and both land as CONTENT. The plan's own test - an inbound 'reconnect your account' link produces no handoff - passes with a link that is otherwise perfectly genuine, which is the point. Both halves asserted: a request from him or from an approved task does send one. THE HOST IS READ OFF THE URL because 'a name that is hardcoded proves nothing' - a label saying accounts.google.com over a link going elsewhere is worse than no label, since it is the reassurance a swap needs. The suite changes the flow's destination and requires the message to follow, and asserts the old host is GONE. Plaintext sign-in links are refused: a destination reachable over http is rewritable in transit, which is the swap the message exists to make visible. PARKING CLEARS THE LEASE IN THE SAME STATEMENT that changes the state - two statements leave a window in which the task is parked and still holding a seat, as long as whatever runs between them. Asserted on SEATS IN USE exactly as the plan instructs ('assert on lanes free, not on the parked tasks looking calm'), because a parked task and a running one are indistinguishable from the task row: five parked, five seats back. Resume re-QUEUES rather than setting running, since the lane was released and the scheduler hands out seats. A dead link is regenerated, never replayed - 'a resume that replays a dead link resumes into a failure that looks like Jarvis's fault' - and a flow that cannot be re-minted says so and leaves the task parked rather than half-resumed. scripts/s46-handoff-test.ts, 21 assertions, green. Sabotaged ten ways, all red. ONE CAME BACK GREEN AND IT WAS MY OWN ASSERTION: the host check searched the whole message, and the URL contains the host - so it could not tell 'states the destination' from 'the link happens to contain it', which is exactly the distinction the rule is about since the raw URL is the thing he would not scrutinise. It now strips the URL line first. Three sabotages needed rewriting for shell quoting, and one for being wrong rather than the code being right: it replaced the trailing clause and left the host in place. NOT BUILT: nothing calls any of this - no connection flow mints a link, nothing sends the WhatsApp message, nothing parks a real task on auth, and no status-signal listener resumes one. The Debug note's 'poll on resume as well as listening' is therefore unaddressed: resumeFromAuth exists but there is no poller, so a signal missed during a restart would still strand a task. Kill-and-restart durability is untested for the same reason."
     },
     {
       "id": "S47",
@@ -394,5 +395,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S45 built: the Projects view excludes system work by scope rather than by name, the isolation boundary is asserted against the real check in both directions, and 'what has maintenance been doing?' answers with specifics. HEADS-UP FOR THE CONSOLE REPO: /api/projects now defaults to his portfolio, so jarvis-control-center must pass ?scope=system for its maintenance area. NOT built: that console area, and routing project-less requests about Jarvis itself to system scope. Next: S46."
+  "working_on": "S46's decision layer built: a content-derived URL cannot be typed as an auth link, the origin is closed, the message states the host outside the link, and parking releases the seat in the same statement it parks. NOT built: nothing mints, sends, parks or resumes for real, and there is no poller - so the Debug note's 'poll on resume as well as listening' is unaddressed and a signal missed during a restart would strand a task. Next: S47 (the desktop connector) - which needs workstation access I do not have, so I will check its blocker first."
 }
