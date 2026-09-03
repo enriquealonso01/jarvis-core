@@ -3781,6 +3781,25 @@ by adding a derived record that supersedes it, not by changing the original — 
 original is the evidence of what was actually said, and it is the only thing in
 the system that cannot be reconstructed.
 
+#### The promise starts at the inbox event, and the doorway is before it
+
+*"Durable before any model sees it"* is a promise about what happens **once the
+API has the message.** Every inbound item crosses something else first — OpenClaw
+for WhatsApp, a Telnyx webhook for the phone — and **that stretch is outside the
+guarantee.** If the API is down for ten minutes, the outage lands precisely there.
+
+The two doorways fail differently, and only one of them can be reasoned about
+from inside this system:
+
+- **WhatsApp arrives once.** OpenClaw holds a session with Meta; a message delivered to it and lost on the way to the API is not re-delivered by anyone. So OpenClaw **must not acknowledge until the inbox event is written** — an ack-then-forward is a message-shaped hole. Where the gateway cannot be made to wait, it spools locally and replays, and the spool is part of the backup (S35), because a spool nobody restores is a spool that loses the outage it was built for.
+- **Telnyx retries, then stops.** Its webhook retry window is finite and it is *shorter than a plausible outage*. A call that arrived while the API was restarting is simply gone — and unlike a message, nobody will send it again.
+
+So, the same shape as the watchdog coming back blind: **after an outage, the
+system asks what it missed rather than resuming from now.** Telnyx can be queried
+for the calls and recordings it handled during the window, and reconciliation on
+startup turns a silent loss into a late arrival. **A late inbox event is an
+inconvenience. A missing one is the promise broken.**
+
 **Conversation — the ongoing context around something.**
 
 Scoped to a project, or global for the Supervisor thread. Titled from its first
@@ -4770,6 +4789,9 @@ purpose, and that crossing is what it exists to check.
 ## Gate 2 — It loses nothing
 - **Ingestion at volume**: send **20 messages across 5 projects, rapidly, while a coding job is running.** All 20 persist, and all 20 are eventually routed to the correct project. Not 19.
 - **L1** capture while busy, including a 10-second API kill mid-send
+- **An API outage longer than the shortest transport retry window.** Ten seconds proves nothing — it fits inside every transport's own retry, so the test passes because the transport saved it. Kill the API for longer than Telnyx will keep retrying, send a WhatsApp and place a call during the window, then assert **both** arrive. This is the test that distinguishes *"we lose nothing"* from *"our vendors have not made us notice yet."*
+- After that outage, **startup reconciliation finds the call** rather than the system resuming from now
+- The gateway does not acknowledge a WhatsApp until its inbox event exists — kill the API between receipt and write, and confirm the message is re-delivered or replayed rather than acknowledged into nothing
 - **Duplicate delivery**: deliver the same webhook **5 times** → exactly one logical inbox event and one task (IV.7)
 - **L2** restart the entire server with queued *and* running work → queued state survives in order; running work is reconciled or recovered
 - **Transition conformance**: every illegal state pair across all ten machines refused with 409 and audited, generated from `STATE_MACHINES.md`
