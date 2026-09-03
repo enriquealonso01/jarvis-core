@@ -26,6 +26,8 @@ is two or three entries, and it is where the time is actually saved.
 **Phone**
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
+- [The sweep stopped at s25, so a runner change broke a suite unseen](#the-sweep-stopped-at-s25-so-a-runner-change-broke-a-suite-unseen)
+- [A new column broke three call suites, silently](#a-new-column-broke-three-call-suites-silently)
 - [Jarvis transcribed its own greeting as if the caller had said it](#jarvis-transcribed-its-own-greeting-as-if-the-caller-had-said-it)
 - [One utterance produced several replies, and the call ran away](#one-utterance-produced-several-replies-and-the-call-ran-away)
 - [A python edit that asserted its anchors, failed, and left nothing behind](#a-python-edit-that-asserted-its-anchors-failed-and-left-nothing-behind)
@@ -139,6 +141,41 @@ files its task and it carries the project.
 (`route_category`, `route_segments`), so "what did the router think" is one
 query and does not need guessing. It said `question`. Believing the title of the
 task instead would have sent the fix into the classifier, which was not wrong.
+### A new column broke three call suites, silently
+**Symptom:** `s21-runtime`, `s21b-call-defects` and `s24-callreview` each failed
+on unrelated-looking assertions - a turn `open` instead of `answered`, no answer
+text, no total_ms.
+**Cause:** mine. Migration 035 added `call_turns.answered_by` and I applied it to
+production but not to the dev database. `finishTurn` builds its UPDATE from the
+field names it is given, so every call included `answered_by = $n`, every UPDATE
+threw, and `finishTurn` swallows the error with a `console.error`. The turn was
+simply never closed. All three failing assertions were fields written by that one
+statement.
+**Fix:** apply the migration in dev too. Applying it turned 3 failing suites into
+43, 35 and 34 passed with no code change.
+**The wider lesson:** a schema change is not deployed until every database that
+runs the code has it, and dev is one of those. The swallow is what made it quiet:
+`could not close the turn` went to stderr while the suite reported a behavioural
+failure three layers away.
+
+### The sweep stopped at s25, so a runner change broke a suite unseen
+**Symptom:** `s28-park-test` failed 5 of 11 with assertions that made no sense -
+the task parked in the right STATE while the reason had nothing to do with
+runtimes.
+**Cause:** mine. The heavy lane now refuses a task with no project, and that
+guard runs before the runtime check. The suite creates its tasks with no
+project, which was harmless when the runner would run anything, so every
+assertion was reading the wrong park.
+**Fix:** scope the fixture, not loosen the guard. A suite that depends on
+unscoped heavy work being allowed is a suite asserting the old behaviour.
+**The real finding:** `scripts/sweep.sh` is the regression net and its list
+stopped at `s25-routing-test`. Everything from S26 onwards, and every suite
+written since, was outside it - so a change to `runHeavyTask` could break an
+existing suite and nothing would say so. Suites now go into the sweep when they
+are written. The ones that CANNOT (live site, real money, real credentials) are
+listed there with the reason, because a sweep that cannot pass is a sweep people
+learn to ignore.
+**Lesson:** writing a suite is half of it. A suite nothing runs is a comment.
 
 ### A CRITICAL isolation alert for an `ls`
 **Symptom:** `[isolation] harness wrote outside the worktree`, critical, evidence

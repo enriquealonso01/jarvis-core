@@ -63,11 +63,39 @@ async function clean(): Promise<void> {
   await pool.query(`DELETE FROM tasks WHERE title LIKE $1`, [like]);
 }
 
-async function makeTask(runtime: string): Promise<string> {
+/**
+ * The project every task here needs.
+ *
+ * These tasks used to be created with no project at all, which was harmless
+ * when the runner would run anything. It is not harmless now: the heavy lane
+ * refuses a task with no project, because a run with no repository lands in an
+ * empty directory and trips the isolation tripwire. That guard fires BEFORE the
+ * runtime check, so every assertion here was reading the wrong park - the state
+ * happened to match while the reason had nothing to do with runtimes.
+ *
+ * Scoping the fixture is the fix rather than loosening the guard: unscoped
+ * heavy work is an accident every time, and a suite that depends on it being
+ * allowed is a suite asserting the old behaviour.
+ */
+async function fixtureProject(): Promise<string> {
   const r = await pool.query<{ id: string }>(
-    `INSERT INTO tasks (title, objective, lane, state, priority, runtime)
-     VALUES ($1, 'do a thing', 'heavy', 'running', 'normal', $2) RETURNING id`,
-    [`s28 park ${runtime} ${STAMP}`, runtime],
+    `INSERT INTO projects (slug, name, project_type)
+     VALUES ($1, 'S28 park fixture', 'personal')
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+    [`s28-park-${STAMP}`],
+  );
+  return r.rows[0].id;
+}
+
+let projectId: string | null = null;
+
+async function makeTask(runtime: string): Promise<string> {
+  if (!projectId) projectId = await fixtureProject();
+  const r = await pool.query<{ id: string }>(
+    `INSERT INTO tasks (project_id, title, objective, lane, state, priority, runtime)
+     VALUES ($1, $2, 'do a thing', 'heavy', 'running', 'normal', $3) RETURNING id`,
+    [projectId, `s28 park ${runtime} ${STAMP}`, runtime],
   );
   return r.rows[0].id;
 }

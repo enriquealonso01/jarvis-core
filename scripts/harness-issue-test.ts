@@ -13,7 +13,17 @@
 import { harnessIssueFor } from "../src/runner.js";
 
 let fails = 0;
-const ok = (m: string) => console.log(`  ok   - ${m}`);
+/*
+ * `passes` exists for the sweep, not for the reader.
+ *
+ * scripts/sweep.sh decides whether a suite ran by grepping for one exact line:
+ * `==== N passed, M failed ====`. These suites printed their own summary instead,
+ * so the sweep reported all seven as "NO SUMMARY - the suite did not finish"
+ * while each of them passed perfectly well on its own. Adding a suite to the net
+ * is not the same as the net being able to see it.
+ */
+let passes = 0;
+const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails++; };
 
 const REAL_ALLOWLIST_REASON =
@@ -46,6 +56,9 @@ function main() {
   d.requiredAction.includes("the ladder exploded in a way nobody has seen")
     ? ok("the action carries the real reason")
     : bad(`the reason was dropped: ${d.requiredAction}`);
+
+  console.log(`
+==== ${passes} passed, ${fails} failed ====`);
 
   console.log(fails === 0 ? "\nHarness issue PASS" : `\nHarness issue FAIL (${fails})`);
   process.exit(fails === 0 ? 0 : 1);

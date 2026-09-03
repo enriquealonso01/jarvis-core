@@ -29,6 +29,7 @@
  * how "what changed last week" stays answerable.
  */
 import type pg from "pg";
+import { audit } from "./audit.js";
 
 export type ConfigScope = "global" | "project";
 
@@ -153,7 +154,7 @@ export async function applyConfigChange(
         + "immutable without your approval. Nothing was applied. If you want this, make the "
         + "change yourself and it will be recorded as yours.",
     });
-    await audit(pool, change, "denied", { key, domain, reason });
+    await auditConfigChange(pool, change, "denied", { key, domain, reason });
     return { applied: false, refused: "immutable", domain, reason, issueId: issue.issueId };
   }
 
@@ -189,7 +190,7 @@ export async function applyConfigChange(
     ],
   );
 
-  await audit(pool, change, "allowed", {
+  await auditConfigChange(pool, change, "allowed", {
     key,
     version: inserted.rows[0].version,
     value: change.value,
@@ -315,12 +316,16 @@ export async function applyInstructionsChange(
     [args.projectId, body, args.actor, args.conversationId ?? null, args.causedByMessage ?? null,
      args.parsedPolicy ? JSON.stringify(args.parsedPolicy) : null],
   );
-  await pool.query(
-    `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-     VALUES ($1, 'config.instructions_change', 'AGENTS.md', $2, $3)`,
-    [args.actor, args.projectId,
-     JSON.stringify({ version: r.rows[0].version, conversation_id: args.conversationId ?? null,
-                      asked: args.causedByMessage ?? null })],
+  await audit(
+    pool, {
+      actor: args.actor,
+      action: "config.instructions_change",
+      target: "AGENTS.md",
+      projectId: args.projectId,
+      outcome: "allowed",
+      conversationId: args.conversationId ?? null,
+      extra: { version: r.rows[0].version, asked: args.causedByMessage ?? null },
+    },
   );
   return { version: r.rows[0].version };
 }
@@ -450,14 +455,16 @@ export async function commitInstructions(
     content: r.body,
     message,
   });
-  await pool.query(
-    `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-     VALUES ('supervisor', 'config.instructions_commit', 'AGENTS.md', $1, $2)`,
-    [projectId, JSON.stringify({
-      version: r.version,
-      outcome: "error" in put ? "failed" : "committed",
-      error: "error" in put ? put.error : null,
-    })],
+  await audit(
+    pool, {
+      actor: "supervisor",
+      action: "config.instructions_commit",
+      target: "AGENTS.md",
+      projectId,
+      outcome: "error" in put ? "failed" : "allowed",
+      reason: "error" in put ? put.error : null,
+      extra: { version: r.version },
+    },
   );
   return "error" in put ? `, NOT committed: ${put.error}` : ", committed";
 }
@@ -480,17 +487,30 @@ function validateValue(key: string, value: unknown): string | null {
   return null;
 }
 
-async function audit(
+/**
+ * Every config decision, through the one audit path.
+ *
+ * This used to write the audit row itself, in raw SQL, and it was named
+ * `audit` - which is why it never delegated: the shared helper could not even be
+ * imported into this file without colliding with it. Renaming it is what made
+ * the delegation possible, and the shared helper is where the metadata shape,
+ * the outcome vocabulary and the failure logging live.
+ */
+async function auditConfigChange(
   pool: pg.Pool,
   change: ConfigChange,
   outcome: "allowed" | "denied",
   extra: Record<string, unknown>,
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO audit_events (actor, action, target, project_id, metadata)
-     VALUES ($1, 'config.change', $2, $3, $4)`,
-    [change.actor, change.key, change.projectId,
-     JSON.stringify({ outcome, conversation_id: change.conversationId ?? null,
-                      asked: change.causedByMessage ?? null, ...extra })],
+  await audit(
+    pool, {
+      actor: change.actor,
+      action: "config.change",
+      target: change.key,
+      projectId: change.projectId,
+      outcome,
+      conversationId: change.conversationId ?? null,
+      extra: { result: outcome, asked: change.causedByMessage ?? null, ...extra },
+    },
   );
 }

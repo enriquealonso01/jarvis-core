@@ -58,6 +58,18 @@ q "INSERT INTO projects (slug,name,project_type,confidentiality,production_statu
           ('$BETA','$BETA','professional','confidential','non_production')
    ON CONFLICT (slug) DO NOTHING;" >/dev/null
 
+# Alpha must be allowed an engine, or nothing runs and every probe below reads
+# as "the guard did not fire" when the truth is that the harness never started.
+#
+# S12b made the per-project allowlist fail closed, and this fixture was written
+# before that: it creates Alpha fresh on every run with no allowlist row, so the
+# ladder refused every route and the task parked at waiting_for_provider. Eleven
+# assertions then failed for a reason that had nothing to do with isolation. The
+# S28 parity fixture hit this exact wall and says so in its own comment.
+q "INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+   SELECT 'anthropic_personal', id, ARRAY['senior_engineer'] FROM projects WHERE slug='$ALPHA'
+   ON CONFLICT (auth_profile_id, project_id) DO NOTHING;" >/dev/null
+
 # Beta's belongings, put where Beta's belongings live.
 BETA_FILE="/var/lib/jarvis/projects/$BETA/repo/.env"
 BETA_COOKIES="/var/lib/jarvis/browsers/$BETA/Default/Cookies"

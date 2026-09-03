@@ -242,10 +242,11 @@
       "evidence": "Built and tested. applyConfigChange is the only way configuration changes - versioning, provenance and audit are the same statement as the write - and the suite proves that architecturally by reading src/ and asserting exactly one file INSERTs into either version table. It found two bypasses when written (the schedule route and S26 onboarding), both now routed through it. Migration 029 adds the conversation and his own words to both version tables and scopes the version sequence to (project, key), which was previously global per key. The section 59 immutable list is data, refuses, and raises an approval rather than discarding the ask; ambiguity returns one question and writes nothing; rollback restores a value exactly as a NEW version. Tools resolve the project from what he NAMED, not the conversation. 85 assertions, seen red three times (30, 7, 1). BLOCKED on the Done-when: it needs a spoken sentence, and 'auditable a week later' is so far proved by backdating a row, which tests the query and not the passage of time. See BLOCKED.md."
     },
     {
-      "id": "S28",
-      "title": "The runtime interface and a second harness",
-      "stage": 5,
-      "state": "not_started"
+        "id": "S28",
+        "title": "The runtime interface and a second harness",
+        "stage": 5,
+        "state": "partial",
+        "evidence": "The interface and the registry landed and are asserted: src/runtime.ts with ClaudeLikeRuntime and CodexRuntime, migration 030 (tasks.runtime, tasks.ran_on_runtime, projects.default_runtime), and the runner selecting by runtime rather than by vendor. scripts/s28-runtime-test.sh passes 40 and scripts/s28-park-test.sh passes 11 - an unknown runtime parks, names itself, and nothing is recorded as having run it. NOT done: the plan's Done-when is one task running on EITHER harness by changing one field, which is scripts/s28-parity-live.ts, and that has never completed a run - it parked at the pull-request step because its fixture provisioned no GitHub API credential (fixed in #167, not yet re-run)."
     },
     {
       "id": "S29",
@@ -378,5 +379,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "A call-created task now always carries its project."
+  "working_on": "The sweep now covers every dev-safe suite, and two fixtures that had been failing for months are fixed."
 }

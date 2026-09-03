@@ -18,7 +18,17 @@ import { runHeavyTask } from "../src/runner.js";
 
 const pool = createPool();
 let fails = 0;
-const ok = (m: string) => console.log(`  ok   - ${m}`);
+/*
+ * `passes` exists for the sweep, not for the reader.
+ *
+ * scripts/sweep.sh decides whether a suite ran by grepping for one exact line:
+ * `==== N passed, M failed ====`. These suites printed their own summary instead,
+ * so the sweep reported all seven as "NO SUMMARY - the suite did not finish"
+ * while each of them passed perfectly well on its own. Adding a suite to the net
+ * is not the same as the net being able to see it.
+ */
+let passes = 0;
+const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
 const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails++; };
 
 async function main() {
@@ -81,6 +91,9 @@ async function main() {
   await pool.query(`DELETE FROM task_events WHERE task_id = $1`, [id]);
   await pool.query(`DELETE FROM tasks WHERE id = $1`, [id]);
   await pool.end();
+
+  console.log(`
+==== ${passes} passed, ${fails} failed ====`);
 
   console.log(fails === 0 ? "\nUnscoped heavy work PASS" : `\nUnscoped heavy work FAIL (${fails})`);
   process.exit(fails === 0 ? 0 : 1);

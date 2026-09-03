@@ -40,38 +40,54 @@ const SCALE = Number(process.env.JARVIS_TURN_SCALE ?? 1);
 /**
  * The task a handover files, or nothing at all.
  *
- * The handover used to call `createTask` with `projectId: null` unconditionally,
- * so every phone turn whose budget expired without the router filing anything
- * produced a HEAVY task with no project, titled with the raw utterance. That is
- * how the sentence "Hello, can you finish what you were saying?" became a run:
- * the router classified it `question` and filed nothing, the desk was slow, the
- * budget expired, and the handover manufactured work out of a pleasantry. The
- * run then landed in an empty directory and tripped the isolation tripwire.
+ * Three outcomes, and the deciding question is whether ROUTING ever answered -
+ * not whether the conversation has a project, which is what the first version
+ * of this asked and got wrong in both directions.
  *
- * Two rules, and they are the same rule twice:
+ *   routing filed something   nothing to do here; the desk is already on it.
+ *   routing answered, filed   it judged this was not work. "Hello, can you
+ *   nothing                   finish what you were saying?" is classified
+ *                             `question` and filed nothing, and the handover
+ *                             turning that into a heavy run is how a pleasantry
+ *                             became a task that landed in an empty directory.
+ *                             So: no task.
+ *   routing never answered    the desk was slower than the phone budget. The
+ *                             request is real and unjudged, and dropping it
+ *                             loses it - S21 requires that a handover carries
+ *                             the FULL request to a task. So: file it.
  *
- *   no project, no task   heavy work needs a repository. Without one there is
- *                         nothing to check out and nothing to read, so the desk
- *                         simply finishes and its answer lands in the thread -
- *                         which it does anyway, task or no task.
- *   never unscoped        a call-created task always carries its project.
- *
- * Exported so this is testable directly. Reaching it through a whole simulated
- * turn tests the turn.
+ * The first fix keyed on the project instead: no project, no task. That stopped
+ * the pleasantry, but it also silently dropped every genuine request made on an
+ * unscoped call, and broke S21's contract without anyone noticing until the
+ * suite was run. Unscoped work is still prevented - by the runner, which refuses
+ * to start a harness with no repository - and that is the right place for it,
+ * because it stops the harm without discarding the words.
  */
 export async function handoverTaskFor(
   pool: pg.Pool,
-  args: { conversationId: string; inboxId: string | null; heard: string },
+  args: {
+    conversationId: string;
+    inboxId: string | null;
+    heard: string;
+    /**
+     * True when the router took responsibility for the message.
+     *
+     * NOT merely "the router answered". `passthrough` is the router saying it
+     * did not handle this and the Supervisor owns it, which is precisely when
+     * the desk being slow would lose the request.
+     */
+    routerHandled: boolean;
+  },
 ): Promise<string | null> {
+  if (args.routerHandled) return null;
+
   const conv = await pool.query<{ project_id: string | null }>(
     `SELECT project_id FROM conversations WHERE id = $1`,
     [args.conversationId],
   );
-  const projectId = conv.rows[0]?.project_id ?? null;
-  if (!projectId) return null;
 
   return await createTask(pool, {
-    projectId,
+    projectId: conv.rows[0]?.project_id ?? null,
     conversationId: args.conversationId,
     originInboxId: args.inboxId,
     title: args.heard.slice(0, 120),
@@ -370,6 +386,10 @@ export async function runTurn(pool: pg.Pool, ctx: TurnContext): Promise<string> 
       conversationId: ctx.conversationId,
       inboxId: ctx.inboxId,
       heard: ctx.heard,
+      // Null means the router never answered; `passthrough` means it answered
+      // and declined to handle it. Either way the desk owns the request, so a
+      // slow desk must not lose it.
+      routerHandled: routed !== null && !(routed as { passthrough: boolean }).passthrough,
     });
 
     const line = await pickLine(pool, { ccid: ctx.ccid, kind: "handover", turnId });

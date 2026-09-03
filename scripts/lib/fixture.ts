@@ -21,10 +21,20 @@ import type pg from "pg";
  * have removed and leaves it standing.
  */
 
-/** Children of `tasks`, which must go before the tasks themselves. */
-const TASK_CHILDREN = ["task_transitions", "task_events", "task_attempts", "task_context"];
+/**
+ * Tables whose foreign key points at `parent`, from the catalog.
+ *
+ * Cached: the sweep calls this for dozens of projects and the answer does not
+ * change between them.
+ */
+const refCache = new Map<string, { table: string; column: string }[]>();
 
-async function referencingTables(pool: pg.Pool): Promise<{ table: string; column: string }[]> {
+async function referencing(
+  pool: pg.Pool,
+  parent: string,
+): Promise<{ table: string; column: string }[]> {
+  const hit = refCache.get(parent);
+  if (hit) return hit;
   const r = await pool.query<{ table: string; column: string }>(
     `SELECT tc.table_name AS table, kcu.column_name AS column
        FROM information_schema.table_constraints tc
@@ -32,9 +42,48 @@ async function referencingTables(pool: pg.Pool): Promise<{ table: string; column
          ON tc.constraint_name = kcu.constraint_name
        JOIN information_schema.constraint_column_usage ccu
          ON ccu.constraint_name = tc.constraint_name
-      WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = 'projects'`,
+      WHERE tc.constraint_type = 'FOREIGN KEY' AND ccu.table_name = $1
+        AND tc.table_name <> $1`,
+    [parent],
   );
+  refCache.set(parent, r.rows);
   return r.rows;
+}
+
+/**
+ * Delete rows, and whatever depends on them, depth first.
+ *
+ * The first version handled exactly one level - the children of `tasks`, named
+ * in a hand-written list - and then met `conversations`, which have children of
+ * their own. Twenty-two projects could not be removed and the failure surfaced
+ * as a raw foreign key error. So the descent is now general and derived from
+ * the catalog: whatever the shape of the graph, it is walked rather than
+ * enumerated. `depth` only exists to stop a cycle turning into a hang.
+ */
+async function deleteRows(
+  pool: pg.Pool,
+  table: string,
+  column: string,
+  values: string[],
+  removed: Record<string, number>,
+  depth = 0,
+): Promise<void> {
+  if (!values.length || depth > 4) return;
+
+  const mine = await pool.query<{ id: string }>(
+    `SELECT id FROM ${table} WHERE ${column} = ANY($1)`, [values],
+  ).catch(() => null);
+  const ids = mine?.rows.map((r) => r.id) ?? [];
+
+  if (ids.length) {
+    for (const child of await referencing(pool, table)) {
+      await deleteRows(pool, child.table, child.column, ids, removed, depth + 1);
+    }
+  }
+
+  const r = await pool.query(`DELETE FROM ${table} WHERE ${column} = ANY($1)`, [values])
+    .catch(() => null);
+  if (r?.rowCount) removed[table] = (removed[table] ?? 0) + r.rowCount;
 }
 
 export type Teardown = {
@@ -48,29 +97,14 @@ export async function teardownFixtureProject(
   projectId: string,
 ): Promise<Teardown> {
   const removed: Record<string, number> = {};
-  const count = (t: string, n: number | null) => { if (n) removed[t] = (removed[t] ?? 0) + n; };
 
-  const tasks = await pool.query<{ id: string }>(
-    `SELECT id FROM tasks WHERE project_id = $1`, [projectId],
-  );
-  const taskIds = tasks.rows.map((t) => t.id);
-  if (taskIds.length) {
-    for (const child of TASK_CHILDREN) {
-      const r = await pool.query(`DELETE FROM ${child} WHERE task_id = ANY($1)`, [taskIds])
-        .catch(() => null);
-      count(child, r?.rowCount ?? 0);
-    }
-  }
-
-  const refs = await referencingTables(pool);
+  const refs = await referencing(pool, "projects");
   for (const ref of refs) {
-    const r = await pool
-      .query(`DELETE FROM ${ref.table} WHERE ${ref.column} = $1`, [projectId])
-      .catch(() => null);
-    count(ref.table, r?.rowCount ?? 0);
+    await deleteRows(pool, ref.table, ref.column, [projectId], removed);
   }
-  const self = await pool.query(`DELETE FROM projects WHERE id = $1`, [projectId]);
-  count("projects", self.rowCount);
+  const self = await pool.query(`DELETE FROM projects WHERE id = $1`, [projectId])
+    .catch(() => null);
+  if (self?.rowCount) removed.projects = (removed.projects ?? 0) + self.rowCount;
 
   /*
    * Prove it, from the same catalog. A teardown that says it worked because it
@@ -85,6 +119,12 @@ export async function teardownFixtureProject(
       .catch(() => null);
     const n = Number(r?.rows[0]?.n ?? 0);
     if (n > 0) leftBehind.push({ table: ref.table, column: ref.column, rows: n });
+  }
+  const still = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM projects WHERE id = $1`, [projectId],
+  );
+  if (Number(still.rows[0]?.n ?? 0) > 0) {
+    leftBehind.push({ table: "projects", column: "id", rows: 1 });
   }
   return { removed, leftBehind };
 }
