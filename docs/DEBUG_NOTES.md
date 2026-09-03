@@ -24,6 +24,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [A debug script left a project behind, and a suite failed for two ticks](#a-debug-script-left-a-project-behind-and-a-suite-failed-for-two-ticks)
 - [The sweep certified images, not the tree](#the-sweep-certified-images-not-the-tree)
 - [An average over two clusters describes neither](#an-average-over-two-clusters-describes-neither)
 - [The fetch that decided the worktree base had no credential](#the-fetch-that-decided-the-worktree-base-had-no-credential)
@@ -239,6 +240,49 @@ subject did not choose. Ours scored obedience to our own instructions, our own
 directory layout, and our own guess about where tests live. And when successive
 corrections all move the same contestant up, stop and say so out loud - the
 next tempting fix is the one to leave alone.
+
+### A debug script left a project behind, and a suite failed for two ticks
+
+**Symptom:** `s37-untrusted-test` failed three assertions inside the sweep. All
+three read `ev.rows[0]` from a query scoped to the conversation the test had
+just created, and the query returned nothing.
+
+**What I concluded first, and it was wrong.** I bisected six commits touching
+`routing.ts`, `inbox.ts` and `knowledge.ts` - it failed at every one, including
+a commit where the suite had passed 25/25 hours earlier - and wrote it up as a
+pre-existing order-dependence that had been failing wherever it ran, unwatched.
+The bisect was accurate; the conclusion did not follow. Every commit failed
+because the DATABASE was poisoned, not because the code was.
+
+**The actual cause.** Earlier in the same session I wrote a throwaway repro
+script to investigate this very failure. Its cleanup hit
+`violates foreign key constraint "messages_inbox_event_id_fkey"`, printed that,
+and left a project and a conversation behind. I read the error as "my throwaway
+script has a teardown bug", which it did, and moved on.
+
+Stage B routing then re-homed the inbox event into that leftover project:
+
+    UPDATE inbox_events
+       SET conversation_id = COALESCE($3, conversation_id)   -- routeb.ts
+
+so the row existed and the reply came back, while the query against the test own
+conversation found nothing. Deleting three `s37dbg*` projects restored 25/25
+immediately.
+
+**Two things worth keeping.**
+
+A debug script that fails its own cleanup is not a harmless failure. This one
+cost most of two ticks and put a wrong entry in these notes, which is worse than
+no entry because the next reader starts from it.
+
+And the re-homing is real behaviour worth knowing: an inbox event can move to
+another project conversation, so any suite asserting against a conversation id
+it created is vulnerable to a leftover project. That isolation weakness is
+genuine even though the trigger here was my own litter.
+
+**The tell I should have read sooner:** the same failure at every commit,
+including one that had demonstrably passed, is evidence about STATE, not code.
+A bisect that indicts every revision has usually not indicted anything.
 
 ### The sweep certified images, not the tree
 
