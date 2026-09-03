@@ -354,6 +354,13 @@ index dcdf213..7336a33 100644
   - **The fixture cleans up after itself** — `cleaned up the repo (204)` — so unlike `s28-parity-live` this one leaves no repository behind. I tore down the one stale project my pre-fix run left (`s22-call-mtlx752u`, `leftBehind: []`).
   - **B5 progress: 2 of 4.** `s37-ingest-live` 14/0, `s22-live-call-to-pr` 19/0. Remaining: `s28-parity-live`, and `s23-place-one` — the only script that actually rings the phone.
 
+- **2026-09-03 — ✅ S28's Done-when on the box: the same task runs to a passing PR on Claude Code AND on Codex. `s28-parity-live` 10/0.**
+  - `claude`: `succeeded, pr=1, ran_on=claude, tools=14`. `codex`: `succeeded, pr=2, ran_on=codex, tools=19`. **GitHub was asked and agrees both pull requests exist** — the suite does not settle for our own database believing it opened them.
+  - **Both engines left a legible timeline**, which is the second clause and the easier one to fail quietly: the console renders from `task_events`, and two vendor streams that share no field names produced tool events of the same shape — 14 and 19 of them. If one had rendered phases and the other had not, the normalisation would be incomplete.
+  - **This settles the disagreement about the earlier `EACCES`.** Same code, same box, same suite: run as the `jarvis` user it passes 10/0, and the new project's `.ssh` came out `1000:988`. The only root-owned key was from the run I executed inside the API container. The deploy-key path did not need a fix, and I am glad I checked rather than accepting the reframing — a fix there would have been change without cause, and would have left the real reason unrecorded.
+  - **B5: 3 of 4.** `s37-ingest-live` 14/0, `s22-live-call-to-pr` 19/0, `s28-parity-live` 10/0. Remaining: `s23-place-one`, the only script that actually rings the phone.
+  - The fixture tore down its project row (58 task events, 2 artifacts, 2 allowlist rows and the rest) but **left the repository**, by design — so `enriquealonso01/s28-parity-ly4lqg` is now the fifteenth on that pile awaiting Enrique's decision.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
