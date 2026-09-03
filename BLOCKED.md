@@ -8,6 +8,29 @@ unblocked, finish it before starting anything new.
 
 ---
 
+## May I run a backup by hand to close S30, or should I wait for the nightly?
+
+- **Step:** S30 (memory and knowledge)
+- **Blocked on:** a ruling from you, not on a defect. S30's Done-when is that N2
+  passes *across a restore from backup*. N2 itself now passes against live
+  production — 10 of 10, correct answer, correct citation, no cross-project
+  leakage, honest "I don't know" — and the scenario is seeded on the box. What
+  is missing is a backup taken *after* the seeding, so the restore has something
+  to restore.
+- **Why I stopped:** backups are in the frozen ops layer. Restoring into a
+  throwaway database reads that layer and I would do it without asking, but
+  running `jarvis-backup` writes a new snapshot to the restic repository, and I
+  am not willing to decide on my own that "do not touch" permits that.
+- **What I need you to do:** either say I may run `jarvis-backup` manually, or
+  say wait — the 02:15 nightly picks the data up on its own, and I close the
+  restore half on the first tick after that. Waiting costs nothing but time; I
+  am not blocked on anything else.
+- **Note:** the nightly is genuinely running. Newest snapshot is
+  `aa5daf5d`, 2026-09-03 02:15, over `/etc/jarvis` and `/var/lib/jarvis` —
+  which is more evidence that the failure reports below are the verification
+  step misreporting, not the backups failing.
+
+
 ## The nightly backup has reported failure for two days, and the backups are fine
 
 - **Step:** operational, found 2026-09-03 while checking whether S30 knowledge
@@ -94,8 +117,12 @@ unblocked, finish it before starting anything new.
   permission classifier. Every one of the 193 pull requests before this was
   merged from here; as of 2026-09-03 07:4x that is no longer possible.
 - **What I need you to do:** Merge the open pull requests, or grant the
-  permission back. Open now: **#194** (S29 corpus + benchmark runner, which also
-  carries the push-instruction fix) and **#195** (reviewer retries once).
+  permission back. Open as of 2026-09-03 11:4x: **#248** (suites clean up when
+  they fail, plus the litter guard blind spot) and **#249** (S29 ranks only on
+  runs that faced the current corpus - this is the one that made the ranking
+  defensible, and S29 is marked done on the strength of it). Earlier pairs named
+  here have since been merged; the list is rewritten rather than appended so it
+  says what is waiting now.
 - **Why it matters more than it looks:** deploys are cut from a tarball of the
   working tree, so while a fix sits on an unmerged branch, the box and `main`
   disagree. That bit today: deploying #195 from a branch cut off `main` silently
