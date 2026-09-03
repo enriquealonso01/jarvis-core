@@ -76,9 +76,21 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
    - **There is no API endpoint to grant it.** So onboarding through the API can never finish unaided as things stand.
    - **I have deliberately not fixed this, because the two options differ in security posture and the call is Enrique's:** (a) auto-grant an engine at onboarding — makes the front door work unaided, but weakens a deliberate S12b boundary; (b) add an explicit, audited `POST /api/projects/:id/engine-allowlist` and make the grant a real onboarding step — keeps the boundary and keeps the grant a decision. **My recommendation is (b)**: granting an engine to a fresh project looks exactly like the kind of thing that should be an act, not a default. Awaiting Enrique's answer.
 
-2. **openclaw stays down once it stops — but NOT for the reason originally recorded.** Re-diagnosed 2026-09-03; the original entry blamed a missing restart policy and that is wrong:
-   - The container already has `restart: unless-stopped`, in `deploy/compose.yaml` **and** on the live container (`docker inspect` → `{"Name":"unless-stopped"}`).
-   - It did not crash. Its log ends `[admission] closed: restart drain` / `received SIGTERM` / `completed cleanly in 398ms`, exit **0**, `RestartCount=0`. Docker never tried to restart it because it was *explicitly stopped* — and `unless-stopped` deliberately does not resurrect that.
-   - **`deploy-core.sh` was the suspect and has been cleared by experiment.** api and worker were `Up 3 hours` ≈ the same 12:08, so the deploy looked responsible. I started openclaw, ran a full `deploy-core.sh`, and openclaw came through `Up (healthy)`. It is not the deploy. A `received SIGUSR1; restarting` at 12:05:05 shows something was signalling the gateway around then; what issued the 12:08 SIGTERM is still open.
-   - So a restart policy is not the fix. What is missing is that a dead input channel is **silent** — that wants a health check that raises an issue, not a flag that is already set.
-   - Gateway is currently **Up (healthy)** and WhatsApp re-paired; I restarted it 15:28 and it reconnected with no QR.
+2. **A dead input channel is silent — and the health page actively says the wrong thing.** Re-diagnosed twice on 2026-09-03; both earlier explanations were wrong, so the trail is written out.
+   - **Not a missing restart policy.** `restart: unless-stopped` is set in `deploy/compose.yaml` *and* on the live container (`docker inspect` → `{"Name":"unless-stopped"}`).
+   - **Not the deploy.** api and worker restarted at the same 12:08, so `deploy-core.sh` looked guilty. I started openclaw, ran a full deploy, and it came through `Up (healthy)`. Cleared by experiment, not by argument.
+   - **It was an explicit stop.** The Docker daemon journal has, at 14:08:08 local (= 12:08:08 UTC), `stopping restart-manager container=ea2c6f6e…` — the openclaw container. That is the line Docker writes when a container is *deliberately* stopped, and it is exactly why `unless-stopped` correctly declined to bring it back. openclaw exited 0 after SIGTERM with `RestartCount=0`, which all agrees.
+   - **Who issued it is not recoverable, and here is why:** no `docker stop` / `compose stop` / `compose down` appears in the sudo log before that moment — but SSH to this box logs in **as root**, so a root-issued `docker stop` leaves no sudo record at all. Most likely another agent session. I am not going to guess further; the forensics end here and the engineering conclusion does not depend on the answer.
+   - **The real defect, which is fixable and is mine:** nothing notices. `src/services.ts:246` hardcodes the OpenClaw row to `state: "not_configured"`, `detail: "container profile not started; WhatsApp pairing is pending"` — a sentence that is now simply false, since the container is up and pairing is done. And the WhatsApp row derives `healthy` from `channels.has("whatsapp")`, i.e. **an allowlist row, not liveness** — so the gateway can be dead for three hours and the health page still reads healthy. That is the whole of the silence.
+   - **Next:** make both rows reflect the running gateway (the API container can reach `openclaw:18789` on the compose network), so a stopped input channel raises an issue instead of being invisible. A restart policy was never the fix.
+
+### Deploying the OpenClaw bridge — read before changing `packages/openclaw-jarvis-bridge/`
+`scripts/deploy-core.sh` is **not enough**. OpenClaw runs an *installed copy* at `/home/node/.openclaw/extensions/jarvis-bridge/`, made at install time from the bind mount `/plugins/jarvis-bridge`; the deploy only refreshes the bind-mounted source. A bridge change deployed the normal way will appear to do nothing. The full sequence is:
+
+```
+scripts/deploy-core.sh
+ssh jarvis-netcup 'docker exec jarvis-openclaw-1 sh -c "cd /app && node openclaw.mjs plugins install /plugins/jarvis-bridge --force --accept-capabilities"'
+ssh jarvis-netcup 'cd /opt/jarvis/deploy && sudo docker compose --profile openclaw restart openclaw'
+```
+
+`--accept-capabilities` is required, not optional: without it the install refuses with `Plugin "jarvis-bridge" requires capability consent`. Confirm afterwards that the log shows `[jarvis-bridge] registering before_dispatch, message_received, before_agent_run`.
