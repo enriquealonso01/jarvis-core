@@ -467,7 +467,26 @@ export function harnessIssueFor(reason: string): {
   };
 }
 
-export function allowedPathsFor(slug: string | null, taskId: string): string[] {
+export function allowedPathsFor(
+  slug: string | null,
+  taskId: string,
+  /**
+   * The harness auth directory this run was actually given.
+   *
+   * The runner hands the vendor CLI its own config dir - CLAUDE_CONFIG_DIR for
+   * Claude, CODEX_HOME for Codex - and the CLI then reads it. That read was
+   * outside every allowed path, so the tripwire killed a run that had done 22
+   * tool calls of honest work and reported `harness reached outside its
+   * worktree: /var/lib/jarvis/harness-auth`. Telling a process where its
+   * credentials live and then killing it for looking is not containment, it is
+   * a bug.
+   *
+   * Scoped to the ONE profile directory, never to `harness-auth` itself: the
+   * parent holds every other profile's tokens, and a run that can read those
+   * has stepped around the broker entirely.
+   */
+  authDir?: string | null,
+): string[] {
   /*
    * What a task may touch under the root, as a LIST rather than as prose
    * (II.5). Its own worktree is `cwd` and is added by the guard itself; these
@@ -481,8 +500,9 @@ export function allowedPathsFor(slug: string | null, taskId: string): string[] {
    * `openclaw/`, another project's `artifacts/` — is denied by the default,
    * so adding a directory does not mean remembering to add it here.
    */
-  if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8))];
-  return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug)];
+  const own = authDir ? [authDir] : [];
+  if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8)), ...own];
+  return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug), ...own];
 }
 
 export function escapedPath(
@@ -1266,7 +1286,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       runtime,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
-      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id),
+      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id, profile.dir),
       asUser,
       onEvent: (event, normalised) => {
         lastEventAt = Date.now();
