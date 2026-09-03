@@ -6,7 +6,46 @@ working on the running box — not that a local test passed.
 `✓ VERIFIED` = seen working on the box, with the date and what was checked.
 `✗ BROKEN`   = found broken; what and where. The Tester fixes these, redeploys, re-verifies, then flips the line to ✓.
 
-Currently verifying: _front-door items are done except the engine allowlist, which needs Enrique's design call. Next: PROGRESS.json steps marked built that have never been exercised on the box._
+Currently verifying: _blocker queue empty; watching for `built` steps as the Builder lands them._
+
+## State at a glance
+
+This file is now long. The entries below are the evidence, newest first; this is
+the part someone arriving needs.
+
+**Proven on the box, end to end**
+- The front door: plain English through `/api/inbox` → a real merged-ready pull
+  request. The diff is copied into the entry, because the repository it came from
+  has since been deleted.
+- A phone call to a pull request (S22, 19/0), the same task on two engines
+  (S28 parity, 10/0), inbound WhatsApp persisting and OpenClaw staying silent,
+  network-layer egress containment (14/0), backups that actually restore (13/13),
+  and the route order now chosen by measurement rather than by guess.
+
+**Open, and not mine to close**
+- The escalation pool cannot be populated: nothing writes `pool = 'escalation'`,
+  and the benchmark ranks claude above codex in the *normal* pool, so there is
+  nothing to promote. Needs a mechanism, not a number.
+- Two health tables disagree about Composio, and the isolation gate reads a
+  health value it then ignores. Nothing refuses a degraded service.
+- Two WhatsApp notifications are stranded in `handed_off`, a state no code in
+  main writes or reads. They will never send and never retry.
+
+**Operational knowledge that cost real time to learn**
+- Live `.ts` suites must run on the host **as the `jarvis` user** — never inside
+  the API container, which is root and leaves files uid-1000 cannot read — with
+  `MASTER_KEY_PATH` set (it comes from `compose.yaml`, not `compose.env`) and the
+  password **URL-encoded** into `DATABASE_URL`.
+- The OpenClaw bridge is an installed copy: `deploy-core.sh` alone does not
+  update it. See the section at the end of this file.
+- The deploy now fails if the API does not answer afterwards, and refuses to ship
+  uncommitted migrations. Both guards exist because those failures happened here.
+
+**A note on this file's failures, kept on purpose.** Several entries record my
+own mistakes: an outage I caused, four probes that were wrong before the code
+was, and a stale log I nearly reported as a result. They are kept because the
+value of this file is that a green line means something, and the way it keeps
+meaning something is by writing down the times it nearly did not.
 
 ---
 
