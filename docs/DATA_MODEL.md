@@ -936,3 +936,27 @@ a fresh episode rather than arriving already at the threshold.
 | occurrences | integer | this episode only |
 | first_seen_at | timestamptz | when this episode began, not the category's first ever sighting |
 | last_seen_at | timestamptz | a gap wider than SUSTAINED_WINDOW_MS restarts the count |
+
+## objections
+
+What Jarvis said once about something he was plainly entitled to do, and — later —
+whether it was right. S42's objection is not a refusal: it travels with the work
+starting, so a row here always describes something that then happened anyway.
+
+`fingerprint` is the identity, over project + action + ground, and it is UNIQUE:
+that constraint is what makes "say it once" true under concurrency, where a
+SELECT-then-INSERT would let two simultaneous requests both find nothing and both
+speak. Keyed on the practice rather than the task, or the same sentence would
+arrive on every task forever.
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk | |
+| fingerprint | text unique | project + action + ground; the constraint IS the "once" |
+| project_id | uuid | |
+| action | text | |
+| ground | text | data_loss / irreversible / his_own_rule — a closed set; taste is not on it |
+| sentence | text | exactly what was said, one sentence |
+| said_at | timestamptz | |
+| task_id | uuid | |
+| was_right | boolean | NULL means nobody has judged it, which is not the same as wrong |
