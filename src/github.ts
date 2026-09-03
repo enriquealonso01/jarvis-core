@@ -14,6 +14,81 @@ async function adminToken(pool: pg.Pool): Promise<string> {
   return token;
 }
 
+/**
+ * Give a project its OWN GitHub API credential row.
+ *
+ * A deploy key pushes a branch; it cannot open a pull request. A project with
+ * no `github_api_credential_id` therefore parks at the PR step with a ticket
+ * asking Enrique to add one - correct for a real project, and the reason an
+ * API-onboarded project could get all the way to a finished branch and then
+ * stop. The bench path has minted this for its fixtures for a while; the API
+ * path never did, which is the whole of front-door bug #3.
+ *
+ * Idempotent on purpose: linking a repo is a step an operator may repeat, and
+ * a second call must not leave a second credential row behind. The existing id
+ * is returned untouched.
+ *
+ * The row holds the same secret as the admin PAT, because a GitHub
+ * fine-grained token is account-scoped and Enrique has one. That is a real
+ * limitation, written down rather than papered over: what this enforces is
+ * that a project owns its credential ROW and cannot reach the admin PROFILE
+ * through the broker. Per-repository tokens would make the secrets differ too.
+ */
+export async function githubProvisionApiCredential(
+  pool: pg.Pool,
+  projectId: string,
+  label: string,
+): Promise<string> {
+  const existing = await pool.query<{ c: string | null }>(
+    "SELECT github_api_credential_id AS c FROM projects WHERE id = $1",
+    [projectId],
+  );
+  const already = existing.rows[0]?.c;
+  if (already) return already;
+
+  const token = await adminToken(pool);
+  const master = loadMasterKey();
+  const dek = newDek();
+  const { nonce, ciphertext } = encryptGcm(
+    dek,
+    Buffer.from(JSON.stringify({ api_key: token }), "utf8"),
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const dekRow = await client.query<{ id: string }>(
+      "INSERT INTO dek_keys (wrapped_key) VALUES ($1) RETURNING id",
+      [wrapDek(master, dek)],
+    );
+    const cred = await client.query<{ id: string }>(
+      `INSERT INTO credentials (dek_id, ciphertext, nonce, fingerprint, kind, broker_only)
+       VALUES ($1, $2, $3, $4, 'api_key', false) RETURNING id`,
+      [dekRow.rows[0].id, ciphertext, nonce, `project:${label}:github`],
+    );
+    const credentialId = cred.rows[0].id;
+
+    await client.query("UPDATE projects SET github_api_credential_id = $2 WHERE id = $1", [
+      projectId,
+      credentialId,
+    ]);
+
+    await client.query(
+      `INSERT INTO audit_events (actor, action, target, project_id, metadata)
+       VALUES ('broker', 'github.api_credential.provision', $1, $2, $3)`,
+      [label, projectId, JSON.stringify({ credential_id: credentialId })],
+    );
+
+    await client.query("COMMIT");
+    return credentialId;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function githubCreatePrivateRepo(
   pool: pg.Pool,
   name: string,
