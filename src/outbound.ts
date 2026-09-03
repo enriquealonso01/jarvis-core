@@ -72,7 +72,12 @@ export function nextMorning(now: Date, timeZone = "America/New_York"): Date {
  * check that lives in a form is a check that a background job walks past.
  */
 export function mayDial(reason: CallReason, now = new Date()): DialVerdict {
-  if (!(reason in CALL_REASONS)) {
+  // `in` walks the prototype chain, so `__proto__`, `constructor`, `toString`
+  // and every other inherited key satisfied this check and passed a list whose
+  // whole purpose is that everything else is refused. Observed on the box: the
+  // phone would have rung for `__proto__`. `Object.hasOwn` asks the question
+  // that was meant - is this one of OURS - rather than the one `in` answers.
+  if (!Object.hasOwn(CALL_REASONS, reason)) {
     return { ring: false, reason, why: `${reason} is not one of the six reasons`, retryAfter: null };
   }
   if (!inQuietHours(now)) {

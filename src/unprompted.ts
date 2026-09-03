@@ -78,7 +78,12 @@ export type SendVerdict =
  * the next feature does not know about.
  */
 export function mayOpenConversation(reason: string, now = new Date()): SendVerdict {
-  if (!(reason in UNPROMPTED_REASONS)) {
+  // `in` walks the prototype chain, so `__proto__`, `constructor`, `toString`
+  // and every other inherited key satisfied this check and passed a list whose
+  // whole purpose is that everything else is refused. Observed on the box: the
+  // phone would have rung for `__proto__`. `Object.hasOwn` asks the question
+  // that was meant - is this one of OURS - rather than the one `in` answers.
+  if (!Object.hasOwn(UNPROMPTED_REASONS, reason)) {
     /*
      * The assertion the plan says matters most is the ABSENCE - "a test that
      * only proves the six work would pass on a system that also sends nine
