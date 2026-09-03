@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-09-03T22:50:55Z",
-  "current_step": "S53",
+  "updated_at": "2026-09-03T22:55:54Z",
+  "current_step": "S54",
   "steps": [
     {
       "id": "S1",
@@ -426,7 +426,8 @@
       "id": "S54",
       "title": "Deploy its own control plane",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE OBJECTION WAS NEVER BUREAUCRATIC: 'a bad core deploy takes down the API, the runner, the broker and the console, which is to say the very things that would notice, alert, and roll back.' So this does not answer it by ignoring it, and each rule here is a different way of not trusting the thing being deployed. A CHECK THAT CANNOT RUN COUNTS AS FAILURE, which inverts what an exception handler does by default - and the deploy that broke the queue is exactly the deploy whose queue probe throws. Absence is treated identically to an explicit `unknown`, because a missing key is the likelier shape of that failure. All six of VII.5's checks are required, not a subset that happens to be easy: the suite asserts a release whose API answers while the queue does not dispatch is unhealthy, which is the plan's own naive-200-OK case. THE RESTORER IS NAMED AS HOST-LEVEL OR EXTERNAL, and one inside Compose or wired through the API is refused - 'it works for every failure except the one that matters', which is the failure that is invisible in the good case. rollback().database is the LITERAL 'untouched', so restoring the database means changing the type rather than setting a flag during an incident at three in the morning; the shape is asserted as well as the value, because the flag somebody adds is what would break it. A migration the previous image cannot read is its own deploy with a written rollback AND a verified restore point first - a written rollback alone is not enough - because 'an automatic rollback over a non-reversible migration is an automated way to make things worse'. needsResidualApproval TAKES WHAT A CHANGE TOUCHES AND HAS NO PATH PARAMETER. The Debug note says the classifier fails by matching file paths and that 'the auth surface is reachable by more than one path', so the suite passes a change reaching auth THROUGH ISOLATION and requires it to stop. The plan's pair is asserted in both directions with everything else green - auth stops, queue batch size does not - because 'one without the other proves the carve-out is stuck in one position', and sabotages 8 and 9 are exactly those two stuck positions. The approval is checked LAST, so a failing change touching auth is reported as failing rather than as awaiting his approval, or he would be asked to approve something broken. A task cannot update the runner it is running inside even when the runner looks idle - it is the asker that is wrong, not the timing. scripts/s54-selfdeploy-test.ts, 27 assertions, green first run. Sabotaged THIRTEEN ways, all red first pass. NOT BUILT, AND IT IS ALL OF THE PIPELINE: nothing builds a canary, nothing runs S8 or S29 against one, nothing promotes, no health check actually probes anything, there is no host-level rollback unit, no release retention, no atomic swap, and no announcement on his channel. No core deploy has ever been made by this. These are the gates, held by tests; the pipeline they gate does not exist, and until it does the handover's one parked capability is still parked in practice."
     }
   ],
   "gates": {
@@ -438,5 +439,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S53's governors built: the loop has no clock in scope, the ceiling is checked at the fan-out rather than per agent, worktrees are derived per agent, 'it ran again' is not progress, spend pauses rather than kills, one action releases every lease, and no agent ships core. NOT built: no orchestration is created, no agent spawned, no shared state object, nothing visible. Next: S54, the last step."
+  "working_on": "S54 built as gates: a check that cannot run counts as failure, the restorer is out of band, a rollback cannot restore the database, and the residual approval matches on surfaces rather than paths. THAT IS THE LAST STEP OF THE PLAN - S1 through S54 all have entries now. What remains everywhere is WIRING: most of S40-S54 is a decision layer held by tests, with nothing calling it. Next tick I will stop adding steps and start on the highest-value wiring, beginning with the S42 approval path since every later gate assumes it."
 }
