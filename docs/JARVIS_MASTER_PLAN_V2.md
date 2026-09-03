@@ -117,7 +117,7 @@ radius; they do not cap ambition:
 - **A task still runs inside its project.** System-level reach is real; a *task* borrowing another project's credential, file, or session is not, and never becomes so because Jarvis is powerful (IV isolation, S12).
 - **A tool Jarvis wrote is not trusted for being homegrown.** It attaches and is classified at attach time, exactly like a stranger's MCP server — if anything more carefully, because nobody has ever run it (S31, S44).
 - **A new provider, a new bill, or a new trust relationship is recommended, not self-served** (S42, S44). That is the on-ramp for the future *"give it the ability to pay for things"* — a real direction that arrives as a **spend ceiling with approval** (`docs/` metered-vendors / spend-enforcement, S42), **not now and not unbounded.**
-- **The one thing it deliberately cannot do alone is ship its own control plane.** It can read and reach everything and change almost everything through the normal reviewed loop (S43) — but a change to `jarvis-core` is deployed on Enrique's authorisation, because a bad core deploy takes down the very thing that would tell him it broke (S43's own argument; the handover rule). That is change-control on one component whose failure blinds all the others — not a limit on capability.
+- **It can even deploy its own control plane — but only in a way that cannot brick itself.** Enrique's decision: Jarvis deploys `jarvis-core` autonomously too. The fact that a bad core deploy takes down the very thing that would tell you it broke is not a reason to forbid it — it is the specification for *how* it is allowed. So a core self-deploy is staged, health-gated, and **auto-rolled-back by something the deploy cannot take down with it** (S54, VII.5). The only residual human gate is the **safety surface itself** — changes to isolation, auth, backups, spend, or the kill switch — because that is the one surface whose failure could remove Enrique's ability to correct it (S54's carve-out, already named at VII.5).
 
 Read together: **the reach is broad on purpose, and the boundaries are what make
 broad reach survivable.** A plan that stated only the walls would have missed the
@@ -3661,10 +3661,12 @@ someone hand-editing the console.
 
 ### The console is one of Jarvis's own repos, and that is fine — with two caveats
 
-S44 drew a line: a capability Jarvis builds lands as something attachable, never
-as a change to `jarvis-core`, because deploying core is what always needs
-Enrique. **A UI change is a change to `jarvis-control-center`, which is also
-Jarvis's own repo** — so the same question applies and gets a different answer.
+S44 drew a line: a capability Jarvis builds lands as something attachable rather
+than as a change to `jarvis-core` — not because core can never be deployed (S54
+says it can, autonomously) but because an attachable thing is lower blast radius
+and disposable, so it is the right default even now that core self-deploy exists.
+**A UI change is a change to `jarvis-control-center`, which is also Jarvis's own
+repo** — so the same question applies and gets a different answer.
 
 **The console is not the control plane.** `jarvis-core` runs the system: the API,
 the runner, the broker, the queue. The console is a static site that displays it.
@@ -3674,8 +3676,10 @@ blast radii and they deserve different rules.
 
 So UI changes are ordinary engineering work — the S6 workflow, review, a PR — and
 the deploy is recoverable, because the previous static export is one rsync away
-and `deploy-control-center.sh` already syncs contents in place. The handover's
-never-deploy-to-itself rule is about core, and it stays about core.
+and `deploy-control-center.sh` already syncs contents in place. The self-deploy
+rule (S54) now covers core too — a core deploy is autonomous but **staged and
+health-gated**, where a console deploy is autonomous and cheap: different blast
+radii, different rigour, both recoverable without a human.
 
 **Caveat one: the console is how you would see that something went wrong.** Break
 it and Enrique loses the instrument he would use to diagnose the breakage. A
@@ -3733,12 +3737,13 @@ a missing capability becomes a piece of work rather than a refusal.
 
 ### Extending itself is not modifying itself, and the difference is where the code lands
 
-This step and the handover section collide unless the boundary is drawn
-explicitly. S44 says Jarvis builds a capability and **then uses it.** The
-handover says Jarvis **may never merge or deploy to itself autonomously.** If a
-new tool is a change to `jarvis-core`, those two rules cannot both hold — using
-the tool requires shipping the control plane, which is precisely the thing that
-always needs Enrique.
+This step and the handover section used to collide, and the boundary still has to
+be drawn. S44 says Jarvis builds a capability and **then uses it.** The handover
+(S54) now says Jarvis **may deploy to itself autonomously, through the staged,
+health-gated, auto-rollback pipeline.** So the two no longer contradict — but a
+core deploy is the *heavier* path (a full core build, promote, and health gate)
+where an attachable thing is not, which is why the split below is still the right
+default.
 
 **So a capability Jarvis builds for itself does not land in core.** It lands as
 something *attachable*: an MCP server, an adapter, a configured connection, a
@@ -3747,15 +3752,16 @@ doing the plugging.
 
 That resolution is not a workaround; it is the better architecture anyway:
 
-- **It keeps the handover rule intact.** Core is still only changed through review and approval, because nothing here changes core.
+- **It keeps the change off the heavy path.** A core change goes through S54's staged, health-gated self-deploy; an attachable capability does not, so the common case stays cheap and instantly reversible instead of paying for a core build and a health gate every time.
 - **It puts the new tool under S31's gate**, which already exists and is the right one: blast radius classified at attach time, by a person, before it is callable. A tool Jarvis wrote gets exactly the scrutiny a stranger's MCP server gets — **which is the correct amount, because nobody has run either of them before.**
 - **It stays disposable** (II.2b). A capability that turned out to be a bad idea is detached, not refactored out of a control plane it was welded into.
 
 **If a capability genuinely cannot be built as an attachable thing** — it needs a
 schema change, a new lane, a change to the broker — then it is not a tool. It is
-a change to Jarvis, and it goes through the handover's route: a proposal, a
-review, an approval, a deploy Enrique authorises. Say so plainly rather than
-finding a way to express it as a plugin.
+a change to Jarvis, and it goes through S54's route: a proposal, a review, the
+staged health-gated self-deploy, and — if it touches the broker or any safety
+surface — the residual approval. Say so plainly rather than finding a way to
+express it as a plugin.
 
 ### The boundaries it does not cross
 
@@ -4307,7 +4313,7 @@ without limit.
 
 ### It does not escape the boundaries because it is powerful
 - **Every agent runs inside the project.** No agent in an orchestration borrows another project's credential, file, or session (IV isolation, S12). A ten-agent effort on Alpha is still entirely inside Alpha.
-- **No agent merges or deploys core — or itself — autonomously.** Branches still go through review (S9) and the handover's gates (S10). Orchestration multiplies the **builders, not the authority** (the handover rule, S43/S44).
+- **No individual agent ships core off its own bat.** Branches still go through review (S9) and the gates (S10); a core deploy goes through **S54's staged, health-gated pipeline**, not a single agent in a swarm deciding to push. Orchestration multiplies the **builders, not the authority**.
 - **The whole thing is visible.** The orchestration, its agents, their branches, their exchange and their spend show in the Work view (S14) and as a cluster on the Home map (S51). A swarm you cannot watch is one you cannot trust.
 
 **Test**
@@ -4319,11 +4325,51 @@ without limit.
 - A looping agent that stops making real progress → the watchdog stops it (S11). *"It ran again"* is not progress.
 - **One kill action stops the whole orchestration**, from a phone and from the console; every lease is released.
 - An orchestration on Alpha never reads Beta — isolation holds across **every** agent, not just the first.
-- No agent merges to main or deploys core without the normal approval — the swarm has more hands, not more authority.
+- No agent merges to main or ships core outside S54's pipeline — the swarm has more hands, not more authority.
 
 **Debug** If it spawns without bound, the ceiling is being checked per agent instead of per orchestration — the fan-out point is where the limit belongs. If loops never stop, the done-condition is a timer rather than a state check — a loop with no real stop is a bill with a heartbeat. If agents collide, they are sharing a tree or a state object without the single-writer discipline; give each its own worktree and one writer per field.
 
 **Done when:** Enrique describes a multi-agent effort in a sentence and watches a **bounded, visible, killable** set of agents plan and build it — coordinating through recorded state, each inside the project's lines, none of them able to ship core on its own.
+
+## S54 — Deploy its own control plane
+*Size: 5–7 days. Enrique's decision to lift the one exception the handover kept. Activates the recoverability envelope already specified in VII.5 and the "After S37 — the handover" section; reuses S8/S29 (the acceptance and eval suites), S11 (recovery + watchdog), and S35 (backup).*
+
+The handover parked exactly one capability as out of scope: Jarvis deploying its
+own `jarvis-core`. Everything else in this plan it may do; that one always needed
+Enrique. **Enrique has decided it should do this too.** The objection was never
+bureaucratic — a bad core deploy takes down the API, the runner, the broker and the
+console, which is to say the very things that would notice, alert, and roll back. So
+this step does not answer the objection by ignoring it. **It answers it by making a
+bad deploy recover without a human**, and only then hands over the keys.
+
+**Build**
+- **Staged, never a direct prod swap.** A core change is built and deployed to an isolated Compose stack / canary first (VII.5 already requires this), the **acceptance suite (S8) and the engineering eval (S29) run against it**, and it is promoted only if green. Prod core is never the first place a change runs.
+- **Health-gated promotion.** After promotion, VII.5's real health check runs — the API answers *and the queue dispatches*, the runner unit is up and can claim, one real DB read and write, the broker decrypts a canary credential, migrations recorded and matching the image. **A check that cannot run reports `unknown` and counts as failure.**
+- **Auto-rollback from outside the deploy.** On a failed check the previous release is restored **automatically**, and the thing doing the restoring is **not** something the deploy just replaced. Keep N previous releases; promote by an atomic swap; the rollback supervisor is the host-level unit (ADR 015) / a watchdog outside Compose, so it survives a core that never comes up. **The runner is not updated by a task it is running** — runner updates apply between runs, by the system worker.
+- **The database is the line auto-rollback cannot cross, and expand-contract is what saves it.** Rolling back the image never restores the database — the inbox is append-only and is the one thing never to lose (VII.5). So every core migration is **backward compatible with the previous image** (expand, then contract a deploy later); a migration that genuinely cannot be is its own deploy, with its rollback written **before** it runs and a **verified restore point taken first** (S35). An automatic rollback over a non-reversible migration is an automated way to make things worse, and this is the discipline that stops it.
+- **Maintenance watches its own deploy** longer than it watches anyone else's, and the deploy is announced on Enrique's preferred channel — **autonomous is not silent.**
+
+### The one surface it still does not touch alone
+Autonomy stops at the surface that could remove the ability to correct it. VII.5
+already names it: **control-plane changes that touch isolation, auth, backups, or
+spend — and the kill switch itself — need an approval or a clearly scoped grant,
+never a bare autonomous deploy.**
+
+- The reason is not "these are important" — everything in core is important. It is that **a wrong change here can disable the very gates, alerts, or stop button every other safety property depends on**, including Enrique's ability to halt Jarvis. Auto-rollback protects against a deploy that *fails*; it cannot protect against one that *succeeds at removing the thing that would have caught the next one.*
+- So these ship through S54's pipeline like anything else **and** carry the residual approval. It is the smallest possible human-in-the-loop: not *"Enrique approves deploys"*, but *"Enrique approves changes to the controls that keep him in the loop."*
+
+**Test**
+- A green core change → built on a canary, S8+S29 pass, promoted, health check passes, live — **with no human step.** The autonomous path works end to end.
+- **The one that matters: a core change that breaks the queue** (passes a naive 200-OK check, fails the real one) → **auto-rolls-back to the previous release unattended**, the runner is claiming again, and Enrique is told it happened. Assert the rollback fired on the health check, not on a human noticing.
+- The rollback supervisor is exercised with the **new core dead on arrival** (never binds its port) → the previous release is restored anyway, proving the restorer does not live inside what it restores.
+- A core change carrying a **non-backward-compatible migration** → refused as an ordinary deploy; it must be its own deploy with a written rollback and a verified restore point first (S35). **A rollback never restores the DB.**
+- A change touching **auth / isolation / backups / spend or the kill switch** → ships through the pipeline **but stops for the residual approval**, even with every automated check green. A change to the queue's batch size does not. **That pair is the test** — one without the other proves the carve-out is stuck in one position.
+- The runner is **not** updated by a task it is running → the update waits for the system worker between runs (assert on when the binary actually changed, not on the intent).
+- Fifty deploys in a week never lose an inbox event — the append-only guarantee holds across autonomous rollbacks.
+
+**Debug** If a bad deploy needs a human to roll back, the rollback path is wired through something the deploy replaced — move it out of band (host unit / external watchdog). If a rollback ever restores the database, expand-contract was skipped and the migration was not backward compatible — fix the migration discipline, not the rollback. If the residual approval never fires, the classifier is matching on file paths instead of on what the change *touches* — the auth surface is reachable by more than one path.
+
+**Done when:** a good core change reaches production on its own, and a bad one is gone again before Enrique would have finished reading that it happened — and the only thing that still waits for him is a change to the controls that keep him able to stop it.
 
 ---
 
@@ -5783,15 +5829,16 @@ It needs guardrails the other projects do not, because a project that can edit
 its own runtime is a different kind of thing:
 
 - **Onboarded as a normal project, at professional care.** Not a system project — the system layer (II.5) exists to change *configuration*, and this is code. Same PR flow, same review, same tests.
-- **It may never merge or deploy to itself autonomously.** Always-confirm, every time, regardless of any grant. The usual argument for a grant is that the reviewer caught anything serious — but here the reviewer is running on the thing being changed.
+- **It may deploy to itself autonomously — S54 is the decision to allow it, and the specification for how.** What made this the one always-confirm action was a real risk, not a rule: the reviewer runs on the thing being changed, so a bad self-deploy can take down the thing that would catch it. S54 answers the risk directly — stage, health-gate, and auto-roll-back from outside the deploy — rather than with a permanent human gate. The residual always-confirm shrinks to the **safety surface only** (isolation, auth, backups, spend, the kill switch), per VII.5 and S54's carve-out.
 - **The runner cannot be updated by a task it is running.** Replacing the binary underneath a live run is the one deploy that cannot be rolled back by the thing doing the rolling back. Updates to the runner are applied by the *system* worker between runs, or by Enrique.
 - **A failed health check after a self-deploy rolls back automatically** (VII.5), and the rollback path must not depend on anything the deploy just changed. **This is also where the expand-then-contract rule stops being hygiene and becomes load-bearing** — an automatic rollback over a non-reversible migration is an automated way to make things worse.
 - **Maintenance watches the deploy it just performed** for longer than it watches anyone else's.
 
-None of that is in scope for this plan. It is written here so the ending is a
-decision rather than a drop-off — and so the first person to think *"Jarvis could
-just fix that itself"* finds the conditions already written down instead of
-inventing them at the keyboard.
+This used to be out of scope, written down so the ending was a decision rather
+than a drop-off. Enrique has now taken that decision: **it is in scope, and it is
+S54.** The conditions above are no longer a note for whoever thinks *"Jarvis could
+just fix that itself"* — they are S54's contract, and the recoverability envelope
+is what makes the answer *yes* instead of *never*.
 
 ---
 
