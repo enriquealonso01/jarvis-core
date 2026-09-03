@@ -1836,7 +1836,7 @@ This is IV.6b rule 2, applied to the channel that proves least.
 **Build**
 - A real per-call state machine — `ringing → greeting → listening → thinking → speaking → closing` — persisted, not held in a module-level map that a restart erases mid-call.
 - A deadline on every leg. STT, model, and TTS each get a budget; blowing it produces a spoken holding line, never silence.
-- Graceful degradation: ElevenLabs down → Telnyx voice with a logged issue; STT returns nothing → "I didn't catch that" rather than a dead line; model fails → "give me a moment" then retry once, then offer to follow up in writing.
+- Graceful degradation: ElevenLabs down → Telnyx voice, **announced in one clause at the start of the call** and with a logged issue; STT returns nothing → "I didn't catch that" rather than a dead line; model fails → "give me a moment" then retry once, then offer to follow up in writing.
 - Every call gets a stored transcript artifact and a conversation thread, so a call is reviewable afterwards like any other channel.
 - Hang-up, caller silence, and mid-call network loss all end the call cleanly and release state.
 
@@ -2882,7 +2882,7 @@ replacing it now would be the rebuild.
 The Build line above is the database and the secrets. The manifest Enrique
 specified also carries the things that are **not rows**: project checkouts and
 their worktrees, browser profiles, connector metadata, the audit log, and a
-manifest naming what was included and at what version. A restore that brings back
+manifest naming what was included and at what version — and **the voice's own definition**, settings and design inputs rather than a vendor id that only resolves inside an account he might not have. A restore that brings back
 every conversation but no repositories and no browser state produces a Jarvis
 that **remembers everything and can do nothing.**
 
@@ -4491,6 +4491,30 @@ stay routable; hard failures drop out.
 | Reviewer | Different family from the implementer — an open-weights route is a candidate on merit, not only as fallback (S25) | pennies per diff |
 | STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
 | Voice | ElevenLabs, pinned `voice_id` | existing |
+
+### The voice is an identity, and it is the one route whose fallback he hears
+
+Every other role fails over invisibly — that is the point of VI.1, and L4 asserts
+it. **The voice cannot.** The transcript asked for a specific identity, an English
+butler register, and a swap is not a quality change he might not notice: it is
+Jarvis sounding like someone else.
+
+- **Pin the TTS model, not only the `voice_id`.** The same voice renders
+  differently across a vendor's model versions, so a vendor upgrading its default
+  changes Jarvis's voice with nothing in the system recording why. A pinned voice
+  on an unpinned model is not pinned.
+- **A fallback voice is announced, once, in a clause.** *"My usual voice is
+  unavailable"* at the top of the call. The alternative is that the person on the
+  phone hears a stranger claiming to be Jarvis — which matters more now that S23
+  asks the other party to identify themselves before Jarvis discloses anything.
+  **An unannounced voice change teaches him to distrust the one signal the phone
+  gives him about who is speaking.**
+- **The voice is the one piece of Jarvis that lives entirely on a vendor.** A
+  `voice_id` is a pointer into an ElevenLabs account. If that account is lost the
+  identity is lost, and *"AWS → Mac Mini → new EC2, same Jarvis"* quietly stops
+  being true. So the export carries the **voice settings and the design or clone
+  inputs**, not just the id — **an export containing a pointer to something you no
+  longer own is not an export.**
 
 **Budget**: VPS ≤ €20. Inference has a **$10/month soft budget and a $20/month
 hard ceiling** — soft means Jarvis reports crossing it, hard means it stops
