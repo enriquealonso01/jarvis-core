@@ -2782,6 +2782,20 @@ guessed at.
 
 ### Build
 
+### A saved session is a credential the broker never issued
+
+The rule above is right — a session Jarvis did not obtain through the broker is a
+credential outside the system. **But a session it obtained *properly* is also a
+credential the broker cannot revoke.** He signs in through the S16 handoff, the
+site sets a cookie, and from then on the broker holds a password while the
+profile directory holds working access. **Those are two different things with two
+different lifetimes, and only one of them has a lifecycle.**
+
+- **Revoking a connection clears its browser session.** Otherwise *"I have removed Jarvis's access"* is false in the way that matters: the password is gone and the cookie still works. Deleting the profile's data for that site **is** the revocation; the broker row is bookkeeping.
+- **Sessions age out.** A profile holding a login for six months is access nobody re-consented to, and the machinery to renew it already exists and is cheap — S46's handoff, once, on a schedule the connection declares. A cookie that outlives the reason it was created is the quietest form of standing access there is.
+- **A session that starts failing is treated as revoked, not as flaky.** He changed his password, or the site invalidated it, and **nothing tells Jarvis** — so retrying looks exactly like a transient error and produces repeated failed logins against his account. Park it and hand off (S46) rather than retry.
+- **The export carries live sessions**, which makes S35's archive more sensitive than *"every credential"*: a session cookie needs no password and routinely bypasses MFA. It is **pre-authenticated access to every site Jarvis can reach**, which is why that export is Level 3 and passphrase-bound rather than merely encrypted.
+
 - **Project-scoped browser profiles** at `/var/lib/jarvis/browsers/<project_id>`, never shared. Cookies, local storage, and saved logins belong to one project and are invisible to every other. A browser worker gets **no** harness-auth mount (ADR 006).
 - **Containerised.** Unlike the coding harness, the browser runs in Docker — it executes untrusted remote code by definition. This is not the ADR 015 exception.
 - **A fetch/extract toolkit**: retries with backoff, per-domain rate limiting, structured extraction (CSS/XPath/JSON-path), pagination, and a saved snapshot of every page it parsed.
@@ -2798,6 +2812,9 @@ guessed at.
 - Attempt Mode 1 against a site whose session was not obtained through the broker → refused.
 - Each tier individually against a site that requires exactly that tier. Assert the escalation actually happens and is recorded.
 - Project A's cookies and profile unreachable from project B. Assert it; a success here is an isolation bug that stops other work.
+- **Revoke a connection, then attempt the site it was for → refused.** Assert on the profile's stored data, not on the broker row: the broker forgetting a password while the cookie still works is exactly the failure.
+- Age a session past its declared maximum → **a handoff, not a silent renewal.**
+- Invalidate a session server-side, then run a task that needs it → **parked and handed off, not retried.** Repeated retries here are failed logins against his real account.
 - Kill the browser mid-scrape → recovers or fails cleanly. **Never hangs the heavy lane** — this is the most likely way scraping takes the whole system down.
 - Run under memory pressure with the browser holding the heavy slot; confirm no coding task starts concurrently and `MemAvailable` stays above the floor.
 - Scrape the same page twice → same structured output. Non-determinism here means the extractor is depending on render timing.
