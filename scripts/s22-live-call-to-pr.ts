@@ -125,6 +125,25 @@ async function main(): Promise<void> {
   ok(`deploy key registered ${key.fingerprint}`);
   await giveProjectApiCredential(pid);
 
+  /*
+   * And an engine, or the task parks before it starts.
+   *
+   * S12b made the per-project allowlist fail closed, and B3 confirmed that as
+   * the design: a new project has no engine until one is granted. This fixture
+   * provisioned the repository, the project, the deploy key and the API
+   * credential - and then omitted the grant, so the run parked on "no
+   * engineering route is usable here: anthropic_personal is not allowlisted for
+   * this project" and never reached the PR the Done-when is about. That is the
+   * mirror image of the omission scripts/lib/projectcred.ts exists to stop, and
+   * it read exactly like a product failure rather than a missing fixture line.
+   */
+  await pool.query(
+    `INSERT INTO auth_profile_allowlists (auth_profile_id, project_id, allowed_roles)
+     VALUES ($1, $2, ARRAY['senior_engineer'])
+     ON CONFLICT (auth_profile_id, project_id) DO UPDATE SET allowed_roles = EXCLUDED.allowed_roles`,
+    ["anthropic_personal", pid],
+  );
+
   const checkout = await ensureProjectCheckout(pool, pid);
   check("cloned with the deploy key", true, checkout.ok);
   const dir = repoDir(SLUG);
