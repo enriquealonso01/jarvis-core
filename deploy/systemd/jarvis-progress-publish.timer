@@ -1,0 +1,14 @@
+[Unit]
+Description=Publish the build bar every few minutes
+
+[Timer]
+# Five minutes: the state changes several times per step and a bar that lags a
+# working session is the complaint this exists to answer. Cheap - two small
+# files over an API the box already authenticates to.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=jarvis-progress-publish.service
+
+[Install]
+WantedBy=timers.target
