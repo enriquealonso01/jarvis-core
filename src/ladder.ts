@@ -238,20 +238,45 @@ async function apply(
         [taskId],
       );
       const role = current.rows[0]?.model_role ?? "senior_engineer";
+      const from = current.rows[0]?.auth_profile_id ?? null;
+      /*
+       * Upward, into the escalation pool - never sideways.
+       *
+       * This used to take any other approved route for the role, ordered by
+       * route_order, which is a LATERAL move: it re-runs the same failure at
+       * the same price and eventually succeeds often enough to look like it
+       * worked. Escalation is what failure purchases, so the only routes
+       * eligible here are the ones a measurement put in the escalation pool.
+       */
       const alt = await pool.query<{ auth_profile_id: string }>(
         `SELECT auth_profile_id FROM model_registry
          WHERE approval_state = 'approved' AND health IN ('healthy','degraded')
            AND auth_profile_id IS NOT NULL
+           AND pool = 'escalation'
            AND $1 = ANY (role_assignments)
            AND auth_profile_id IS DISTINCT FROM $2
          ORDER BY route_order LIMIT 1`,
-        [role, current.rows[0]?.auth_profile_id ?? null],
+        [role, from],
       );
       const next = alt.rows[0]?.auth_profile_id;
-      if (!next) return skip(`no other approved model for the ${role} role`);
+      /*
+       * An empty escalation pool is a valid configuration, not a fault. It
+       * skips to the next rung rather than pretending to have escalated.
+       */
+      if (!next) return skip(`no escalation route for the ${role} role`);
       await pool.query("UPDATE tasks SET auth_profile_id = $2 WHERE id = $1", [taskId, next]);
-      await requeue(pool, taskId, `switched to ${next}`, rung);
-      return done(`switched model auth profile to ${next}`);
+      /*
+       * Recorded so a shape that escalates every time is visible without anyone
+       * reading a log - that belongs in the weekly Improvement review, and a
+       * permanent escalation is a pool assignment that is wrong.
+       */
+      await pool.query(
+        `INSERT INTO escalations (task_id, shape, from_profile, to_profile, cause)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [taskId, role, from, next, cause.slice(0, 300)],
+      ).catch((err) => console.error("escalation not recorded:", err instanceof Error ? err.message : err));
+      await requeue(pool, taskId, `escalated to ${next}`, rung);
+      return done(`escalated to ${next}`);
     }
 
     case "switch_harness":
