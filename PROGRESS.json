@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "f780c19120709a5bb4129cbfd6746a258f06b8e2",
   "total_steps": 51,
-  "updated_at": "2026-09-03T09:00:23Z",
+  "updated_at": "2026-09-03T09:05:08Z",
   "current_step": "S29",
   "steps": [
     {
@@ -259,7 +259,8 @@
       "id": "S30",
       "title": "Memory and knowledge",
       "stage": 5,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "Started with the piece the plan says decides whether any of it works: \"retrieval quality is mostly a chunking problem, and uniform chunking is the commonest cause of bad answers\". src/chunk.ts branches on content - prose on the headings the author already chose, chat on a message plus the two around it because 'yes, do that' is unanswerable alone, transcripts on whole speaker turns because a turn split mid-sentence loses who said it, code on symbols because half a function retrieves as neither, tables repeating the header row on every window because rows without it mean nothing, and short notes not at all. Two rules hold everywhere: a call chunks ONE document, enforced by the signature so there is no way to hand it two, and every chunk carries a locator and a character offset so a citation can say 'function total' rather than 'somewhere in this file' and a wrong answer is traceable to the chunk that caused it. scripts/s30-chunk-test.sh, 15 assertions, each one a way a fixed window produces a fluent wrong answer. Sabotaged by replacing the branching with a single 1200-character window - the exact thing the plan warns about - and it failed five assertions across four content types, including a chunk spanning two headings and two functions landing in one chunk. ADR 019 records the architecture decision and, more usefully, what would overturn it: a measured miss rate on real questions where the right chunk exists and lexical ranking does not surface it. It does NOT claim lexical search matches semantic search on paraphrase - that is a real limitation, stated. Migration 039 gives knowledge_chunks the tsvector (generated, so it cannot drift from the body), a GIN index, and kind/locator/char_offset/chunk_index/source_date - the date stored now although nothing reads it, because S41 needs a time index and backfilling a date nobody recorded is guesswork. NOT built yet: ingestion, the four tiers, ranking, citation, and the superseded-version problem where a replaced document answers fluently from the version that was replaced."
     },
     {
       "id": "S31",
