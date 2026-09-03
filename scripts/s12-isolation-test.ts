@@ -22,6 +22,7 @@
  * here. They need a real harness run, so they live in the shell half.
  */
 import { createPool } from "../src/db.js";
+import { removeFixtures } from "./lib/fixtures.js";
 import {
   checkConnectionAccess,
   checkProfileAccess,
@@ -74,6 +75,9 @@ async function post(p: string, body: unknown): Promise<{ status: number; text: s
   return { status: res.status, text: await res.text() };
 }
 
+/** Every project made here, so the `finally` can take them away again. */
+const created: string[] = [];
+
 async function project(slug: string, type: string, confidentiality: string): Promise<string> {
   const r = await pool.query<{ id: string }>(
     `INSERT INTO projects (slug,name,project_type,confidentiality,production_status)
@@ -83,6 +87,7 @@ async function project(slug: string, type: string, confidentiality: string): Pro
      RETURNING id`,
     [slug, type, confidentiality],
   );
+  created.push(r.rows[0].id);
   return r.rows[0].id;
 }
 
@@ -380,6 +385,7 @@ main()
     fail += 1;
   })
   .finally(async () => {
+    await removeFixtures(pool, created);
     await pool.end().catch(() => undefined);
     process.exit(fail === 0 ? 0 : 1);
   });

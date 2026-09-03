@@ -32,25 +32,48 @@ const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
  * and an earlier cleanup script that matched loosely deleted it and took a
  * suite from 2 failures to 11.
  */
+/**
+ * A suite fixture: a suite prefix, then a machine-generated tail.
+ *
+ * Matching on the TAIL alone had a blind spot worth 20 percent of all leaks: a
+ * five-character base36 suffix contains no digit one time in five, so
+ * `s30tier-kbwqz` slipped past a rule that required one. This matches the shape
+ * suites actually generate - a prefix, a hyphen, a short opaque tail - and the
+ * protection against over-matching is the explicit KEEP list below rather than
+ * a cleverer regex.
+ *
+ * That trade is deliberate. A false positive here fails a sweep, which is
+ * visible and cheap; the same mistake in the REMOVAL script deletes a project,
+ * which is how the seeded `alpha-web` was lost once. So this list is broad and
+ * `clear-test-litter.ts` stays narrow.
+ */
 const LITTER = [
-  // A machine-generated suffix mixes letters and digits: s37dbg-u6w67,
-  // s29-cycle-e7gree. A hand-written fixture slug does not - s10-personal,
-  // s16-repo and s18-palette are stable and deliberate, and a pattern that
-  // swept them up would fail the sweep for projects that are supposed to exist.
-  // The first draft of this matched exactly those, which is the mistake the
-  // dev-clean-fixtures script already made once by deleting alpha-web.
-  /^[a-z0-9-]+-(?=[a-z0-9]{4,8}$)(?=[a-z0-9]*\d)[a-z0-9]+$/i,
-  /^bench-[a-z0-9-]+-(?=[a-z0-9]{6}$)(?=[a-z0-9]*\d)[a-z0-9]+$/i,
+  /^s\d+[a-z]*-[a-z0-9]{4,10}$/i,            // s30tier-kbwqz, s28-park-l0096i
+  /^s\d+[a-z]*-[a-z0-9-]+-[a-z0-9]{4,12}$/i, // s29-cycle-e7gree, s12-alpha-mtldr1x9
+  /^bench-[a-z0-9-]+-[a-z0-9]{5,8}$/i,
+  /^selfwatch-[a-z0-9]{4,8}$/i,
 ];
 
-/** Projects that are meant to exist, whatever they look like. */
+/**
+ * Fixtures that are meant to persist, listed by name because guessing is what
+ * deleted alpha-web. Anything added here should be a slug a suite creates
+ * deterministically and reuses.
+ */
+const KEEP = new Set([
+  "alpha-web", "alpha-mobile", "jarvis-improvement", "jarvis",
+  "s10-personal", "s10-personal-prod", "s10-professional",
+  "s16-repo", "s17-console", "s17-outputs", "s18-palette", "s9-review",
+  // Kept deliberately by the teardown-cycle suite as its own control.
+  "s29-cycle-fvuff0-keep",
+]);
+
 const SEEDED = new Set(["alpha-web", "alpha-mobile", "jarvis-improvement", "jarvis"]);
 
 async function main(): Promise<void> {
   const r = await pool.query<{ slug: string }>(`SELECT slug FROM projects ORDER BY slug`);
   const litter = r.rows
     .map((x) => x.slug)
-    .filter((s) => !SEEDED.has(s) && LITTER.some((re) => re.test(s)));
+    .filter((s) => !KEEP.has(s) && LITTER.some((re) => re.test(s)));
 
   console.log(`${r.rows.length} projects; ${litter.length} look like fixtures left behind`);
   console.log("");

@@ -16,6 +16,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createPool } from "../src/db.js";
+import { removeFixtures } from "./lib/fixtures.js";
 import { indexArtifact, retrieve } from "../src/knowledge.js";
 
 const pool = createPool();
@@ -52,12 +53,15 @@ function makePdf(lines: string[]): Buffer {
   return Buffer.from(pdf, "latin1");
 }
 
+const created: string[] = [];
+
 async function main(): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "s30-every-"));
   const p = await pool.query<{ id: string }>(
     `INSERT INTO projects (slug,name,project_type,confidentiality)
      VALUES ($1,$1,'personal','normal') RETURNING id`, [SLUG]);
   const pid = p.rows[0].id;
+  created.push(pid);
   await fs.mkdir(path.join(root, pid), { recursive: true });
 
   const store = async (name: string, body: Buffer | string, mime: string) => {
@@ -210,8 +214,19 @@ async function main(): Promise<void> {
   process.exit(fails === 0 ? 0 : 1);
 }
 
-main().catch(async (e) => {
-  console.error(e instanceof Error ? e.message : e);
-  await pool.end().catch(() => undefined);
-  process.exit(1);
-});
+/*
+ * Cleanup in a `finally`, not at the bottom of main.
+ *
+ * The runs that leave litter are the ones that failed, and those are exactly
+ * the runs that never reach a tidy-up written at the end of the happy path.
+ */
+main()
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    fails += 1;
+  })
+  .finally(async () => {
+    await removeFixtures(pool, created);
+    await pool.end().catch(() => undefined);
+    process.exit(fails === 0 ? 0 : 1);
+  });
