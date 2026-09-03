@@ -39,6 +39,33 @@ function originOk(req: FastifyRequest): boolean {
   return true;
 }
 
+/**
+ * Create a directory owned by whoever owns its parent.
+ *
+ * The API container runs as root; the host runner runs as `jarvis` (uid 1000).
+ * A plain mkdir therefore left root:root 0750 directories that the runner could
+ * not even traverse, so every heavy task on an API-onboarded project died with
+ * `Permission denied` - while the identical bench path worked, because the
+ * bench runs as the runner and so created its own directories.
+ *
+ * Inheriting the parent's owner rather than hardcoding uid 1000 keeps this
+ * right in the dev stack too, where the tree belongs to somebody else and the
+ * process may not be root at all - which is also why a failed chown is
+ * tolerated rather than fatal: if we are not root the mkdir already produced
+ * the correct owner.
+ */
+async function mkdirForRunner(dir: string, mode: number): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  await fs.mkdir(dir, { recursive: true, mode });
+  try {
+    const parent = await fs.stat(path.dirname(dir));
+    await fs.chown(dir, parent.uid, parent.gid);
+  } catch {
+    /* not root, or a platform without chown - leave it as created */
+  }
+}
+
 export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
   app.get("/api/inbox", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
@@ -826,9 +853,9 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     if (!worktree.startsWith(root + path.sep)) {
       return reply.code(400).send({ error: "invalid slug" });
     }
-    await fs.mkdir(worktree, { recursive: true, mode: 0o750 });
-    await fs.mkdir(path.join(ARTIFACTS_DIR, r.rows[0].id), { recursive: true, mode: 0o750 });
-    await fs.mkdir(path.join(BROWSERS_DIR, r.rows[0].id), { recursive: true, mode: 0o750 });
+    await mkdirForRunner(worktree, 0o750);
+    await mkdirForRunner(path.join(ARTIFACTS_DIR, r.rows[0].id), 0o750);
+    await mkdirForRunner(path.join(BROWSERS_DIR, r.rows[0].id), 0o750);
     return { project: r.rows[0] };
   });
 
