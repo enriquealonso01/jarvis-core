@@ -2872,6 +2872,8 @@ asleep next to it.
 **Test** L10 — a trivial capture produces **zero** messages; a long task produces exactly two. Ten identical failures produce one notification with a count of ten. Every link in every notification actually opens the right page.
 - **Trigger every source of an unprompted message, and confirm only the listed reasons produce one.** The assertion that matters is the *absence* — a test that only proves the six work would pass on a system that also sends nine others.
 - Three unprompted items within the batching window → **one** message with three lines.
+- **An Issue of each staleness class, left unresolved for a fortnight**: the `wait` one is silent, the `re-raise` one appears in the weekly report with its age and its count, the `block` one has stopped other work. **All three**, or the policy is one behaviour with three names.
+- Needs You sorts oldest first, and a re-raised Issue says what changed rather than repeating itself.
 - An unprompted message at 21:00 → held until 08:00, **and its Issue exists immediately**. A security incident at 21:00 → sent. Both halves, and the override list is the same object S23 reads.
 - **He messages at 02:00 → Jarvis replies at 02:00.** Quiet hours must not silence the conversation he started.
 
@@ -3932,6 +3934,30 @@ silently diverge. Always add a new one.
 
 ## IV.2 Task and issue state machines
 As in `docs/STATE_MACHINES.md`. Illegal transitions are a 409 plus an audit row.
+
+### An Issue nobody resolves
+
+Jarvis raises an Issue, sends one message, and then — by design — says nothing
+more. **The plan never says what happens if he does not act.** S46 puts it
+plainly for its own case: *"never authenticate → it stays parked with a truthful
+reason and does not nag."* That is exactly right there, and **written as a
+general principle it is wrong**, because the first implementation will apply it
+to everything, including the backup that has been failing for a month.
+
+The distinction is not how important the Issue is. It is **whether waiting costs
+anything**:
+
+- **Waiting on his choice costs nothing.** An auth handoff, a proposed capability, an approval he has not got to. These wait indefinitely and never nag. The park is the correct end state.
+- **Waiting while degrading costs more every day.** A failing backup, an expiring credential, a disk trending full. **Silence for a week is how you discover the backups were broken on the day you needed one.** These re-raise on a schedule.
+- **Waiting is not acceptable at all** for isolation and data loss. S12 already says a successful cross-project probe stops other work until closed — that is this behaviour, and it is currently the only Issue class that has one.
+
+So an Issue's class carries a **staleness policy**, exactly as IV.3 already makes
+every error class carry a notification policy. Three values, one per class:
+`wait`, `re-raise`, `block`.
+
+- **Re-raising goes in the weekly report**, which already exists and is already the one long message. A second notification channel for old news is how the pager becomes a feed — and S33's closed list of reasons to open a conversation would have to grow, which it should not.
+- **The console sorts Needs You by age, not by recency.** The oldest unresolved item is by definition the one being ignored, and putting it last is how it stays that way.
+- **An Issue that is re-raised says how long it has been open and what has changed since.** *"Backup has failed 9 times since the 12th"* is a different sentence from the one he already ignored once.
 
 ## IV.3 Error taxonomy
 
