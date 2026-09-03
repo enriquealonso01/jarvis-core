@@ -25,6 +25,7 @@
  *   repeat   — emits the SAME tool call over and over        -> S18b agent.repeat
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
  *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
+ *   errortool — a tool_result with is_error                -> S29, the run's failures are recorded
  *   workflow  — the S6 engineering loop, phase by phase   -> JARVIS_FAKE_WORKFLOW picks the outcome
  */
 import { spawnSync } from "node:child_process";
@@ -391,6 +392,36 @@ async function main() {
            is_error: true, duration_ms: 500, num_turns: 1,
            result: messages[kind] ?? messages.crash });
     process.exit(1);
+  }
+
+  if (variant === "errortool") {
+    /*
+     * A tool that FAILED, in the shape Claude actually reports one: a
+     * tool_result block carrying is_error inside a user message. Not the same
+     * thing as `errorresult`, which is the whole run failing at the end.
+     *
+     * This variant exists because the runner's error-event persistence could
+     * not be verified any other way: neither vendor emitted an error item on
+     * seven live parity runs, so the path was deployed and unobserved. Driving
+     * it through the real runner with a fake stream costs nothing and proves
+     * the row is written.
+     */
+    init();
+    assistantToolUse("Bash", { command: "node --test" });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_fake", is_error: true,
+            content: "bash: node: command not found" },
+        ],
+      },
+    });
+    assistantText("That command failed; stopping.");
+    result("success", "Reported one failed tool call.");
+    process.exit(0);
   }
 
   if (variant === "errorresult") {
