@@ -24,6 +24,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [An agent told to do the one thing it has no credential for](#an-agent-told-to-do-the-one-thing-it-has-no-credential-for)
 - [Two engines, four different reasons the same task could not finish](#two-engines-four-different-reasons-the-same-task-could-not-finish)
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
@@ -203,6 +204,32 @@ are written. The ones that CANNOT (live site, real money, real credentials) are
 listed there with the reason, because a sweep that cannot pass is a sweep people
 learn to ignore.
 **Lesson:** writing a suite is half of it. A suite nothing runs is a comment.
+
+### An agent told to do the one thing it has no credential for
+**Symptom:** Codex would reproduce a bug, fix it, write a regression test, run
+the suite and commit - then report `blocked: Push is blocked because the
+environment has neither usable GitHub SSH credentials nor HTTPS credentials`,
+and the whole run parked one step from done. It looked like the weaker engine.
+**Cause:** the engineering loop's last phase said, in as many words, "push the
+branch". Pushing is the ONE thing in that loop the agent has no credential for:
+the deploy key belongs to Jarvis, and `openPullRequest` uses it to push the
+branch and open the pull request. The agent was being asked to authenticate to a
+remote it has no key for, and honestly reporting that it could not.
+**Why it hid for so long:** Claude muddled through - it improvised until
+something worked often enough that the phase looked functional - while Codex
+read the instruction, tried it, failed, and stopped. The engine that behaved
+correctly looked worse.
+**What it cost:** S28 recorded "Codex reaches a pull request about one run in
+four" as a property of the ENGINE. It was a property of the prompt. And S29's
+first two-engine comparison scored Codex down for opening no pull request, so
+the benchmark was measuring a plumbing mismatch and calling it engineering
+quality.
+**Fix:** the phase now says to stop at the commit, and that Jarvis pushes. Codex
+went from parked to `succeeded` with a pull request on the next run.
+**Lesson:** when one engine consistently underperforms another on a plumbing
+step, suspect the instructions before the engine. An agent that reports it
+cannot do something is giving you information; one that improvises around it is
+hiding the same defect.
 
 ### Two engines, four different reasons the same task could not finish
 **Symptom:** the S28 parity run failed for both engines, four runs in a row, with
