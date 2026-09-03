@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-09-03T22:41:58Z",
-  "current_step": "S51",
+  "updated_at": "2026-09-03T22:46:39Z",
+  "current_step": "S52",
   "steps": [
     {
       "id": "S1",
@@ -412,7 +412,8 @@
       "id": "S52",
       "title": "Forthcoming: it asks for what it needs before it is stuck",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE DISCIPLINE IS THE WHOLE STEP, because the failure mode is the opposite of the feature: 'something that reaches out constantly is something he mutes'. Need.taskId is REQUIRED, so a speculative need is unconstructible - the Debug note says 'bind every request to a task id or it drifts into nagging', and that is a field rather than a rule to remember. Content is not a need either: a message mentioning an integration is a fact about the message, the same rule S46 applies to auth links arriving through a different door. IT ASKS ONCE, AND THE REGISTER IS KEYED ON THE CAPABILITY, NOT THE TASK. A per-task record would ask once per task forever, which is the same nagging by another route - the Debug note puts the fix in the register step rather than the ask, and the suite asserts a SECOND task needing the same key does not ask. The key is normalised, so wording does not defeat it. IT BATCHES PER PIECE OF WORK: two needs for one task are one message, while two different tasks stay two messages rather than a digest that delays the first. A new paid provider makes the whole batch a recommendation, because he is being asked to open an account either way and burying that under 'request' is the misleading half. IT NEVER SELF-AUTHORISES: scopeOfConnectApproval returns literals - connect true, spend false, otherProjects false - so widening it means changing the type. Approval to connect X is three decisions kept apart and the ask settles exactly one. A SCHEDULED CALL LEADS WITH ITS PREPARED SUBJECT and carries the forward question in the same return value, because a greeting with no question after it is a silence whatever preceded it. A call with no prepared subject still says why it is happening rather than opening blank. scripts/s52-forthcoming-test.ts, 28 assertions, green first run. Sabotaged ten ways, all red. ONE CAME BACK GREEN AND IT FOUND DEAD CODE RATHER THAN A HOLE: an early return for the empty case could be deleted without any test noticing, because with nothing outstanding the grouping is empty and the result is [] regardless. The guard is removed - code whose removal changes nothing tells a reader it matters when it does not - and that sabotage was retargeted at the actionable-message rule. NOT BUILT: nothing detects a coming need. No scanner reads queued or running tasks for capabilities they will require, nothing sends the message, nothing parks the task, and no acquisition writes to the register - it is an in-memory Set here with no persistence behind it. The ordering the plan asks to assert (the ask precedes the block) is expressed as a position rather than observed on a real task."
     },
     {
       "id": "S53",
@@ -436,5 +437,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S51's map data built: every point is a row with a source and a route, motion has no clock in scope, memory is one point not a corpus, and empty points are omitted. FINDING FOR THE CONSOLE: 29 portfolio projects means 33 points, which does not fit a 375px phone - the plan's answer is the list equivalent. NOT built: the map itself, and nothing serves homeMap over the API. Next: S52, S53, S54."
+  "working_on": "S52 built as decisions: a need cannot exist without a task id, the register is keyed on the capability so a second task does not re-ask, asks batch per piece of work, and connecting authorises only connecting. NOT built: nothing detects a coming need, nothing sends the message, and the register has no persistence. Next: S53 (agent orchestration) and S54 (deploy its own control plane) - the last two."
 }
