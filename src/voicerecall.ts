@@ -77,14 +77,36 @@ export type ExplainableFacts = {
 
 /** The projection, built field by field so a new field on the document stays put. */
 export function explainableFacts(doc: RecalledDocument): ExplainableFacts {
+  const classification = strictestOf(doc.projects);
+  /*
+   * The recommendation is a sentence, lifted verbatim out of the body by
+   * `shapeOf`'s regex, and for anything above `normal` it must not be spoken.
+   *
+   * This function's own contract said otherwise and was wrong. The comment on
+   * the sentence builder reads "Every clause here is metadata. Nothing in it
+   * came from the document's text", and the confidential branch of
+   * `voiceRendering` is documented as making "the confidential body never
+   * reaches the TTS request" a fact about the code. It was not: with the
+   * recommendation passed through, a confidential document was synthesised by
+   * ElevenLabs as "The Acquisition options recommends ACQUIRE_NORTHWIND_AT_4_2M."
+   * - one sentence of its content, verbatim, to a vendor ADR 005 does not let a
+   * model see.
+   *
+   * The plan's own example is the tell: "recommends option two, mostly on cost"
+   * REFERS to the conclusion rather than reading it. A reference is metadata; a
+   * quotation is content. Dropping it here is the minimal repair - the renderer
+   * already handles a null recommendation and falls back to a date clause - and
+   * choosing a derived phrasing instead is a wording decision that belongs to
+   * whoever owns the voice, not to the check that caught this.
+   */
   return {
     title: doc.title,
     kind: doc.kind,
     writtenAt: doc.writtenAt,
-    recommendation: doc.recommendation ?? null,
+    recommendation: classification === "normal" ? doc.recommendation ?? null : null,
     optionCount: doc.optionCount ?? null,
     tradeoffCount: doc.tradeoffCount ?? null,
-    classification: strictestOf(doc.projects),
+    classification,
   };
 }
 
