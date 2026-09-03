@@ -1,0 +1,122 @@
+/**
+ * S29 — the ranking refuses before it invents.
+ *
+ * Every assertion here is about NOT producing a number. The plan's warning is
+ * that a floor picked before the suite can separate a good model from a fluent
+ * one is an opinion with a decimal point, so the interesting behaviour is the
+ * refusals: too few runs, too few cases, and a gap inside the suite's own
+ * measured noise.
+ */
+import { MIN_RUNS_PER_HARNESS, proposeFloor, rank, rankingReproduces, summarise, TIE_BAND, type BenchRow } from "../src/ranking.js";
+
+let passes = 0;
+let fails = 0;
+const ok = (m: string) => { console.log(`  ok   - ${m}`); passes += 1; };
+const bad = (m: string) => { console.log(`  FAIL - ${m}`); fails += 1; };
+
+const CASES = ["case-a", "case-b", "case-c"];
+
+/** n runs for one harness, cycling the cases, each scoring `overall`. */
+function runs(harness: string, overalls: number[], cases = CASES): BenchRow[] {
+  return overalls.map((o, i) => ({
+    harness,
+    suite: cases[i % cases.length],
+    overall: o,
+    scores: { correctness: 1, hidden_tests: o > 0.8 ? 1 : 0, quota_consumed: 120000 },
+  }));
+}
+
+function main(): void {
+  console.log("1. a summary describes the runs it was given");
+  const s = summarise([...runs("claude", [0.7, 0.8, 0.75, 0.75]), ...runs("codex", [0.6, 0.6, 0.6, 0.6])]);
+  s.length === 2 && s[0].harness === "claude"
+    ? ok("harnesses are ordered by mean")
+    : bad(`ordering was ${s.map((x) => x.harness).join(",")}`);
+  Math.abs(s[0].spread - 0.1) < 1e-9
+    ? ok("spread is the observed range, not a guess")
+    : bad(`spread was ${s[0].spread}`);
+  s[0].perDimension.quota_consumed === undefined
+    ? ok("quota is not averaged into the per-dimension summary")
+    : bad("quota_consumed leaked into the summary as a quality dimension");
+
+  console.log("");
+  console.log("2. it refuses to rank on thin evidence");
+  const thin = rank([...runs("claude", [0.9, 0.9]), ...runs("codex", [0.5, 0.5])]);
+  !thin.ok && thin.reason.includes("not enough runs")
+    ? ok(`two runs each is refused (${thin.ok ? "" : thin.reason.slice(0, 48)})`)
+    : bad("a ranking was produced from two runs per harness");
+
+  const oneCase = rank([
+    ...runs("claude", [0.9, 0.9, 0.9, 0.9], ["only-case"]),
+    ...runs("codex", [0.5, 0.5, 0.5, 0.5], ["only-case"]),
+  ]);
+  !oneCase.ok && oneCase.reason.includes("not enough cases")
+    ? ok("and so is a ranking drawn from a single case")
+    : bad("one case was enough to rank two harnesses");
+
+  console.log("");
+  console.log("3. a gap inside the noise band is a tie, not a win");
+  const close = rank([
+    ...runs("claude", [0.70, 0.71, 0.70, 0.71]),
+    ...runs("codex", [0.68, 0.69, 0.68, 0.69]),
+  ]);
+  !close.ok && close.reason.includes("too close to call")
+    ? ok(`a 0.02 gap is declared a tie, under the ${TIE_BAND} band`)
+    : bad("a difference smaller than the suite's own variance was called a win");
+
+  const clear = rank([
+    ...runs("claude", [0.90, 0.92, 0.91, 0.93]),
+    ...runs("codex", [0.60, 0.61, 0.62, 0.60]),
+  ]);
+  clear.ok && clear.winner === "claude"
+    ? ok("while a gap well outside it is called")
+    : bad(`a clear win was not reported: ${clear.ok ? "" : clear.reason}`);
+
+  console.log("");
+  console.log("4. the floor is derived from runs, never chosen");
+  const floor = proposeFloor([
+    ...runs("claude", [0.90, 0.92, 0.88, 0.93]),
+    ...runs("codex", [0.60, 0.61, 0.62, 0.60]),
+  ]);
+  floor.ok && Math.abs(floor.floor - 0.88) < 1e-9
+    ? ok("it is the winner's worst observed run, 0.88")
+    : bad(`the floor was ${floor.ok ? floor.floor : floor.reason}`);
+  floor.ok && floor.basis.includes("4 runs")
+    ? ok("and it says what it was derived from")
+    : bad("the floor did not carry its basis");
+
+  const noFloor = proposeFloor([
+    ...runs("claude", [0.70, 0.71, 0.70, 0.71]),
+    ...runs("codex", [0.69, 0.70, 0.69, 0.70]),
+  ]);
+  !noFloor.ok && noFloor.reason.startsWith("no floor")
+    ? ok("a tie yields no floor at all, rather than the first-sorted contestant's")
+    : bad("a floor was set during a tie");
+
+  console.log("");
+  console.log("5. the Done-when is an ordering that survives a re-run");
+  const passA = [...runs("claude", [0.90, 0.92, 0.91, 0.93]), ...runs("codex", [0.60, 0.61, 0.62, 0.60])];
+  const passB = [...runs("claude", [0.88, 0.95, 0.89, 0.94]), ...runs("codex", [0.65, 0.58, 0.63, 0.61])];
+  const rep = rankingReproduces(passA, passB);
+  rep.ok && rep.order[0] === "claude"
+    ? ok("the same winner on both passes reproduces, though the scores moved")
+    : bad(`reproduction failed: ${rep.ok ? "" : rep.reason}`);
+
+  const flipped = [...runs("claude", [0.60, 0.61, 0.62, 0.60]), ...runs("codex", [0.90, 0.92, 0.91, 0.93])];
+  const notRep = rankingReproduces(passA, flipped);
+  !notRep.ok && notRep.reason.includes("did not hold")
+    ? ok("a flipped second pass is reported as not reproducing")
+    : bad("a reversed ranking was accepted as reproduced");
+
+  const thinSecond = rankingReproduces(passA, [...runs("claude", [0.9, 0.9]), ...runs("codex", [0.5, 0.5])]);
+  !thinSecond.ok && thinSecond.reason.startsWith("second pass")
+    ? ok("and a thin second pass says which pass was thin")
+    : bad("a thin second pass was not attributed");
+
+  console.log("");
+  console.log(`==== ${passes} passed, ${fails} failed ====`);
+  console.log(`(minimum ${MIN_RUNS_PER_HARNESS} runs per harness, ${CASES.length} cases)`);
+  process.exit(fails === 0 ? 0 : 1);
+}
+
+main();

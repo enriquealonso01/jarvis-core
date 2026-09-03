@@ -17,6 +17,8 @@ RUN pnpm install --frozen-lockfile
 COPY src ./src
 COPY scripts ./scripts
 COPY migrations ./migrations
+# The benchmark corpus: cases are code, and the suite runs their hidden tests.
+COPY benchmarks ./benchmarks
 # In production the API reads this from the deployed source tree at
 # /opt/jarvis/core, bind-mounted read-only. Dev has no such tree, so /app is it.
 COPY PROGRESS.json ./

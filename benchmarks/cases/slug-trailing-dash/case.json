@@ -1,0 +1,9 @@
+{
+  "id": "slug-trailing-dash",
+  "title": "slugify leaves a trailing dash",
+  "source": "S6 workflow suite, and the S28 parity runs — a real fix, made repeatedly by both engines",
+  "objective": "slugify(\"Hello World!\") returns \"hello-world-\" with a trailing dash. It should return \"hello-world\". Fix it and add a regression test.",
+  "expectedFiles": ["src/slugify.js", "test/slugify.test.js"],
+  "difficulty": "easy",
+  "note": "Kept BECAUSE it is easy: a case every engine solves is the control that shows the harness itself works. It is excluded from the ranking by its difficulty, not by being absent."
+}

@@ -7,7 +7,7 @@
  * run, a fluent-but-wrong run, and a run that cheated by deleting the test.
  */
 import { createPool } from "../src/db.js";
-import { collectEvidence, scoreRun, type RunEvidence } from "../src/benchmark.js";
+import { collectEvidence, isTestPath, scoreRun, type RunEvidence } from "../src/benchmark.js";
 
 let fails = 0;
 let passes = 0;
@@ -172,6 +172,52 @@ async function collectorChecks(): Promise<void> {
     ? ok("zero errors out of zero calls is unscored, not perfect")
     : bad(`an empty run scored ${scoreRun(nothing).scores.tool_reliability}`);
   await pool.query(`DELETE FROM tasks WHERE id = $1`, [empty.rows[0].id]);
+
+  // ---- writing no test must not beat writing a bad one
+  console.log("");
+  console.log("11. a missing test is a zero, not an excluded dimension");
+  const noTest = scoreRun({
+    ...base,
+    redGreenVerified: null,
+    filesChanged: ["src/slugify.js"],
+  });
+  const badTest = scoreRun({ ...base, redGreenVerified: false });
+  noTest.scores.test_quality === 0
+    ? ok("a run that changed code and added no test scores zero on test_quality")
+    : bad(`writing no test scored ${noTest.scores.test_quality}`);
+  (noTest.overall ?? 1) <= (badTest.overall ?? 0)
+    ? ok("so writing nothing never outscores writing a test that fails to go red")
+    : bad(`no test ${noTest.overall} beat a bad test ${badTest.overall}`);
+  !noTest.unscored.includes("test_quality")
+    ? ok("and it is reported as scored rather than unscored")
+    : bad("a missing test was still listed as unscored");
+
+  // ---- but genuinely unmeasurable stays unmeasured
+  const addedButUnrun = scoreRun({
+    ...base,
+    redGreenVerified: null,
+    filesChanged: ["src/slugify.js", "test/slugify.test.js"],
+  });
+  addedButUnrun.scores.test_quality === null
+    ? ok("a test that was added but could not be run stays null")
+    : bad(`an unrunnable test scored ${addedButUnrun.scores.test_quality}`);
+  const noDiff = scoreRun({ ...base, redGreenVerified: null, filesChanged: [] });
+  noDiff.scores.test_quality === null
+    ? ok("and a run with no diff at all says nothing about testing")
+    : bad(`an empty diff scored ${noDiff.scores.test_quality}`);
+
+  // ---- a test is a test wherever the agent put it
+  console.log("");
+  console.log("12. the harness recognises a test outside test/");
+  isTestPath("src/score.test.js")
+    ? ok("a test beside the code counts as a test")
+    : bad("src/score.test.js was not recognised as a test");
+  isTestPath("test/score.test.js") && isTestPath("tests/a.spec.ts")
+    ? ok("and so do test/ and tests/, .test and .spec")
+    : bad("a conventional test path was not recognised");
+  !isTestPath("src/score.js") && !isTestPath("src/latest.js")
+    ? ok("while ordinary source is not mistaken for one")
+    : bad("a source file was counted as a test");
 
   await pool.query(`DELETE FROM task_events WHERE task_id = $1`, [id]);
   await pool.query(`DELETE FROM tasks WHERE id = $1`, [id]);

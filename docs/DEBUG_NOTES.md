@@ -24,6 +24,8 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [An agent told to do the one thing it has no credential for](#an-agent-told-to-do-the-one-thing-it-has-no-credential-for)
+- [A benchmark that scored its own paperwork](#a-benchmark-that-scored-its-own-paperwork)
 - [Two engines, four different reasons the same task could not finish](#two-engines-four-different-reasons-the-same-task-could-not-finish)
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
@@ -203,6 +205,62 @@ are written. The ones that CANNOT (live site, real money, real credentials) are
 listed there with the reason, because a sweep that cannot pass is a sweep people
 learn to ignore.
 **Lesson:** writing a suite is half of it. A suite nothing runs is a comment.
+
+### A benchmark that scored its own paperwork
+**Symptom:** claude appeared to beat codex on the S29 corpus, 0.74 to 0.70.
+Every part of that gap turned out to be the harness measuring itself.
+**Three artefacts, found in order:**
+1. The engineering loop told the agent to push the branch - the one thing it
+   has no credential for. Codex reported blocked and lost `pr_quality`; claude
+   improvised around it. See the entry above.
+2. `.jarvis/phases.jsonl` and `.jarvis/outcome.json` are files the harness ASKS
+   the agent to write, and they were counted in `filesChanged`. Two of four
+   codex runs lost half their `scope_control` for committing the bookkeeping we
+   demanded. The reviewer had excluded that directory from its diff since S9;
+   the benchmark never did.
+3. The red-green check looked for tests in `test/` only. A claude run wrote
+   `src/score.test.js` - beside the code, an ordinary convention - so its test
+   was never verified and `test_quality` came back null.
+**The third one hid a real scoring bug.** An unmeasured dimension is excluded
+from the weighted average ALONG WITH ITS WEIGHT. So a run that added no test at
+all scored **1.00**, while a run that added a test which failed to go red scored
+**0.91**. Writing nothing beat writing something imperfect - in the suite whose
+entire purpose is stopping process points from carrying a run that did not do
+the work. The distinction the code was missing is between "could not be
+determined" and "the agent did not do it": only the first is null.
+**After fixing all three:** codex mean 0.707 over four runs, claude 0.703 over
+two. Indistinguishable.
+**Lesson:** before a benchmark ranks anything, check what it scores that the
+subject did not choose. Ours scored obedience to our own instructions, our own
+directory layout, and our own guess about where tests live. And when successive
+corrections all move the same contestant up, stop and say so out loud - the
+next tempting fix is the one to leave alone.
+
+### An agent told to do the one thing it has no credential for
+**Symptom:** Codex would reproduce a bug, fix it, write a regression test, run
+the suite and commit - then report `blocked: Push is blocked because the
+environment has neither usable GitHub SSH credentials nor HTTPS credentials`,
+and the whole run parked one step from done. It looked like the weaker engine.
+**Cause:** the engineering loop's last phase said, in as many words, "push the
+branch". Pushing is the ONE thing in that loop the agent has no credential for:
+the deploy key belongs to Jarvis, and `openPullRequest` uses it to push the
+branch and open the pull request. The agent was being asked to authenticate to a
+remote it has no key for, and honestly reporting that it could not.
+**Why it hid for so long:** Claude muddled through - it improvised until
+something worked often enough that the phase looked functional - while Codex
+read the instruction, tried it, failed, and stopped. The engine that behaved
+correctly looked worse.
+**What it cost:** S28 recorded "Codex reaches a pull request about one run in
+four" as a property of the ENGINE. It was a property of the prompt. And S29's
+first two-engine comparison scored Codex down for opening no pull request, so
+the benchmark was measuring a plumbing mismatch and calling it engineering
+quality.
+**Fix:** the phase now says to stop at the commit, and that Jarvis pushes. Codex
+went from parked to `succeeded` with a pull request on the next run.
+**Lesson:** when one engine consistently underperforms another on a plumbing
+step, suspect the instructions before the engine. An agent that reports it
+cannot do something is giving you information; one that improvises around it is
+hiding the same defect.
 
 ### Two engines, four different reasons the same task could not finish
 **Symptom:** the S28 parity run failed for both engines, four runs in a row, with
