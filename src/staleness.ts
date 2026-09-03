@@ -72,7 +72,17 @@ export const STALENESS_BY_CATEGORY: Record<string, Staleness> = {
 export const DEFAULT_STALENESS: Staleness = "re-raise";
 
 export function stalenessFor(category: string): Staleness {
-  return STALENESS_BY_CATEGORY[category] ?? DEFAULT_STALENESS;
+  /*
+   * `Object.hasOwn` rather than a bare index with `??`. For an inherited key
+   * the index returns something TRUTHY - `STALENESS_BY_CATEGORY["toString"]` is
+   * a function - so `??` never fires and this returned a function where the
+   * signature promises a Staleness. That value goes into `issues.staleness`,
+   * which has a CHECK constraint, so it turns a classification into a database
+   * error at the moment an Issue is being raised about something else.
+   */
+  return Object.hasOwn(STALENESS_BY_CATEGORY, category)
+    ? STALENESS_BY_CATEGORY[category]
+    : DEFAULT_STALENESS;
 }
 
 export type StaleIssue = {

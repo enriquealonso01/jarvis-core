@@ -201,7 +201,13 @@ export async function drainUnprompted(
     [ids, now, batchId]);
 
   const lines = due.rows.map((r) => {
-    const label = UNPROMPTED_REASONS[r.reason as UnpromptedReason]?.label ?? r.reason;
+    // The reason comes back from a row here rather than from a caller, so the
+    // same guard applies: `?.label` on an inherited key reads undefined off a
+    // function and falls through, but only by luck of that function having no
+    // `label`. Ask the question that was meant.
+    const label = Object.hasOwn(UNPROMPTED_REASONS, r.reason)
+      ? UNPROMPTED_REASONS[r.reason as UnpromptedReason].label
+      : r.reason;
     // The link is on the line it belongs to. A message with three items and one
     // link at the bottom sends him to the wrong page two times in three.
     return r.link ? `${label}: ${r.subject} — ${r.link}` : `${label}: ${r.subject}`;
