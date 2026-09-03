@@ -93,6 +93,14 @@ function main(): void {
     ? ok("a tie yields no floor at all, rather than the first-sorted contestant's")
     : bad("a floor was set during a tie");
 
+  const neverSolved = proposeFloor([
+    ...runs("claude", [0.75, 0.74, 0.73, 0.74]),
+    ...runs("codex", [0.60, 0.61, 0.62, 0.60]),
+  ]);
+  !neverSolved.ok && neverSolved.reason.includes("withheld suite")
+    ? ok("a winner that never passed the withheld suite yields no floor")
+    : bad(`a floor was derived from runs that solved nothing: ${JSON.stringify(neverSolved)}`);
+
   console.log("");
   console.log("5. the Done-when is an ordering that survives a re-run");
   const passA = [...runs("claude", [0.90, 0.92, 0.91, 0.93]), ...runs("codex", [0.60, 0.61, 0.62, 0.60])];

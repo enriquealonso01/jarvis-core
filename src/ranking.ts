@@ -140,11 +140,39 @@ export function rank(rows: BenchRow[]):
 export function proposeFloor(rows: BenchRow[]): { ok: true; floor: number; basis: string } | Refusal {
   const r = rank(rows);
   if (!r.ok) return { ok: false, reason: `no floor: ${r.reason}` };
-  const winner = r.order[0];
+  const winner = r.order[0].harness;
+
+  /*
+   * Derived from runs that actually solved something.
+   *
+   * This was the winner's worst run of any kind, and that put the floor inside
+   * the wrong cluster. The scores are bimodal and cleanly so: every run that
+   * passed the withheld suite scored 0.96 to 1.00, every run that failed it
+   * scored 0.67 to 0.74, and nothing has ever landed between. So "the winner's
+   * worst run" is a run that did NOT solve the problem, and the floor derived
+   * from it sat 0.009 above a scripted fraud that fixed nothing - a floor that
+   * admits work indistinguishable from fluent fraud is not a floor.
+   *
+   * The gap between the clusters is where it belongs, and the honest way to
+   * land there is to derive it from runs that passed the tests they never saw.
+   * Refused when the winner has none: a suite that has not yet watched anyone
+   * solve a case has no idea what solving looks like, and any number it named
+   * would be describing failure.
+   */
+  const solved = rows.filter(
+    (x) => x.harness === winner && x.overall !== null && x.scores.hidden_tests === 1,
+  );
+  if (!solved.length) {
+    return {
+      ok: false,
+      reason: `no floor: no run by ${winner} passed the withheld suite, so nothing here shows what solving looks like`,
+    };
+  }
+  const floor = Math.min(...solved.map((x) => x.overall as number));
   return {
     ok: true,
-    floor: winner.min,
-    basis: `the lowest of ${winner.runs} runs by ${winner.harness} across ${winner.cases.length} cases`,
+    floor,
+    basis: `the lowest of ${solved.length} runs by ${winner} that passed the withheld suite`,
   };
 }
 
