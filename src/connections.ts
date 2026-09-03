@@ -121,10 +121,23 @@ export async function revokeConnection(
   pool: pg.Pool,
   slug: string,
   actor: string,
-): Promise<{ ok: boolean; localCredentialDestroyed: boolean; providerRevocation: string }> {
+  browsersRoot?: string,
+): Promise<{
+  ok: boolean;
+  localCredentialDestroyed: boolean;
+  /** Which project/domain pairs lost their stored cookies. */
+  sessionsCleared: { projectId: string; domain: string }[];
+  sessionsFailed: string[];
+  providerRevocation: string;
+}> {
   const c = (await pool.query<{ id: string; credential_id: string | null }>(
     `SELECT id, credential_id FROM connections WHERE slug = $1`, [slug])).rows[0];
-  if (!c) return { ok: false, localCredentialDestroyed: false, providerRevocation: "no such connection" };
+  if (!c) {
+    return {
+      ok: false, localCredentialDestroyed: false, sessionsCleared: [], sessionsFailed: [],
+      providerRevocation: "no such connection",
+    };
+  }
 
   let destroyed = false;
   if (c.credential_id) {
@@ -159,9 +172,22 @@ export async function revokeConnection(
     reason: destroyed ? "credential destroyed and connection disabled" : "connection disabled; it held no credential",
   });
 
+  /*
+   * The half that makes "I have removed Jarvis's access" true (S32).
+   *
+   * Destroying the password and leaving the cookie is the failure the plan
+   * names outright: the broker forgets a credential while the profile
+   * directory holds working access, and the row says revoked over a session
+   * that still logs in. The files go, and what went is reported.
+   */
+  const { clearSessionsForConnection } = await import("./browsersession.js");
+  const sessions = await clearSessionsForConnection(pool, slug, browsersRoot);
+
   return {
     ok: true,
     localCredentialDestroyed: destroyed,
+    sessionsCleared: sessions.cleared,
+    sessionsFailed: sessions.failed,
     providerRevocation:
       "not attempted: Jarvis destroyed its own copy and disabled the connection. "
       + "If the provider issued this key, revoke it there too - Jarvis cannot do that for a plain API key.",
