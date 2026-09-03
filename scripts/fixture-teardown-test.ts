@@ -148,7 +148,18 @@ async function main() {
     : bad(`it claims to have removed ${JSON.stringify(blocked.removed)}`);
 
   await pool.query(`DROP TRIGGER IF EXISTS teardown_block_no_delete ON teardown_block`);
-  await pool.query(`DELETE FROM teardown_block WHERE project_id = $1`, [pid3]);
+  /*
+   * And the table with it.
+   *
+   * This scaffolding was left standing in the dev database, where it looked
+   * exactly like a real table nobody had documented - which is how the
+   * DATA_MODEL check found it. A test that leaves furniture behind makes every
+   * later check of the schema report a fault that is really its own litter.
+   */
+  // The row goes with the table; deleting from it first would only matter if
+  // the table survived, and it does not.
+  await pool.query(`DROP TABLE IF EXISTS teardown_block`);
+  await pool.query(`DROP FUNCTION IF EXISTS teardown_block_refuse()`);
   await pool.query(`DELETE FROM auth_profile_allowlists WHERE project_id = $1`, [pid3]);
   await pool.query(`DELETE FROM projects WHERE id = $1`, [pid3]);
 
