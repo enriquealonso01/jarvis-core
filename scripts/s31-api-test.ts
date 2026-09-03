@@ -15,7 +15,7 @@
  * and that it is inert until classified like every other tool-bearing kind.
  */
 import { createPool } from "../src/db.js";
-import { invokeConnector } from "../src/connectors.js";
+import { invokeConnector, registerAdapter } from "../src/connectors.js";
 import { storeJsonCredential } from "../src/credentials.js";
 import { classifyTool, syncTools } from "../src/tools.js";
 
@@ -80,20 +80,48 @@ async function main(): Promise<void> {
   console.log("");
   console.log("3. the secret comes from the broker, and a caller cannot supply one");
   /*
-   * The assertion that matters. A caller passing its own `secret` must not be
-   * able to hand the adapter a credential of its choosing - the broker rebuilds
-   * the field from the connection's own credential_id rather than merging with
-   * whatever arrived. Asserted by watching the call still succeed with a
-   * deliberately wrong secret attached: if the caller's value were used, the
-   * adapter would send that instead.
+   * Asserted on what the adapter ACTUALLY RECEIVED, not on whether the call
+   * succeeded. My first version attached an attacker-supplied key and checked
+   * the request still worked - which /api/health would answer identically with
+   * any key or none, so it would have passed over a broker that merged the
+   * caller's value straight through. The property is about the value handed to
+   * the adapter, so that is what is inspected.
    */
-  const spoofed = await invokeConnector(pool, {
-    connectionSlug: SLUG, action: "health", projectId: pid,
+  const seen: (Record<string, string> | undefined)[] = [];
+  registerAdapter({
+    kind: "composio",
+    async declare() { return ["probe"]; },
+    async invoke(_conn, i) { seen.push(i.secret); return "probed"; },
+  });
+  const withCred = (await pool.query<{ id: string }>(
+    `INSERT INTO connections (slug, kind, scope, project_id, config, permitted_actions)
+     VALUES ($1,'composio','project',$2,$3,$4) RETURNING id`,
+    [`${SLUG}-probe`, pid,
+      JSON.stringify({ credential_id: cred.credentialId }), ["probe"]])).rows[0].id;
+  await syncTools(pool, withCred, [{ name: "probe", description: "Records what it was handed." }]);
+  await classifyTool(pool, { connectionId: withCred, name: "probe", level: 1, by: "enrique" });
+
+  await invokeConnector(pool, {
+    connectionSlug: `${SLUG}-probe`, action: "probe", projectId: pid,
     secret: { api_key: "attacker-supplied" },
   });
-  spoofed.ok
-    ? ok("a caller-supplied secret is discarded rather than merged")
-    : bad(`the call broke when a caller supplied a secret: ${!spoofed.ok ? spoofed.reason : ""}`);
+  seen[0]?.api_key === "s31-not-a-real-key-0000"
+    ? ok("the adapter was handed the broker's credential, not the caller's")
+    : bad(`the adapter received ${JSON.stringify(seen[0])}`);
+
+  const noCred = (await pool.query<{ id: string }>(
+    `INSERT INTO connections (slug, kind, scope, project_id, config, permitted_actions)
+     VALUES ($1,'composio','project',$2,'{}'::jsonb,$3) RETURNING id`,
+    [`${SLUG}-nocred`, pid, ["probe"]])).rows[0].id;
+  await syncTools(pool, noCred, [{ name: "probe", description: "Records what it was handed." }]);
+  await classifyTool(pool, { connectionId: noCred, name: "probe", level: 1, by: "enrique" });
+  await invokeConnector(pool, {
+    connectionSlug: `${SLUG}-nocred`, action: "probe", projectId: pid,
+    secret: { api_key: "attacker-supplied" },
+  });
+  seen[1] === undefined
+    ? ok("and a connection with no credential hands over nothing, rather than the caller's value")
+    : bad(`a caller's secret reached the adapter: ${JSON.stringify(seen[1])}`);
 
   const leaked = await pool.query<{ n: string }>(
     `SELECT count(*) AS n FROM audit_events
@@ -149,8 +177,8 @@ async function main(): Promise<void> {
     : bad(`a non-2xx came back as an answer: ${JSON.stringify(notFound).slice(0, 90)}`);
 
   await pool.query(`DELETE FROM audit_events WHERE project_id = ANY($1::uuid[])`, [[pid, other]]);
-  await pool.query(`DELETE FROM connection_tools WHERE connection_id = $1`, [connId]);
-  await pool.query(`DELETE FROM connections WHERE id = $1`, [connId]);
+  await pool.query(`DELETE FROM connection_tools WHERE connection_id = ANY($1::uuid[])`, [[connId, withCred, noCred]]);
+  await pool.query(`DELETE FROM connections WHERE id = ANY($1::uuid[])`, [[connId, withCred, noCred]]);
   await pool.query(`DELETE FROM credentials WHERE id = $1`, [cred.credentialId]);
   await pool.query(`DELETE FROM projects WHERE id = ANY($1::uuid[])`, [[pid, other]]);
 
