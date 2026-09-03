@@ -44,107 +44,122 @@ async function main(): Promise<void> {
   const memoriesBefore = Number((await pool.query<{ n: string }>(
     `SELECT count(*) AS n FROM memory_items`)).rows[0].n);
 
-  console.log("1. a scrape is filed as an artifact with a source");
-  const filed = await fileScrapeRun(pool, {
-    projectId: pid,
-    originUrl: "https://supplier.example.com/terms?page=1",
-    rows: [
-      { product: "Widget", note: "The delivery window for a bulk order is six weeks." },
-      { product: "Gadget", note: "Stocked items ship next day." },
-    ],
-    snapshots: [
-      { url: "https://supplier.example.com/terms?page=1", html: "<html><body>page one</body></html>" },
-      { url: "https://supplier.example.com/terms?page=2", html: "<html><body>page two</body></html>" },
-    ],
-    root,
-  });
-  filed.chunks > 0 ? ok(`the rows were indexed into ${filed.chunks} chunk(s)`) : bad("nothing was indexed");
-  filed.pageArtifactIds.length === 2
-    ? ok("and both raw pages were kept, so a wrong result is diagnosable without re-scraping")
-    : bad(`${filed.pageArtifactIds.length} pages kept`);
   /*
-   * Each page carries ITS OWN url. An artifact that says it came from the first
-   * page of a listing sends whoever is diagnosing page 37 to the wrong document.
+   * Teardown in a finally, not at the end.
+   *
+   * Two of the sabotage runs for this suite crashed partway - one of them after
+   * writing a memory_item - and left a fixture project behind, because cleanup
+   * sat after the last assertion and never ran. A leftover fixture is not
+   * untidiness here: Stage B routing re-homes an inbox event into a matching
+   * project, so it is a live routing target, and that has already cost this
+   * project most of an evening once.
    */
-  const pageOrigins = (await pool.query<{ origin_url: string }>(
-    `SELECT origin_url FROM artifacts WHERE id = ANY($1::uuid[]) ORDER BY path`,
-    [filed.pageArtifactIds])).rows.map((r) => r.origin_url);
-  pageOrigins[1]?.includes("page=2")
-    ? ok(`each page carries the url it came from, not the run's start: ${pageOrigins[1]}`)
-    : bad(`page origins are ${JSON.stringify(pageOrigins)}`);
-
-  console.log("");
-  console.log("2. and never as memory");
-  const memoriesAfter = Number((await pool.query<{ n: string }>(
-    `SELECT count(*) AS n FROM memory_items`)).rows[0].n);
-  memoriesAfter === memoriesBefore
-    ? ok(`the memory store is untouched (${memoriesBefore} before, ${memoriesAfter} after)`)
-    : bad(`a scrape wrote ${memoriesAfter - memoriesBefore} memory item(s) — the web became a belief`);
-
-  console.log("");
-  console.log("3. recall says who wrote it");
-  // Something he wrote, in the same project, answering the same question.
-  const his = (await pool.query<{ id: string }>(
-    `INSERT INTO artifacts (project_id, path, mime, quarantine_state)
-     VALUES ($1,$2,'text/markdown','clean') RETURNING id`,
-    [pid, `${pid}/my-notes.md`])).rows[0].id;
-  await ingestDocument(pool, {
-    projectId: pid, artifactId: his, kind: "prose",
-    text: "# Supplier notes\nI agreed the delivery window for a bulk order verbally at four weeks.",
-  });
-
-  const found = await retrieve(pool, { q: QUESTION, projectId: pid, limit: 10 });
-  const hits = found.tiers.find((t) => t.tier === "knowledge")?.hits ?? [];
-  const scraped = hits.find((h) => h.body.includes("six weeks"));
-  const mine = hits.find((h) => h.body.includes("four weeks"));
-  scraped && mine
-    ? ok("both answers come back for the same question")
-    : bad(`only got: ${hits.map((h) => h.citation).join(" | ")}`);
-  /*
-   * The requirement, asserted as the comparison it is. A pattern match on the
-   * host would pass over a system that put the host on everything.
-   */
-  scraped && mine && scraped.citation !== mine.citation
-    ? ok("and they do not render the same way")
-    : bad(`the two citations are identical: "${scraped?.citation}"`);
-  scraped?.citation.startsWith("a page on supplier.example.com")
-    ? ok(`the scraped one leads with the site: "${scraped.citation}"`)
-    : bad(`the scraped citation is "${scraped?.citation}"`);
-  mine && !mine.citation.includes("a page on")
-    ? ok(`while his own document is cited as a document: "${mine.citation}"`)
-    : bad(`his own note is cited as a page: "${mine?.citation}"`);
-
-  console.log("");
-  console.log("4. an origin is required, not optional");
-  /*
-   * An optional origin is one a caller forgets on the path that matters, and a
-   * scraped artifact without one cites exactly like something he wrote.
-   */
-  let refused = false;
   try {
-    await fileScrapeRun(pool, {
-      projectId: pid, originUrl: "", rows: [{ a: "b" }], snapshots: [], root,
+
+    console.log("1. a scrape is filed as an artifact with a source");
+    const filed = await fileScrapeRun(pool, {
+      projectId: pid,
+      originUrl: "https://supplier.example.com/terms?page=1",
+      rows: [
+        { product: "Widget", note: "The delivery window for a bulk order is six weeks." },
+        { product: "Gadget", note: "Stocked items ship next day." },
+      ],
+      snapshots: [
+        { url: "https://supplier.example.com/terms?page=1", html: "<html><body>page one</body></html>" },
+        { url: "https://supplier.example.com/terms?page=2", html: "<html><body>page two</body></html>" },
+      ],
+      root,
     });
-  } catch {
-    refused = true;
+    filed.chunks > 0 ? ok(`the rows were indexed into ${filed.chunks} chunk(s)`) : bad("nothing was indexed");
+    filed.pageArtifactIds.length === 2
+      ? ok("and both raw pages were kept, so a wrong result is diagnosable without re-scraping")
+      : bad(`${filed.pageArtifactIds.length} pages kept`);
+    /*
+     * Each page carries ITS OWN url. An artifact that says it came from the first
+     * page of a listing sends whoever is diagnosing page 37 to the wrong document.
+     */
+    const pageOrigins = (await pool.query<{ origin_url: string }>(
+      `SELECT origin_url FROM artifacts WHERE id = ANY($1::uuid[]) ORDER BY path`,
+      [filed.pageArtifactIds])).rows.map((r) => r.origin_url);
+    pageOrigins[1]?.includes("page=2")
+      ? ok(`each page carries the url it came from, not the run's start: ${pageOrigins[1]}`)
+      : bad(`page origins are ${JSON.stringify(pageOrigins)}`);
+
+    console.log("");
+    console.log("2. and never as memory");
+    const memoriesAfter = Number((await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM memory_items`)).rows[0].n);
+    memoriesAfter === memoriesBefore
+      ? ok(`the memory store is untouched (${memoriesBefore} before, ${memoriesAfter} after)`)
+      : bad(`a scrape wrote ${memoriesAfter - memoriesBefore} memory item(s) — the web became a belief`);
+
+    console.log("");
+    console.log("3. recall says who wrote it");
+    // Something he wrote, in the same project, answering the same question.
+    const his = (await pool.query<{ id: string }>(
+      `INSERT INTO artifacts (project_id, path, mime, quarantine_state)
+       VALUES ($1,$2,'text/markdown','clean') RETURNING id`,
+      [pid, `${pid}/my-notes.md`])).rows[0].id;
+    await ingestDocument(pool, {
+      projectId: pid, artifactId: his, kind: "prose",
+      text: "# Supplier notes\nI agreed the delivery window for a bulk order verbally at four weeks.",
+    });
+
+    const found = await retrieve(pool, { q: QUESTION, projectId: pid, limit: 10 });
+    const hits = found.tiers.find((t) => t.tier === "knowledge")?.hits ?? [];
+    const scraped = hits.find((h) => h.body.includes("six weeks"));
+    const mine = hits.find((h) => h.body.includes("four weeks"));
+    scraped && mine
+      ? ok("both answers come back for the same question")
+      : bad(`only got: ${hits.map((h) => h.citation).join(" | ")}`);
+    /*
+     * The requirement, asserted as the comparison it is. A pattern match on the
+     * host would pass over a system that put the host on everything.
+     */
+    scraped && mine && scraped.citation !== mine.citation
+      ? ok("and they do not render the same way")
+      : bad(`the two citations are identical: "${scraped?.citation}"`);
+    scraped?.citation.startsWith("a page on supplier.example.com")
+      ? ok(`the scraped one leads with the site: "${scraped.citation}"`)
+      : bad(`the scraped citation is "${scraped?.citation}"`);
+    mine && !mine.citation.includes("a page on")
+      ? ok(`while his own document is cited as a document: "${mine.citation}"`)
+      : bad(`his own note is cited as a page: "${mine?.citation}"`);
+
+    console.log("");
+    console.log("4. an origin is required, not optional");
+    /*
+     * An optional origin is one a caller forgets on the path that matters, and a
+     * scraped artifact without one cites exactly like something he wrote.
+     */
+    let refused = false;
+    try {
+      await fileScrapeRun(pool, {
+        projectId: pid, originUrl: "", rows: [{ a: "b" }], snapshots: [], root,
+      });
+    } catch {
+      refused = true;
+    }
+    refused
+      ? ok("filing a scrape with no origin is refused rather than defaulted")
+      : bad("a scrape was filed with no origin, and will cite like his own notes");
+
+    console.log("");
+    console.log("5. the pages are on disk, not just in a row");
+    const stored = (await pool.query<{ path: string }>(
+      `SELECT path FROM artifacts WHERE id = $1`, [filed.pageArtifactIds[0]])).rows[0];
+    const onDisk = await fs.readFile(path.join(root, stored.path), "utf8").catch(() => "");
+    onDisk.includes("page one")
+      ? ok("the page the site actually served is kept, which stops being knowable the moment it changes")
+      : bad("the raw page is not on disk");
+
+  } finally {
+    await pool.query(`DELETE FROM knowledge_chunks WHERE project_id = $1`, [pid]);
+    await pool.query(`DELETE FROM memory_items WHERE project_id = $1`, [pid]);
+    await pool.query(`DELETE FROM artifacts WHERE project_id = $1`, [pid]);
+    await pool.query(`DELETE FROM projects WHERE id = $1`, [pid]);
+    await fs.rm(root, { recursive: true, force: true });
   }
-  refused
-    ? ok("filing a scrape with no origin is refused rather than defaulted")
-    : bad("a scrape was filed with no origin, and will cite like his own notes");
-
-  console.log("");
-  console.log("5. the pages are on disk, not just in a row");
-  const stored = (await pool.query<{ path: string }>(
-    `SELECT path FROM artifacts WHERE id = $1`, [filed.pageArtifactIds[0]])).rows[0];
-  const onDisk = await fs.readFile(path.join(root, stored.path), "utf8").catch(() => "");
-  onDisk.includes("page one")
-    ? ok("the page the site actually served is kept, which stops being knowable the moment it changes")
-    : bad("the raw page is not on disk");
-
-  await pool.query(`DELETE FROM knowledge_chunks WHERE project_id = $1`, [pid]);
-  await pool.query(`DELETE FROM artifacts WHERE project_id = $1`, [pid]);
-  await pool.query(`DELETE FROM projects WHERE id = $1`, [pid]);
-  await fs.rm(root, { recursive: true, force: true });
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);
