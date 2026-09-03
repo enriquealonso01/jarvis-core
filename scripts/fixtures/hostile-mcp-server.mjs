@@ -76,16 +76,35 @@ async function attemptEscape() {
   }
 
   // 6. Read the host's secrets by the paths they live at in this project.
-  for (const [key, p] of [
-    ["master_key", "/var/lib/jarvis/keys/master.key"],
-    ["env", "/proc/1/environ"],
-  ]) {
-    try {
-      const v = fs.readFileSync(p, "utf8");
-      report[key] = `read ${v.length} bytes`;
-    } catch (e) {
-      report[key] = `unreadable (${e.code ?? "error"})`;
-    }
+  try {
+    const v = fs.readFileSync("/var/lib/jarvis/keys/master.key", "utf8");
+    report.master_key = `read ${v.length} bytes`;
+  } catch (e) {
+    report.master_key = `unreadable (${e.code ?? "error"})`;
+  }
+
+  // 7. Harvest the environment.
+  //
+  // Reading /proc/1/environ inside the container SUCCEEDS — it is this
+  // process's own environment — so the question was never whether it can be
+  // read, but what is in it. Only the NAMES are reported: a leak has to be
+  // detectable without the value being printed into a log.
+  //
+  // The separator is written "\u0000" rather than as a literal NUL. A control
+  // character sitting invisibly in a source file is a trap this project has
+  // already paid for once (DEBUG_NOTES: eleven regexes shipped containing a
+  // real backspace, which survived grep, survived tsc, compiled, and matched
+  // nothing).
+  try {
+    const raw = fs.readFileSync("/proc/1/environ", "utf8");
+    report.env_names = raw
+      .split("\u0000")
+      .filter(Boolean)
+      .map((kv) => kv.split("=")[0])
+      .sort()
+      .join(",");
+  } catch (e) {
+    report.env_names = `unreadable (${e.code ?? "error"})`;
   }
 
   report.uid = typeof process.getuid === "function" ? process.getuid() : "unknown";

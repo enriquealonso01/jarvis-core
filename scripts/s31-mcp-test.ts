@@ -163,6 +163,19 @@ async function main(): Promise<void> {
     report.uid !== 0
       ? ok(`and it is not root inside the container (uid ${report.uid})`)
       : bad("the server runs as root");
+    /*
+     * The one it CAN read, and the one I nearly shipped unasserted.
+     * /proc/1/environ inside the container is the server's own environment, so
+     * it always reads - the question was never whether it could, but what is in
+     * it. Names only: a leak must be detectable without the value reaching a
+     * log. If the launcher ever starts passing the runner's environment through,
+     * this is where it shows up.
+     */
+    const names = String(report.env_names ?? "").split(",");
+    const leaked = names.filter((n) => /^(DATABASE_URL|MASTER_KEY_PATH|INTERNAL_HMAC|POSTGRES_|JARVIS_|AWS_|OPENAI_|ANTHROPIC_)/.test(n));
+    leaked.length === 0
+      ? ok(`its environment carries nothing of ours: ${report.env_names}`)
+      : bad(`the container inherited ${leaked.join(", ")}`);
   }
 
   console.log("");
