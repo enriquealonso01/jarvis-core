@@ -109,9 +109,21 @@ async function main(): Promise<void> {
   console.log(`  task ${taskId}, runtime=${RUNTIME}`);
   const state = await waitForTask(taskId, 2400);
 
-  const row = await pool.query<{ branch: string | null; pr_number: number | null }>(
-    "SELECT branch, pr_number FROM tasks WHERE id = $1", [taskId]);
+  const row = await pool.query<{
+    branch: string | null; pr_number: number | null; waiting_reason: string | null;
+  }>("SELECT branch, pr_number, waiting_reason FROM tasks WHERE id = $1", [taskId]);
   const branch = row.rows[0]?.branch ?? null;
+  /*
+   * Why it stopped, kept with the score.
+   *
+   * The teardown deletes the task, so a row saying "codex 0.65" survives while
+   * the reason it scored that does not. The first two-engine comparison was
+   * unreadable within minutes: codex lost a point for opening no pull request,
+   * and whether that was engineering or the known push problem could no longer
+   * be established from anything left behind.
+   */
+  const reason = row.rows[0]?.waiting_reason ?? null;
+  if (reason) console.log(`  reason: ${reason.slice(0, 160)}`);
 
   /*
    * Score against what the agent produced, on its own branch.
@@ -192,7 +204,7 @@ async function main(): Promise<void> {
     await pool.query(
       `INSERT INTO benchmarks (model_registry_id, harness, suite, scores)
        VALUES ($1, $2, $3, $4)`,
-      [reg.rows[0].id, RUNTIME, c.id, JSON.stringify({ ...scored, state, evidence })]);
+      [reg.rows[0].id, RUNTIME, c.id, JSON.stringify({ ...scored, state, reason, evidence })]);
   }
 
   console.log(`  state=${state} hidden=${hidden} own=${own} redGreen=${redGreen} files=${changed.length}`);
