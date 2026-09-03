@@ -41,6 +41,32 @@ for arg in "$@"; do
   esac
 done
 
+# Refuse to ship what is not in git.
+#
+# This script packs the WORKING TREE, not a git ref - deliberately, because the
+# image build context is what is on disk. The cost of that showed up on
+# 2026-09-03: `migrations/045_outbox_dropped.sql` was an untracked file left in
+# a working tree, every deploy tarred it, and the API applied it. Production
+# ended up carrying a migration that exists in no branch and no commit, and the
+# only copy was on one laptop. Two more - 041_connection_actions and
+# 042_mcp_tools - arrived the same way from a feature branch that was never
+# merged, leaving two tables on the box that no code in main references.
+#
+# migrations/ is the dangerous directory because applying one is irreversible in
+# practice: the row persists, the table persists, and a later deploy from main
+# neither notices nor undoes it. So this fails closed there and only there.
+# Everything else may legitimately differ while iterating.
+dirty_migrations="$(git status --porcelain -- migrations/ 2>/dev/null || true)"
+if [ -n "$dirty_migrations" ] && [ "${DEPLOY_ALLOW_DIRTY_MIGRATIONS:-0}" != "1" ]; then
+  echo "refusing to deploy: migrations/ has changes that are not committed" >&2
+  echo "$dirty_migrations" >&2
+  echo >&2
+  echo "A migration reaches production the moment it is packed, and applying it" >&2
+  echo "cannot be undone by deploying main again. Commit it, or move it out of" >&2
+  echo "the tree. Set DEPLOY_ALLOW_DIRTY_MIGRATIONS=1 only if you mean it." >&2
+  exit 1
+fi
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
