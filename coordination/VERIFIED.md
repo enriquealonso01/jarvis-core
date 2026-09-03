@@ -118,6 +118,15 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - **Verified on the box, not just in dev**, because that fix changed real behaviour: the audit row now lands just after `COMMIT` rather than inside the transaction. Deployed, then `POST /api/projects/jarvis-proof-01/deploy-key` still returns 404/200 with an `apiCredentialId`, and a fresh provision against a project with no credential produced exactly **1** `github.api_credential.provision` row. The trade-off is named in the commit rather than hidden: `audit()` takes the pool, never throws and logs loudly, so the failure mode is a logged missing audit row instead of a lost credential.
   - **A gotcha for whoever runs these next:** the suites read source from *inside the runner image*. After changing `src/`, `docker compose --profile tools build runner` — otherwise the ratchet keeps counting the old file and the fix looks like it did nothing. That cost one confused re-run.
 
+- **2026-09-03 — S12b item 5: the harness cannot reach Jarvis, proved at the network layer. 14/14 on the box.** `scripts/s12b-egress-live.ts`, run on the host as the `jarvis` user, through the *same* wrapper the runner spawns the harness with rather than a copy of it. It needs `unshare` and `slirp4netns` and a real Jarvis to fail to reach, so it cannot be faked in a dev stack.
+  - Refused **at the network layer**, not by application logic — `000REFUSED`, not a 403: `/internal/*`, Postgres, the API container direct on the Docker network (172.18.0.3), the host through slirp's alias, and the Docker socket. The runner's user is confirmed not in the `docker` group.
+  - What makes it worth trusting is the controls: the same addresses **do** answer 200 from the host, and Postgres really is listening. So the refusals are containment rather than a broken probe — an all-refused result with no control would prove nothing.
+
+- **2026-09-03 — Operational: the host runner was running stale code, and I put it there.** Caught by comparing timestamps rather than by anything failing.
+  - `jarvis-runner` had started 18:21 CEST while `/opt/jarvis/core/dist/runner.js` was rebuilt at 19:08 — 47 minutes of drift. Cause: I had used `scripts/deploy-core.sh --no-runner` repeatedly (correctly, to avoid killing work in flight) and then not come back to restart it. The flag exists for a real reason; forgetting the second half is the failure mode it creates.
+  - Restarted with nothing in flight (`0` tasks `running`/`preparing`/`claimed`), and confirmed by timestamp rather than by assumption: runner now starts 19:11:08, ahead of the 19:08:13 build.
+  - **Standing rule for this session:** after any `--no-runner` deploy, either restart the runner before finishing or record that it is deliberately deferred. A process holding old code in memory is exactly the class of bug this project keeps finding, and it is invisible unless the timestamps are compared.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 1. **No engine is allowlisted for a project onboarded through the API — the front door's last gate.** Found by the end-to-end run above, 2026-09-03, and not previously on any list.
