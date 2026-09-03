@@ -16,7 +16,8 @@
  * cost of acting on noise is paid by every task that routes afterwards.
  */
 import { createPool } from "../src/db.js";
-import { rankBySolving, routeOrderFrom, type BenchRow } from "../src/ranking.js";
+import { readdirSync } from "node:fs";
+import { comparableRuns, rankBySolving, routeOrderFrom, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
 const WRITE = process.argv.includes("--write");
@@ -25,16 +26,30 @@ const WRITE = process.argv.includes("--write");
 const ENGINE_FOR: Record<string, string> = { claude_code: "claude", codex: "codex" };
 
 async function main(): Promise<void> {
-  const b = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown> }>(
-    `SELECT harness, suite, scores FROM benchmarks
+  const b = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown>; ran_at: Date }>(
+    `SELECT harness, suite, scores, ran_at FROM benchmarks
       WHERE scores->>'invalid' IS NULL AND harness IN ('claude','codex')`,
   );
-  const rows: BenchRow[] = b.rows.map((x) => ({
+  const all: BenchRow[] = b.rows.map((x) => ({
     harness: x.harness,
     suite: x.suite,
     overall: x.scores.overall === null || x.scores.overall === undefined ? null : Number(x.scores.overall),
     scores: (x.scores.scores ?? {}) as Record<string, number | null>,
+    ranAt: x.ran_at,
   }));
+
+  /*
+   * Only runs that faced the corpus as it stands. This is the difference
+   * between deciding and being talked into it: pooled over every era the
+   * ranking certifies at 2.6 standard errors, but nearly all of that margin
+   * comes from early runs made while harness defects, since fixed, were costing
+   * the trailing engine points. Routing must not be reordered by a defect we
+   * already repaired.
+   */
+  const corpus = readdirSync("benchmarks/cases", { withFileTypes: true })
+    .filter((d) => d.isDirectory()).map((d) => d.name);
+  const rows = comparableRuns(all, corpus);
+  console.log(`${rows.length} of ${all.length} runs faced the current ${corpus.length}-case corpus`);
 
   /*
    * Ranked by how often each engine SOLVES, not by its average score.

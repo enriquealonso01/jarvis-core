@@ -17,7 +17,8 @@
  * keeps the mistake legible next to the corrected result.
  */
 import { createPool } from "../src/db.js";
-import { proposeFloor, rank, summarise, type BenchRow } from "../src/ranking.js";
+import { readdirSync } from "node:fs";
+import { comparableRuns, proposeFloor, rank, summarise, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
 
@@ -61,17 +62,26 @@ async function invalidateDefectiveRuns(): Promise<void> {
 async function main(): Promise<void> {
   if (process.argv.includes("--invalidate")) await invalidateDefectiveRuns();
 
-  const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown> }>(
-    `SELECT harness, suite, scores FROM benchmarks
+  const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown>; ran_at: Date }>(
+    `SELECT harness, suite, scores, ran_at FROM benchmarks
       WHERE scores->>'invalid' IS NULL AND harness IN ('claude','codex')
       ORDER BY ran_at`,
   );
-  const rows: BenchRow[] = r.rows.map((x) => ({
+  const all: BenchRow[] = r.rows.map((x) => ({
     harness: x.harness,
     suite: x.suite,
     overall: x.scores.overall === null || x.scores.overall === undefined ? null : Number(x.scores.overall),
     scores: (x.scores.scores ?? {}) as Record<string, number | null>,
+    ranAt: x.ran_at,
   }));
+
+  // Same window as the ranking and the route derivation: a floor derived from
+  // a corpus that no longer exists would gate today's work on yesterday's.
+  const corpus = readdirSync("benchmarks/cases", { withFileTypes: true })
+    .filter((d) => d.isDirectory()).map((d) => d.name);
+  const rows = comparableRuns(all, corpus);
+  console.log(`${rows.length} of ${all.length} runs faced the current ${corpus.length}-case corpus`);
+  console.log("");
   console.log(`${rows.length} valid runs`);
   console.log("");
 

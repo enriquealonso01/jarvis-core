@@ -11,21 +11,36 @@
  * sampling error a mean quietly hides.
  */
 import { createPool } from "../src/db.js";
-import { rank, rankBySolving, type BenchRow } from "../src/ranking.js";
+import { readdirSync } from "node:fs";
+import { rank, rankBySolving, comparableRuns, type BenchRow } from "../src/ranking.js";
 
 const pool = createPool();
 
 async function main(): Promise<void> {
-  const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown> }>(
-    `SELECT harness, suite, scores FROM benchmarks
+  const r = await pool.query<{ harness: string; suite: string; scores: Record<string, unknown>; ran_at: Date }>(
+    `SELECT harness, suite, scores, ran_at FROM benchmarks
       WHERE scores->>'invalid' IS NULL AND harness IN ('claude','codex') ORDER BY ran_at`,
   );
-  const rows: BenchRow[] = r.rows.map((x) => ({
+  const all: BenchRow[] = r.rows.map((x) => ({
     harness: x.harness,
     suite: x.suite,
     overall: x.scores.overall === null || x.scores.overall === undefined ? null : Number(x.scores.overall),
     scores: (x.scores.scores ?? {}) as Record<string, number | null>,
+    ranAt: x.ran_at,
   }));
+
+  /*
+   * Rank only the runs that faced the corpus as it stands now. Pooling every
+   * run ever recorded is what made this script certify a result whose margin
+   * came almost entirely from an era of fixed harness defects; see
+   * `comparableRuns`. Reported rather than applied silently - a window that
+   * quietly discards two thirds of the evidence has to say so.
+   */
+  const corpus = readdirSync("benchmarks/cases", { withFileTypes: true })
+    .filter((d) => d.isDirectory()).map((d) => d.name);
+  const rows = comparableRuns(all, corpus);
+  console.log(`${rows.length} of ${all.length} runs faced the current ${corpus.length}-case corpus`);
+  console.log("");
 
   const byMean = rank(rows);
   console.log(`by mean score: ${byMean.ok ? `${byMean.winner} by ${byMean.margin.toFixed(3)}` : `no ranking (${byMean.reason})`}`);
