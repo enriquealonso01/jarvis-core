@@ -126,14 +126,40 @@ export function desktopAccess(args: {
   const relative = path.relative(args.home, resolved).split(path.sep).join("/");
 
   /*
+   * The never-list is matched case-insensitively, and on both separators.
+   *
+   * The comment above `NEVER_READ_PATHS` says a check on the string as typed is
+   * "a check somebody can walk around with two dots". Case is the same walk one
+   * layer up: `path.resolve` normalises the dots and leaves the letters, so
+   * `~/.SSH/id_rsa` resolved cleanly past a list spelled `.ssh` and came back
+   * `allowed: true`. On Linux that is genuinely a different directory - but this
+   * decision is made ON THE WORKSTATION, and his workstation is Windows, where
+   * `.SSH` and `.ssh` are one directory holding one key. macOS is the same by
+   * default.
+   *
+   * So this refuses both spellings everywhere. On a case-sensitive filesystem
+   * that over-refuses a `~/.SSH` nobody has; the other way round it hands over a
+   * key on the machine the file was written for. Only one of those two errors is
+   * survivable, and it is not the interesting one.
+   *
+   * Backslashes are folded for the same reason: a Windows-shaped path string
+   * evaluated by a POSIX `path` module keeps `\` as an ordinary character, so
+   * `.ssh\id_rsa` is one filename that matches no entry. The plan puts this
+   * check on the workstation, where that cannot happen - this costs nothing and
+   * stops it being true only for as long as that stays so.
+   */
+  const needle = relative.split("\\").join("/").toLowerCase();
+
+  /*
    * FIRST, and deliberately before anything a project can declare. The plan's
    * credential test requires that these refusals are "none of them by an
    * allowlist entry that could be added later" - so an allowlist entry naming
    * ~/.ssh changes nothing here.
    */
-  const never = NEVER_READ_PATHS.find(
-    (p) => relative === p || relative.startsWith(`${p}/`),
-  );
+  const never = NEVER_READ_PATHS.find((p) => {
+    const entry = p.toLowerCase();
+    return needle === entry || needle.startsWith(`${entry}/`);
+  });
   if (never) {
     return {
       allowed: false,
@@ -195,6 +221,69 @@ export function facilityAccess(facility: string): AccessDecision {
  * PATH and HOME are supplied because a command with neither does not run; they
  * are constructed values, not inherited ones.
  */
+/**
+ * Variables a project may not declare, whatever it declares.
+ *
+ * TWO FAILURES, AND THE SECOND ONE IS THE FILE ARGUING WITH ITSELF.
+ *
+ * The first is case. The guard was `k === "HOME" || k === "PATH"`, and the
+ * environment block above these two is `Record<string, string>` — so a declared
+ * `Path` sailed through, and on Windows, which is what his workstation is,
+ * `Path` IS `PATH`. The constructed value was overwritten by the declared one
+ * on the exact platform the file was written about. Hence `.toUpperCase()`.
+ *
+ * The second is the shape of the guard. The doc comment on this function is
+ * emphatic that his environment minus a denylist is the wrong construction —
+ * "a denylist here is a list of the variables somebody remembered" — and then
+ * the filter on the DECLARED side was a denylist of two. The stated reason for
+ * blocking PATH is that "a declared PATH is how a project points a command at a
+ * binary of its own choosing", and every variable below does precisely that
+ * under a different name: `LD_PRELOAD` loads a library into any process,
+ * `NODE_OPTIONS` requires a file into every node, `BASH_ENV` sources a script
+ * into every non-interactive shell, `GIT_SSH_COMMAND` replaces ssh outright.
+ * Blocking PATH and admitting these is blocking the front door.
+ *
+ * AND THIS LIST IS STILL A LIST, which is the criticism this file makes of
+ * denylists and it does not stop being true here. The difference from the
+ * environment case is that there the alternative existed and was taken — build
+ * the environment instead of subtracting from it — while here it does not: a
+ * project declares variables of its own naming, so there is no set of permitted
+ * names to enumerate. What can be done is to say plainly that this is a list
+ * that will be incomplete, and to keep the constructed values authoritative
+ * whatever it misses, which the `.toUpperCase()` above now does.
+ */
+export const NEVER_DECLARABLE = new Set([
+  // The constructed two. Nothing declared may reintroduce them, in any casing.
+  "HOME",
+  "PATH",
+  // Point the dynamic loader at code.
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "LD_AUDIT",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  // Point an interpreter at code.
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "ENV",
+  "SHELLOPTS",
+  "PYTHONSTARTUP",
+  "PYTHONPATH",
+  "PERL5OPT",
+  "PERL5LIB",
+  "RUBYOPT",
+  // Replace a program a command shells out to.
+  "GIT_SSH_COMMAND",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_PAGER",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  // Windows: what counts as executable, and where the loader looks first.
+  "PATHEXT",
+  "COMSPEC",
+]);
+
 export function constructEnvironment(args: {
   declared: Record<string, string>;
   home: string;
@@ -205,12 +294,7 @@ export function constructEnvironment(args: {
     PATH: args.binPath ?? "/usr/local/bin:/usr/bin:/bin",
   };
   for (const [k, v] of Object.entries(args.declared)) {
-    /*
-     * A declared variable cannot re-introduce the two constructed ones. Letting
-     * it would make PATH declarable, and a declared PATH is how a project points
-     * a command at a binary of its own choosing.
-     */
-    if (k === "HOME" || k === "PATH") continue;
+    if (NEVER_DECLARABLE.has(k.toUpperCase())) continue;
     env[k] = v;
   }
   return env;
