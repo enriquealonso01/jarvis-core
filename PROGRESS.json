@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T21:57:05Z",
-  "current_step": "S44",
+  "updated_at": "2026-09-03T22:05:56Z",
+  "current_step": "S45",
   "steps": [
     {
       "id": "S1",
@@ -363,7 +363,8 @@
       "id": "S45",
       "title": "System work is not a project",
       "stage": 9,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "HIS PROJECTS VIEW WAS CONTAMINATED AND SORTED THE HOUSEKEEPING FIRST. /api/projects returned every row including jarvis-improvement and jarvis-maintenance, with ORDER BY p.is_system DESC putting them at the top - exactly what ADR 012 caused and S45 revises. The endpoint now defaults to his portfolio; ?scope=system is the console's own maintenance area and ?scope=all is for anything that wants both. FILTERED ON project_type, NEVER ON A SLUG. The Debug note names the failure and its cause together - 'name-based filters break the first time something is renamed' - so the suite RENAMES a system project mid-run, slug and name, and requires it to stay out. A filter matching 'jarvis-' passes every other assertion in the suite and fails that one; sabotage 2 is exactly that filter and goes red. An absent or unrecognised scope falls back to the portfolio rather than to 'all', because a typo should not repopulate the view. TAXONOMY, NOT PERMISSIONS - which is the thing most likely to be broken while doing it, since it would be easy to tidy the boundary during a relabelling. The isolation assertion runs against the REAL checkConnectionAccess rather than restating the rule, because a restatement would pass while the rule itself had been changed, and it is asserted in both directions: the system project is denied and the owning project is not, so the rule did not simply get stricter. IS_SYSTEM AND PROJECT_TYPE ARE TWO RECORDS OF ONE FACT. Pre-existing, not introduced here, but they drift silently and the failure is that one query filters on the boolean and another on the type, so system work reappears in exactly half the places. Asserted to agree. scripts/s45-system-scope-test.ts, 18 assertions, green. Sabotaged ten ways, all red - TWO CAME BACK GREEN FIRST TIME AND BOTH WERE MY OWN WEAK TESTS. markersDisagree returning an empty list is indistinguishable from nothing having been looked at, so the suite now MANUFACTURES a disagreement and requires the detector to find it, then clears it. And 'it reports on system work only' was asserting the absence of something that was never there - there was no task in a real project for a leak to show up in; there is now. Three fixture errors on the way in were the schema refusing invented vocabulary: connections.scope is NOT NULL, tasks has no description column, and 'done' and 'build' are not in the state and lane CHECK constraints. The constraints are the authority and a fixture inventing its own vocabulary is a test passing against a schema nobody has. NOT BUILT: the console's own system/maintenance area is jarvis-control-center work, a different repo - and note the API change means the console must now pass ?scope=system to see maintenance at all. Nothing routes 'requests about Jarvis itself with no project named' to system scope yet (Note 004), and no conversational path calls systemActivity."
     },
     {
       "id": "S46",
@@ -393,5 +394,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S44's decision layer built: the capability form is derived from requirements so a core change cannot be dressed as a plugin, the estimate is mandatory, a new provider is a recommendation, and a homegrown tool gets S31's classification before it is callable. A repo-wide control-character guard now catches the eaten-escape trap that has bitten four times. NOT built: nothing calls proposeCapability, and no capability has been built and attached end to end. Next: S45."
+  "working_on": "S45 built: the Projects view excludes system work by scope rather than by name, the isolation boundary is asserted against the real check in both directions, and 'what has maintenance been doing?' answers with specifics. HEADS-UP FOR THE CONSOLE REPO: /api/projects now defaults to his portfolio, so jarvis-control-center must pass ?scope=system for its maintenance area. NOT built: that console area, and routing project-less requests about Jarvis itself to system scope. Next: S46."
 }

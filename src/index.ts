@@ -22,6 +22,7 @@ import { connectionExtras, registerConnectionRoutes } from "./connections.js";
 import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } from "./blockers.js";
 import { ceilings, readQuota } from "./quota.js";
 import type { RawRequest } from "./hmac.js";
+import { scopeFrom, whereForScope } from "./systemscope.js";
 
 const pool = createPool();
 
@@ -248,6 +249,14 @@ async function main() {
   app.get("/api/projects", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;
+    /*
+     * S45: "Projects views, counts, and pickers exclude system work by default."
+     * The default is his portfolio; ?scope=system is the console's own
+     * maintenance area and ?scope=all is for anything that genuinely wants both.
+     * Filtered on the TYPE, never on the slug - the Debug note is specific that
+     * name-based filters break the first time something is renamed.
+     */
+    const scope = scopeFrom((req.query as { scope?: unknown } | undefined)?.scope);
     const r = await pool.query(
       `SELECT p.id, p.slug, p.name, p.is_system, p.project_type, p.confidentiality,
               p.production_status, p.customer_facing, p.github_owner, p.github_repo,
@@ -285,10 +294,10 @@ async function main() {
                 COALESCE((SELECT max(t.updated_at) FROM tasks t WHERE t.project_id = p.id), p.created_at)
               ) AS last_activity_at
        FROM projects p
-       WHERE p.archived_at IS NULL
-       ORDER BY p.is_system DESC, p.name`,
+       WHERE p.archived_at IS NULL AND ${whereForScope(scope)}
+       ORDER BY p.name`,
     );
-    return { projects: r.rows };
+    return { projects: r.rows, scope };
   });
 
   app.get("/api/conversations", async (req, reply) => {
