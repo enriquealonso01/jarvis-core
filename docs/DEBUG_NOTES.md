@@ -24,6 +24,11 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [The sweep certified images, not the tree](#the-sweep-certified-images-not-the-tree)
+- [An average over two clusters describes neither](#an-average-over-two-clusters-describes-neither)
+- [The fetch that decided the worktree base had no credential](#the-fetch-that-decided-the-worktree-base-had-no-credential)
+- [A guard the law demands, that would have broken production](#a-guard-the-law-demands-that-would-have-broken-production)
+- [A test that left furniture in the database](#a-test-that-left-furniture-in-the-database)
 - [An agent told to do the one thing it has no credential for](#an-agent-told-to-do-the-one-thing-it-has-no-credential-for)
 - [A benchmark that scored its own paperwork](#a-benchmark-that-scored-its-own-paperwork)
 - [Two engines, four different reasons the same task could not finish](#two-engines-four-different-reasons-the-same-task-could-not-finish)
@@ -114,7 +119,6 @@ is two or three entries, and it is where the time is actually saved.
 - [One open connection stopped every one-shot runner from exiting](#one-open-connection-stopped-every-one-shot-runner-from-exiting)
 - [The offline switch does not apply to localhost](#the-offline-switch-does-not-apply-to-localhost)
 - [A test left one row behind, and the seed died half-done](#a-test-left-one-row-behind-and-the-seed-died-half-done)
-- [`pnpm build` on the host half-succeeded for days, and nobody noticed](#pnpm-build-on-the-host-half-succeeded-for-days-and-nobody-noticed)
 
 **Process**
 - [Thirty-one overnight ticks produced no progress on the thing that mattered](#thirty-one-overnight-ticks-produced-no-progress-on-the-thing-that-mattered)
@@ -235,6 +239,104 @@ subject did not choose. Ours scored obedience to our own instructions, our own
 directory layout, and our own guess about where tests live. And when successive
 corrections all move the same contestant up, stop and say so out loud - the
 next tempting fix is the one to leave alone.
+
+### The sweep certified images, not the tree
+
+**Symptom:** `progress-endpoint-test` reported two failures - the served
+PROGRESS.json disagreed with the file on updated_at and plan_sha - which read
+as a regression in the build bar. After `dev-rebuild.sh api` it passed 13 of 13
+with no code change at all.
+**Cause:** the dev images BAKE the source, and `sweep.sh` did not rebuild. So a
+sweep reported on whatever was last built rather than on what is in the tree.
+`dev-rebuild.sh` exists precisely to stop that and says so in its own header -
+*"a green result from a stale image is worse than a red one"* - and the one
+place that check was missing was the sweep, which is the thing that certifies
+everything else.
+**Fix:** the sweep builds `api runner seed` first and refuses to run if the
+build fails. `SWEEP_SKIP_BUILD=1` for the genuinely wasteful case.
+**The second half of the same audit:** thirteen suites were neither in the sweep
+nor in its exclusion list - about 230 assertions, including project onboarding
+(59) and configuration by conversation (85), passing where nobody would see
+them. Eleven were dev-safe and are now in it; two are excluded with reasons.
+**Lesson:** when a check that guards against staleness exists, ask whether the
+check itself is subject to it. And keep the "excluded, and why" list mechanical:
+a suite left out for no recorded reason is one nobody ever puts back.
+
+### An average over two clusters describes neither
+
+**Symptom:** the benchmark ranked claude 0.85 to codex 0.75 and the ordering
+would not reproduce between passes. Adding cases made the gap SMALLER, not
+larger, which is the opposite of what more evidence is supposed to do.
+**Cause:** the score distribution is bimodal and cleanly so. A run that passes
+the withheld suite scores 0.96 to 1.00; one that fails it scores 0.67 to 0.74;
+across 22 runs nothing landed between. So the mean was not measuring quality, it
+was measuring the MIX - how often each engine lands in the solving cluster -
+and reporting it as a decimal that invites comparison against a threshold.
+**What the right statistic showed:** by solve rate, claude 7/12 and codex 3/10.
+A 28-point gap, which sounds decisive and is not: 1.39 standard errors at those
+sample sizes. The mean-based band of 0.072 had been eyeballed from observed
+spread; the standard error is computed, and it says the suite cannot yet tell
+the two apart, and that about 23 runs per engine would settle it.
+**The second bug the same shape hid:** the FLOOR was derived as "the winner's
+worst run", which given bimodality is a run that did NOT solve the problem - so
+it sat 0.009 above a scripted fraud that fixed nothing. A floor that admits work
+indistinguishable from fluent fraud is not a floor. It comes from runs that
+passed the withheld suite now.
+**Lesson:** look at the distribution before choosing the summary. A mean is a
+claim that the data has one centre.
+
+### The fetch that decided the worktree base had no credential
+
+**Symptom:** `worktree base: fetch of origin/main failed; using the local main`
+in the log of every single heavy run, for weeks. Read as background noise
+because the fallback worked.
+**Cause:** the runner has its own `git()` helper that spawns with no environment
+of its own - no `GIT_SSH_COMMAND`, so no deploy key. Against a private
+repository that cannot succeed. Proved before fixing, same directory, same
+command: `Permission denied (publickey)` without the key, success with it.
+**Why it looked harmless, which is the interesting part:** the fallback cuts the
+worktree from the LOCAL branch, and for benchmark runs that is correct - they
+force-push a seed and reset the checkout to match, so local and remote agree. On
+a real project they do not, and the run silently engineers against whatever was
+last cloned. That is the exact failure the fallback was written to prevent,
+after codex once opened a checkout holding only README.md and correctly reported
+the bug was not reproducible.
+**Lesson:** a fallback that works around a broken thing hides the broken thing.
+When a warning fires on EVERY run, it is either wrong or important; either way
+it is not noise.
+
+### A guard the law demands, that would have broken production
+
+**Symptom:** `STATE_MACHINES.md` says *"illegal transitions are API 409 +
+audit"*, and `transitionTask` writes any transition without checking. An obvious
+gap with an obvious fix.
+**What measuring first showed:** of 2627 transitions this system has recorded,
+2576 are drawn by the document and 51 are not - including 37 cancellations of
+QUEUED tasks. The document draws cancel from running, paused and waiting_* and
+simply never drew it from the queue. A 409 guard added blind would have refused
+37 legitimate cancellations to satisfy a document.
+**Resolution:** the conformance suite reports drift and fails on anything new;
+the six shapes are in BLOCKED.md for a ruling, because the document is read-only
+law and the code is doing the sensible thing. Five look like the document never
+drew ordinary behaviour; `queued -> succeeded` is the one that needs explaining.
+**Lesson:** before enforcing a rule that has never been enforced, count what
+would have violated it. A law with no enforcement has been quietly defining
+itself by practice, and the practice may be right.
+
+### A test that left furniture in the database
+
+**Symptom:** a new check comparing DATA_MODEL.md against the live schema
+reported `teardown_block` as an undocumented table. It looked exactly like a
+real table somebody forgot to write up.
+**Cause:** `fixture-teardown-test.ts` creates that table and a trigger to prove
+the teardown rolls back when it genuinely cannot delete something, and never
+dropped either. It sat in the dev database looking like production schema.
+**Fix:** the test drops its own scaffolding. Removing it also exposed a second
+bug - a later line still deleted rows from the table it had just dropped.
+**Lesson:** a test that leaves furniture behind makes every later check of the
+same surface report a fault that is really its own litter. It is worth being
+strict about this in exactly the places where checks are cheap, because that is
+where the litter accumulates unnoticed.
 
 ### An agent told to do the one thing it has no credential for
 **Symptom:** Codex would reproduce a bug, fix it, write a regression test, run
