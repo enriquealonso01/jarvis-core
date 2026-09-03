@@ -80,6 +80,12 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - Both rows now come from one probe of the gateway. Paired-and-dead has its own state rather than being folded into the allowlist answer, because never-paired is a setup step and paired-and-dead is an outage.
   - **Backlog note:** this makes the outage *visible*. It does not yet page anyone — nothing periodically reads this and raises an issue. That is a smaller, separate piece of work and it is not claimed here.
 
+- **2026-09-03 — S13 and S13b (the console and the build bar), 16/16 across three live suites on the box.** These were already `done` in PROGRESS.json and had never been checked by a Tester against the running system — which is the exact shape of the failure this project exists to stop, so `done` steps are worth re-proving, not just the ones awaiting verification.
+  - `tests/s13b-progress-live.sh` — what is served **is** what is published (`total_steps 51` matches `origin/main`), `BLOCKED.md` comes back as the file rather than the SPA, a publish needs no restart or rebuild, and — the one that matters — **a code deploy does not revert the bar**: a write into the deploy tree was ignored and the API was never restarted. That regression once had Enrique reading "S28 of 40" for a day.
+  - `tests/s13b-publish-live.sh` — `jarvis-progress-publish.timer` is active *and* scheduled to fire again, the published file carries the full step list and the console is served the same count, and **a publish that cannot parse leaves the good file alone**: feeding it non-JSON exits non-zero and the previously published file is untouched.
+  - `tests/s13-console-owner-live.sh` — the export tarball really does carry the Windows uid (`Enrique/197609`), and after a deploy into a scratch target **no file is owned by that phantom uid**, the published files belong to a user that actually exists, and nothing under `/opt/jarvis` carries it either.
+  - All three ran from this machine against the live box over SSH and HTTPS, and each restored what it touched.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 1. **No engine is allowlisted for a project onboarded through the API — the front door's last gate.** Found by the end-to-end run above, 2026-09-03, and not previously on any list.
