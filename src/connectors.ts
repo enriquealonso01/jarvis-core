@@ -34,6 +34,7 @@ import type pg from "pg";
 import { audit, type Outcome } from "./audit.js";
 import { checkConnectionAccess, type Denial } from "./isolation.js";
 import { isAlwaysConfirm } from "./policy.js";
+import { SANDBOX_NETWORKS, type SandboxNetwork } from "./mcp.js";
 import { toolStatus } from "./tools.js";
 
 export type ConnectorKind = "composio" | "mcp" | "direct" | "api" | "native";
@@ -573,7 +574,7 @@ export const mcpAdapter: ConnectorAdapter = {
  * check somebody has to remember.
  */
 function launchFor(conn: ConnectionRow): {
-  image: string; command: string[]; projectDir: string | null; network?: string;
+  image: string; command: string[]; projectDir: string | null; network?: SandboxNetwork;
 } {
   const image = typeof conn.config.image === "string" ? conn.config.image : null;
   if (!image) throw new Error("this mcp connection names no image");
@@ -584,8 +585,31 @@ function launchFor(conn: ConnectionRow): {
     image,
     command,
     projectDir: typeof conn.config.project_dir === "string" ? conn.config.project_dir : null,
-    network: typeof conn.config.network === "string" ? conn.config.network : undefined,
+    network: networkFrom(conn.config.network),
   };
+}
+
+/**
+ * A connection's config is DATA, so this is where an arbitrary string stops.
+ *
+ * Docker understands `host` and `container:<id>`, and either would put an MCP
+ * server on a network stack it must never see - `--network host` keeps the
+ * read-only rootfs and the dropped capabilities and loses the only restriction
+ * that was standing between an untrusted server and the Postgres listening on
+ * localhost. `sandboxArgv` refuses those too, and belt-and-braces is the right
+ * amount here; the value is refused rather than quietly replaced with "none",
+ * because a server that silently loses its egress fails in a way that looks
+ * exactly like every site being down.
+ */
+function networkFrom(value: unknown): SandboxNetwork | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string" && (SANDBOX_NETWORKS as readonly string[]).includes(value)) {
+    return value as SandboxNetwork;
+  }
+  throw new Error(
+    `this connection asks for network ${JSON.stringify(value)}; only `
+    + `${SANDBOX_NETWORKS.join(" or ")} are allowed`,
+  );
 }
 
 registerAdapter(mcpAdapter);

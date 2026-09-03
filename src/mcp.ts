@@ -36,11 +36,32 @@ export type SandboxOptions = {
    * default belongs on the safe side: a server that turns out to need egress
    * gets it deliberately, per connection, and that decision is recorded. The
    * reverse default means every server that never needed it had it anyway.
+   *
+   * A CLOSED SET, and this is the point rather than tidiness. The value reaches
+   * here from `connections.config`, which is data - so the type says nothing at
+   * runtime and `sandboxArgv` checks it. Docker accepts `host`, and
+   * `--network host` puts the server on the box's own network stack: it keeps
+   * every other restriction here and loses the one that matters, because
+   * localhost inside the container becomes localhost on the host, where
+   * Postgres and the API are listening. `container:<id>` joins another
+   * container's stack and is the same hole by a different spelling. Neither is
+   * a thing any MCP server needs, so neither is expressible.
    */
-  network?: string;
+  network?: SandboxNetwork;
   memory?: string;
   pidsLimit?: number;
 };
+
+/**
+ * The networks a sandboxed server may be put on.
+ *
+ * `none` is the default and the right answer for almost everything. `bridge` is
+ * an isolated network with egress and no route to the host's own services -
+ * what a fetcher needs and no more. Everything else Docker understands is
+ * refused; see SandboxOptions.network.
+ */
+export const SANDBOX_NETWORKS = ["none", "bridge"] as const;
+export type SandboxNetwork = (typeof SANDBOX_NETWORKS)[number];
 
 /**
  * The argv for one sandboxed server.
@@ -50,6 +71,21 @@ export type SandboxOptions = {
  * MCP server that can read those does not need to escape anything.
  */
 export function sandboxArgv(opts: SandboxOptions): string[] {
+  /*
+   * Checked here rather than trusted from the type. `network` arrives from a
+   * connection's JSON config, where TypeScript has no say, and this is the last
+   * point before it becomes a docker argument. Refused loudly rather than
+   * silently downgraded to "none": a fetcher that quietly loses its egress
+   * fails in a way indistinguishable from every site being down.
+   */
+  if (opts.network !== undefined
+      && !(SANDBOX_NETWORKS as readonly string[]).includes(opts.network)) {
+    throw new Error(
+      `refusing to sandbox on network ${JSON.stringify(opts.network)}: `
+      + `only ${SANDBOX_NETWORKS.join(" or ")} are allowed, and host/container `
+      + `networking would put this server on the box's own stack`,
+    );
+  }
   const argv = [
     "run", "--rm", "--interactive",
     // No TTY: this is a pipe, and a TTY would line-edit the JSON going through it.
@@ -198,7 +234,7 @@ export async function callSandboxedTool(args: {
   image: string;
   command: string[];
   projectDir?: string | null;
-  network?: string;
+  network?: SandboxNetwork;
   tool: string;
   input: Record<string, unknown>;
 }): Promise<unknown> {
@@ -222,7 +258,7 @@ export async function listSandboxedTools(args: {
   image: string;
   command: string[];
   projectDir?: string | null;
-  network?: string;
+  network?: SandboxNetwork;
 }): Promise<McpTool[]> {
   const client = new McpClient({
     command: "docker",
