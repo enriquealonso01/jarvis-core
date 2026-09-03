@@ -500,7 +500,18 @@ export function allowedPathsFor(
    * `openclaw/`, another project's `artifacts/` — is denied by the default,
    * so adding a directory does not mean remembering to add it here.
    */
-  const own = authDir ? [authDir] : [];
+  /*
+   * The ssh known_hosts the runner itself installed.
+   *
+   * `git push` reads it, and the tripwire killed a run for that after 23 tool
+   * calls - having first watched the same run push its branch to GitHub
+   * successfully. The directory holds exactly one file, `known_hosts`, which is
+   * a list of public host fingerprints shared by every project: not a
+   * credential, and not another project's anything. The suite asserts that it
+   * stays that way, so this allowance cannot quietly become a key leak.
+   */
+  const sshHome = path.join(JARVIS_ROOT, "home", ".ssh");
+  const own = authDir ? [authDir, sshHome] : [sshHome];
   if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8)), ...own];
   return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug), ...own];
 }
