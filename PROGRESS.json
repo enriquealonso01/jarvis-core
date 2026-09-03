@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T19:10:21Z",
-  "current_step": "S34",
+  "updated_at": "2026-09-03T19:17:33Z",
+  "current_step": "S35",
   "steps": [
     {
       "id": "S1",
@@ -294,7 +294,8 @@
       "id": "S35",
       "title": "Backup, restore, export",
       "stage": 6,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "THE EXPORT GATE AND THE KEY THAT MUST NOT TRAVEL. The plan's framing is what shapes the module: 'Everything else in this plan defends a boundary. The export is a boundary crossing with a filename' - every project's credentials, every conversation, professional and personal together, in one file whose entire purpose is to leave the box. src/exportarchive.ts. THE GATE REFUSES ON THE INITIATOR FIRST, before re-auth and before the passphrase, and the ordering is the security property rather than a style choice: a task or an injected agent that has somehow obtained a fresh session must be refused FOR BEING A TASK, because a gate that checks credentials first tells it to go and get credentials. Voice is refused for being voice - 'the channel is too weak to authenticate and too lossy to be sure of the words'. Jarvis cannot start one; nor can a bare API call. And it is a GATE rather than a wall: the console, re-authenticated, with a real passphrase, is allowed, which the suite asserts so the refusals cannot be a blanket no. THE KEY CANNOT TRAVEL IN THE ARCHIVE, which is the question the manifest makes unavoidable by putting .env.encrypted beside encrypted-secrets: encrypted with what? The machine key means the archive cannot be opened elsewhere and the portability is a fiction; the machine key INSIDE it means the encryption is decoration. So it is sealed under a passphrase supplied at export time, scrypt-derived with a per-archive salt, and the suite asserts what the plan actually asks - not that it decrypts with the passphrase, which is equally true of a scheme that ships the key, but that NONE OF THE SEVEN THINGS TRAVELLING WITH IT opens it, tried one by one: the salt, the nonce, the algorithm name, the timestamp, the whole header, a path named in the payload, and the ciphertext itself. Two exports of identical data differ, so one precomputed table does not open every export he has made. THE MANIFEST IS CHECKED THREE WAYS, because 'a manifest that agrees with itself proves nothing': claimed against extracted, and extracted against reality. The self-consistent case is asserted directly - a manifest and a tree in perfect agreement while the live system holds a repository neither mentions - which is v1's failure with the numbers filed off, since v1's backups did not contain the database and nobody noticed. A missing SECTION is reported separately from a short one, because those are different bugs. An export may not be written into artifacts/, where it would sit behind the ordinary download gate and be indexed by search; its existence is audited and the passphrase is asserted absent from the audit row. scripts/s35-export-test.ts, 21 assertions. Sabotaged six ways: check credentials before the initiator, let voice through, put the passphrase in the header, use a fixed salt, consult reality and always agree with it, and permit writing into artifacts/. THE FIRST OF THOSE PASSED, AND THAT WAS MY TEST'S FAULT: I asserted the ordering using a task with a FRESH session, and a fresh session passes the credential check whichever order the checks are in - so swapping them was invisible. The discriminating case is a task with a STALE session, where the wrong order answers 'you need to re-authenticate' and invites exactly the next step an injected agent would take. Rewritten, and the same sabotage now fails. Two others needed rewriting only because TypeScript drops narrowing after code it proves unreachable. NOT BUILT for S35: the archive actually being produced from the live system, restic nightly, and the Done-when - a full restore on a second machine with the first switched off - which is box-side and the Tester's."
     },
     {
       "id": "S36",
@@ -385,5 +386,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S34: the scan suggests and never acts; what remains for S34 is the box-side one-scheduler assertion."
+  "working_on": "S35: the export gate and its passphrase are built; producing the archive and restoring on a second machine are box-side."
 }
