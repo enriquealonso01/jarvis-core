@@ -105,8 +105,8 @@ async function main(): Promise<void> {
 
     console.log("");
     console.log("5. a reply at 02:00 is answered at 02:00");
-    mayReply().send
-      ? ok("quiet hours govern what Jarvis starts, never what he starts")
+    mayReply(SMALL_HOURS).send && mayReply(NIGHT).send
+      ? ok("asked AT 02:00 and at 21:00, a reply still goes — quiet hours govern what Jarvis starts, never what he starts")
       : bad("a reply was silenced by quiet hours");
 
     console.log("");
