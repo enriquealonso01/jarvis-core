@@ -391,3 +391,89 @@ function firstError(output: string): string {
     .find((l) => /Error|error:|not defined|Cannot find/.test(l));
   return (line ?? output.split("\n")[0] ?? "no output").slice(0, 160);
 }
+
+/**
+ * What a branch actually achieved, measured rather than reported.
+ *
+ * Extracted from the benchmark runner so the same code judges a real agent and
+ * a deliberately fraudulent one. If the fraud were scored by a second copy of
+ * this logic, a suite that passes frauds and a test that fails to catch them
+ * would be indistinguishable - the check has to run through the real path.
+ */
+export type BranchMeasurement = {
+  /** The withheld suite the agent never saw. */
+  hidden: boolean | null;
+  /** Everything in the repo as the agent left it. */
+  own: boolean | null;
+  /** Does the test it added fail without its fix? Null when it added none. */
+  redGreen: boolean | null;
+  /** Files the branch changed, excluding harness bookkeeping. */
+  changed: string[];
+};
+
+export async function measureBranch(args: {
+  /** A git repo containing both `base` and `branch`. */
+  dir: string;
+  base: string;
+  branch: string;
+  /** The case directory, whose `hidden/` is copied over the branch. */
+  caseDir: string;
+  /** Runs the suite in a directory; true when it passed. */
+  runTests: (cwd: string) => Promise<boolean>;
+}): Promise<BranchMeasurement> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+
+  /*
+   * Measured in a worktree, not in the checkout.
+   *
+   * Running the hidden suite where the agent worked would leave those files
+   * behind and score the NEXT run against tests it was never given.
+   */
+  const work = `${args.dir}-score`;
+  await fs.rm(work, { recursive: true, force: true }).catch(() => undefined);
+  await run("git", ["worktree", "add", "-f", work, args.branch], { cwd: args.dir });
+  try {
+    const own = await args.runTests(work);
+    const diff = await run("git", ["diff", "--name-only", `${args.base}...${args.branch}`], { cwd: args.dir });
+    /*
+     * The work of the agent, not the paperwork of the harness. `.jarvis/` holds
+     * files this harness ASKS the agent to write, and counting them as changed
+     * files scored runs down for scope creep for doing as they were told.
+     */
+    const changed = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+      .filter((f) => !f.startsWith(".jarvis/"));
+
+    /*
+     * Red-green, checked rather than taken on trust.
+     *
+     * A test that passes with the fix REMOVED asserts nothing about the fix, so
+     * the source is reverted to the base while the agent's tests are kept, and
+     * they must go red. This is the only dimension that separates a regression
+     * test from a test that merely describes whatever the code already does -
+     * which is exactly what a fluent fraud writes.
+     */
+    let redGreen: boolean | null = null;
+    if (changed.some(isTestPath)) {
+      await run("git", ["checkout", args.base, "--", "src/"], { cwd: work });
+      const stillPasses = await args.runTests(work);
+      redGreen = !stillPasses;
+      await run("git", ["checkout", args.branch, "--", "src/"], { cwd: work }).catch(() => undefined);
+    }
+
+    // An empty `test/` is not tracked by git, so a branch that put its tests
+    // elsewhere has none and the copy fails with ENOENT after a good run.
+    await fs.mkdir(path.join(work, "test"), { recursive: true });
+    for (const f of await fs.readdir(path.join(args.caseDir, "hidden"))) {
+      await fs.copyFile(path.join(args.caseDir, "hidden", f), path.join(work, "test", f));
+    }
+    const hidden = await args.runTests(work);
+
+    return { hidden, own, redGreen, changed };
+  } finally {
+    await run("git", ["worktree", "remove", "--force", work], { cwd: args.dir }).catch(() => undefined);
+  }
+}

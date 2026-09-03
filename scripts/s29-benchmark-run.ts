@@ -26,7 +26,7 @@ import { teardownFixtureProject } from "./lib/fixture.js";
 import {
   ensureProjectCheckout, gitEnv, loadProject, materialiseDeployKey, repoDir, sshUrl,
 } from "../src/checkout.js";
-import { collectEvidence, isTestPath, loadCases, scoreRun } from "../src/benchmark.js";
+import { collectEvidence, loadCases, measureBranch, scoreRun } from "../src/benchmark.js";
 
 const run = promisify(execFile);
 const pool = createPool();
@@ -131,76 +131,25 @@ async function main(): Promise<void> {
    * Checked out into a copy: running the hidden suite inside the project
    * checkout would leave its files behind and score the NEXT run against them.
    */
+  /*
+   * Measured by the shared path, not a copy of it.
+   *
+   * s29-fluent-fraud.ts scores a deliberately worthless branch through this
+   * same function. A second implementation here would let the suite pass
+   * frauds while the fraud check reported everything was fine.
+   */
   let hidden: boolean | null = null;
   let own: boolean | null = null;
   let redGreen: boolean | null = null;
   let changed: string[] = [];
   if (branch) {
-    const work = `${dir}-score`;
-    await fs.rm(work, { recursive: true, force: true }).catch(() => undefined);
-    await run("git", ["worktree", "add", "-f", work, branch], { cwd: dir });
-    try {
-      own = await nodeTest(work);
-      const diff = await run("git", ["diff", "--name-only", `${repo.default_branch}...${branch}`], { cwd: dir });
-      /*
-       * The work of the agent, not the paperwork of the harness.
-       *
-       * .jarvis/ holds phases.jsonl and outcome.json - files this harness asks
-       * the agent to write. Counting them as changed files scored a run down for
-       * scope creep because it committed the bookkeeping we demanded, and two of
-       * the four codex runs lost half their scope_control to exactly that. The
-       * reviewer already excludes this directory for the same reason.
-       */
-      changed = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean)
-        .filter((f) => !f.startsWith(".jarvis/"));
-      /*
-       * Red-green, checked rather than taken on trust.
-       *
-       * A test that passes with the fix REMOVED asserts nothing about the fix.
-       * So the source is reverted to the seed while the tests the agent wrote
-       * are kept, and they are run again: they must go red. This is the only
-       * dimension that can distinguish a regression test from a test that
-       * merely describes whatever the code already does, and it was the last
-       * one being reported `null` for want of measuring rather than for want of
-       * a way to measure.
-       *
-       * Null when the agent added no test at all - there is nothing to judge,
-       * and scoring that as a failure would double-count the missing test,
-       * which `correctness` has already accounted for.
-       */
-      /*
-       * Wherever the agent put its test.
-       *
-       * This looked in test/ and nowhere else, so a run that wrote
-       * src/score.test.js - beside the code, an ordinary convention - had its
-       * red-green check skipped, reported test_quality as unmeasured, and had
-       * the dimension dropped from its average entirely. It scored 0.67 for
-       * writing a test this harness declined to look at.
-       */
-      if (changed.some(isTestPath)) {
-        await run("git", ["checkout", repo.default_branch, "--", "src/"], { cwd: work });
-        const stillPasses = await nodeTest(work);
-        redGreen = !stillPasses;
-        await run("git", ["checkout", branch, "--", "src/"], { cwd: work }).catch(() => undefined);
-      }
-
-      /*
-       * The directory has to exist before the hidden suite can land in it.
-       *
-       * An empty `test/` is not tracked by git, so a branch where the agent put
-       * its tests somewhere else - or wrote none - simply has no `test/`, and
-       * the copy failed with ENOENT after a run that had otherwise succeeded.
-       * The scoring crashed and the run was lost, which is the worst possible
-       * place to be strict.
-       */
-      await fs.mkdir(path.join(work, "test"), { recursive: true });
-      for (const f of await fs.readdir(path.join(c.dir, "hidden"))) {
-        await fs.copyFile(path.join(c.dir, "hidden", f), path.join(work, "test", f));
-      }
-      hidden = await nodeTest(work);
-    } finally {
-      await run("git", ["worktree", "remove", "--force", work], { cwd: dir }).catch(() => undefined);
-    }
+    const m = await measureBranch({
+      dir, base: repo.default_branch, branch, caseDir: c.dir, runTests: nodeTest,
+    });
+    hidden = m.hidden;
+    own = m.own;
+    redGreen = m.redGreen;
+    changed = m.changed;
   }
 
   const evidence = await collectEvidence(pool, taskId, {
