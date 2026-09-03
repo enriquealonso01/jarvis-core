@@ -8,14 +8,21 @@
  * Run on the box:
  *   docker compose exec -u node api node --import tsx scripts/s51-homemap-live.ts
  */
-import pg from "pg";
+import { createPool } from "../src/db.js";
 import {
-  homeMap, motionFor, unknownNode, shouldDraw, MAX_NODES_SMALL, NODE_STATES,
+  fitsWithoutScrolling, homeMap, motionFor, unknownNode, shouldDraw,
+  MAX_NODES_DESKTOP, MAX_NODES_SMALL, NODE_STATES,
 } from "../src/homemap.js";
 import { PORTFOLIO_ONLY } from "../src/systemscope.js";
 
 async function main() {
-  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  /*
+   * The app's own pool factory rather than a connection string assembled here.
+   * db.ts already knows that the password arrives as POSTGRES_PASSWORD and has
+   * to be URL-encoded - a probe that rebuilds that gets it wrong once and then
+   * reports the product broken.
+   */
+  const pool = createPool();
   let pass = 0, fail = 0;
   const ok = (n: string, c: boolean, d = "") => {
     if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n} ${d}`); }
@@ -71,10 +78,23 @@ async function main() {
   const mem = map.nodes.find((n) => n.kind === "memory")!;
   ok("and the memory node says so rather than implying it",
     chunks > 0 ? mem.state === "ok" && mem.label.includes("pieces") : mem.state === "empty");
-
-  console.log("\n== it fits on one screen ==");
-  ok(`${map.nodes.length} nodes is within MAX_NODES_SMALL (${MAX_NODES_SMALL})`,
-    map.nodes.length <= MAX_NODES_SMALL, String(map.nodes.length));
+  console.log("");
+  console.log("== does it fit on one screen ==");
+  /*
+   * Asserting `nodes.length <= MAX_NODES_SMALL` would assert a promise the module
+   * does not make. `fitsWithoutScrolling` REPORTS; the console decides what to
+   * draw. So what is checked is that it reports the truth about the live map -
+   * and the live number is printed either way, because the number is the finding.
+   */
+  for (const [viewport, cap] of [["small", MAX_NODES_SMALL], ["desktop", MAX_NODES_DESKTOP]] as const) {
+    const f = fitsWithoutScrolling(map, viewport);
+    console.log(`  ${viewport}: ${map.nodes.length} points, cap ${cap} -> `
+      + (f.fits ? "fits" : `overflows by ${f.overflow}`));
+    ok(`${viewport}: the verdict matches the count`,
+      f.fits === (map.nodes.length <= cap) && f.overflow === Math.max(0, map.nodes.length - cap), f.why);
+    ok(`${viewport}: an overflow says what to do instead`,
+      f.fits || /list equivalent/.test(f.why), f.why);
+  }
 
   console.log("\n== motion has no clock ==");
   ok("motionFor takes a state and nothing else", motionFor.length === 1);
