@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T22:12:47Z",
-  "current_step": "S46",
+  "updated_at": "2026-09-03T22:18:00Z",
+  "current_step": "S47",
   "steps": [
     {
       "id": "S1",
@@ -377,7 +377,8 @@
       "id": "S47",
       "title": "The desktop connector",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE MECHANISM, WHICH IS WHAT THE STEP ASKS FOR: 'this is the widest boundary in the plan and the one specified fastest. It needs a mechanism, not a test.' Every other boundary in the plan rests on something the OS enforces; on his desktop none of it does - one account holding his personal files, his other work, his browser sessions and his keys. THE ORDER IS ITSELF THE MECHANISM. The never-read list is consulted BEFORE the allowlist, because the plan's credential test requires all three refusals to hold with 'none of them by an allowlist entry that could be added later'. The suite declares ~/.ssh, ~/.mozilla, ~/.password-store and ~/.aws IN ALPHA'S OWN ALLOWLIST and requires every one to be refused anyway; the sabotage that lets a declared path win goes red on all four. System scope does not get them either - nothing does. The facilities that are not files (clipboard, shell history, recent files, window titles, process list, keychain) are refused by rule rather than by path, because each is 'inside the allowlist by path and outside it by content'. THE ENVIRONMENT IS CONSTRUCTED, not filtered: there is no parameter through which his shell could arrive, which is the difference the plan insists on - 'not his environment minus a denylist: a denylist here is a list of the variables somebody remembered'. Asserted on the environment key by key, per the plan ('assert on the child process's environment, not on what the command printed - a command that happened not to print a token has proved nothing'). A declared PATH cannot replace the constructed one, since that is exactly how a project would point a command at a binary of its own. DEFAULT DENY: a project with no declared paths has no desktop access at all, and that refusal has its OWN CODE - 'a clear refusal rather than a confusing failure' - because 'you have no access' and 'that is not yours' have different fixes. Paths are resolved before matching, so two dots are not a way around it and a sibling starting with the same characters is not inside. EVERY REFUSAL IS PAIRED WITH THE PERMISSION IT IS NOT, per the plan: 'confirm Alpha CAN reach its own declared path, or the guard proves only that everything is blocked.' A whole-screen frame carries retain:false and index:false as LITERALS, so a caller cannot be handed one it is permitted to store. Desktop output is a labelled structure that stringifies to [object Object] rather than an instruction - the Debug note puts that boundary in one line of prompt assembly. Reachability takes the moment it is asked about: on a laptop that closes when he stands up, dispatch and execution are different moments, and there is no cached answer to reuse. scripts/s47-desktop-test.ts, 32 assertions, green. Sabotaged eleven ways, all red. One needed rewriting because it referenced a helper that does not exist rather than because the code was right. NOT BUILT, AND THIS IS MOST OF S47: there is no connector. No SSH, no local GUI agent, no connection row, no reachability heartbeat, no audit-by-machine, no queue-and-resume on an unreachable workstation. I have no workstation to build against and there is no B-item for it, so this is the decision layer only - the enforcement that must run ON the workstation ('a server-side check on a path string is advice; the agent holding the shell is what enforces it') has nothing to run in. Everything above is held by tests and by nothing else."
     },
     {
       "id": "S48",
@@ -395,5 +396,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S46's decision layer built: a content-derived URL cannot be typed as an auth link, the origin is closed, the message states the host outside the link, and parking releases the seat in the same statement it parks. NOT built: nothing mints, sends, parks or resumes for real, and there is no poller - so the Debug note's 'poll on resume as well as listening' is unaddressed and a signal missed during a restart would strand a task. Next: S47 (the desktop connector) - which needs workstation access I do not have, so I will check its blocker first."
+  "working_on": "S47's mechanism built - never-list before allowlist so a declared path cannot grant a credential store, a constructed environment with no way to pass his shell in, default deny with a distinct refusal code, window-not-screen capture, and reachability asked at execution. NOT built: the connector itself - no SSH, no GUI agent, no heartbeat, no audit-by-machine - which needs a workstation I do not have and has no B-item. FOR THE BLOCKERS SESSION: S47 needs Enrique's workstation access to go further than the decision layer. Next: S48."
 }
