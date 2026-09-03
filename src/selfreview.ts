@@ -121,6 +121,55 @@ export function correctionFingerprint(behaviour: Behaviour, correctedTo: string)
   return crypto.createHash("sha256").update(`${behaviour}::${target}`).digest("hex").slice(0, 16);
 }
 
+/**
+ * The longest a normalised correction target may be.
+ *
+ * Not a tuning knob. "first name", "whatsapp", "shorter", "under 200 words" are
+ * what this field is for; anything appreciably longer is a sentence, and a
+ * sentence is the thing that must not cross.
+ */
+export const NORMALISED_TARGET_MAX = 48;
+
+/**
+ * Is this a normalised target, or is it prose?
+ *
+ * WHY THIS EXISTS. The `Finding` comment is right that there is no `quote`,
+ * `excerpt`, `body` or `sample` field, and that absence is real. But
+ * `correctedTo` is a free string filled by the analyser THAT JUST READ THE
+ * TRANSCRIPT, and `describeWeek` interpolates it straight into the merged
+ * report. So the one field that crosses the project boundary was a body-shaped
+ * hole with a comment on it saying not to put a body in. Observed on the box: a
+ * correction of "he said the ticketflipping rds password is hunter2 and to stop
+ * asking about it", raised inside a CONFIDENTIAL project's pass, arrived intact
+ * in a merged report alongside another project's findings.
+ *
+ * The file's Debug note already names this defect from the other side — "if
+ * cross-project repetition stops being detected once the passes are split, the
+ * finding shape is carrying prose instead of a normalised correction". It reads
+ * that as a matching failure, which it also is. The same prose is the leak.
+ *
+ * WHY A SHAPE CHECK AND NOT A VOCABULARY. `behaviour` is closed and `isBehaviour`
+ * genuinely enforces it. `correctedTo` cannot be closed the same way — the whole
+ * point of the field is to carry a target the vocabulary does not anticipate. So
+ * this constrains the SHAPE instead, and is honest that a shape check is weaker
+ * than a closed set: it stops a sentence, not a short lie.
+ */
+export function isNormalisedTarget(correctedTo: string): boolean {
+  const t = correctedTo.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!t || t.length > NORMALISED_TARGET_MAX) return false;
+  /*
+   * A URL or an address is content by definition, whatever its length, and it is
+   * also the shape most likely to carry something from a body verbatim.
+   */
+  if (t.includes("://") || t.includes("@")) return false;
+  return /^[a-z0-9 ,.'\/_-]+$/.test(t);
+}
+
+/** The stored form, so the report text and the fingerprint agree. */
+export function normaliseTarget(correctedTo: string): string {
+  return correctedTo.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 /** A transcript, as only a project's own pass ever sees it. */
 export type Transcript = {
   conversationId: string;
@@ -160,6 +209,16 @@ export function projectPass(args: {
 
   for (const c of args.corrections) {
     if (!isBehaviour(c.behaviour)) continue;
+    /*
+     * Skipped rather than thrown, matching the line above rather than the
+     * foreign-transcript refusal further up. The distinction is who made the
+     * mistake: a pass handed another project's transcript is a CALLER that has
+     * already violated the isolation, and it has to be stopped. A correction
+     * carrying prose is the ANALYSER wobbling on one item, and taking down a
+     * whole project's weekly pass over it would turn a bad sentence into a lost
+     * week of review. One finding is dropped; the isolation holds either way.
+     */
+    if (!isNormalisedTarget(c.correctedTo)) continue;
     const key = correctionFingerprint(c.behaviour, c.correctedTo);
     const existing = byFingerprint.get(key);
     if (existing) {
@@ -169,7 +228,7 @@ export function projectPass(args: {
     }
     byFingerprint.set(key, {
       behaviour: c.behaviour,
-      correctedTo: c.correctedTo.trim().toLowerCase(),
+      correctedTo: normaliseTarget(c.correctedTo),
       projectId: args.projectId,
       classification: args.classification,
       citations: [{ conversationId: c.conversationId, turn: c.turn }],
