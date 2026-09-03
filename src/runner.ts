@@ -364,6 +364,15 @@ function git(cwd: string, args: string[]): Promise<string> {
 }
 
 async function cleanupWorkspace(project: Project | null, dir: string, isRepo: boolean): Promise<void> {
+  /*
+   * The run's home goes with its worktree, always.
+   *
+   * It holds a copy of the project's deploy key, so leaving it behind would
+   * turn a per-run credential into a permanent one sitting next to every other
+   * run's. Removed here rather than only on the isolation path, because every
+   * run ends through this function and only some end through that one.
+   */
+  await fs.rm(`${dir}.home`, { recursive: true, force: true }).catch(() => undefined);
   if (!isRepo || !project) {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return;
@@ -523,6 +532,8 @@ export function allowedPathsFor(
    * has stepped around the broker entirely.
    */
   authDir?: string | null,
+  /** The run's own HOME, when it has one: it holds this project's deploy key. */
+  runHome?: string | null,
 ): string[] {
   /*
    * What a task may touch under the root, as a LIST rather than as prose
@@ -548,7 +559,7 @@ export function allowedPathsFor(
    * stays that way, so this allowance cannot quietly become a key leak.
    */
   const sshHome = path.join(JARVIS_ROOT, "home", ".ssh");
-  const own = authDir ? [authDir, sshHome] : [sshHome];
+  const own = [sshHome, ...(authDir ? [authDir] : []), ...(runHome ? [runHome] : [])];
   if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8)), ...own];
   return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug), ...own];
 }
@@ -677,6 +688,8 @@ async function runHarness(args: {
    * the task needs and none beyond it.
    */
   gitSshCommand?: string | null;
+  /** A HOME of this run's own, so the deploy key is the default ssh identity. */
+  home?: string | null;
   transcriptPath: string;
   /** S28: which engine, and therefore how to start it and how to read it. */
   runtime: AgentRuntime;
@@ -759,6 +772,7 @@ async function runHarness(args: {
       ...(args.gitSshCommand
         ? { GIT_SSH_COMMAND: args.gitSshCommand, GIT_TERMINAL_PROMPT: "0" }
         : {}),
+      ...(args.home ? { HOME: args.home } : {}),
       // Never let the harness inherit Jarvis's own database handle.
       DATABASE_URL: "",
       POSTGRES_PASSWORD: "",
@@ -1349,6 +1363,23 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
      * A project with no repository simply has none, and the harness then has
      * nothing to push to - which is the honest state, not an error.
      */
+    /*
+     * A HOME of this run's own, holding this project's deploy key as the
+     * DEFAULT ssh identity.
+     *
+     * `GIT_SSH_COMMAND` alone is not enough, and the parity run is what proved
+     * it: Codex pushes with `GIT_SSH_COMMAND='ssh -F /dev/null' git push`,
+     * overriding whatever Jarvis set and discarding every configured identity
+     * with it. `-F /dev/null` still falls back to the default key names, so a
+     * key at `$HOME/.ssh/id_ed25519` survives exactly the thing that defeated
+     * the variable. Claude, which uses what it is given, is unaffected either
+     * way.
+     *
+     * Per RUN rather than shared: the home sits beside the worktree and holds
+     * one project's key, so it cannot become a place where every project's
+     * credentials pile up. Isolation here is the point, not a side effect.
+     */
+    const runHome = `${workspace.dir}.home`;
     const gitSshCommand = project
       ? await (async () => {
           // Imported here, like the checkout above, so a run with no repository
@@ -1359,7 +1390,19 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
           const key = await materialiseDeployKey(pool, repo).catch(() => null);
           // A project whose key cannot be materialised gets no push access and
           // says so through the harness, rather than failing the run here.
-          return key && "sshCommand" in key ? key.sshCommand : null;
+          if (!key || !("sshCommand" in key)) return null;
+
+          const ssh = path.join(runHome, ".ssh");
+          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(() => undefined);
+          // 0600 from the start: ssh refuses a key any wider, and a chmod after
+          // the write leaves a window where it is readable.
+          await fs.copyFile(key.keyFile, path.join(ssh, "id_ed25519")).catch(() => undefined);
+          await fs.chmod(path.join(ssh, "id_ed25519"), 0o600).catch(() => undefined);
+          await fs.copyFile(
+            path.join(JARVIS_ROOT, "home", ".ssh", "known_hosts"),
+            path.join(ssh, "known_hosts"),
+          ).catch(() => undefined);
+          return key.sshCommand;
         })()
       : null;
 
@@ -1370,8 +1413,9 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       runtime,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
-      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id, profile.dir),
+      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id, profile.dir, runHome),
       gitSshCommand,
+      home: gitSshCommand ? runHome : null,
       asUser,
       onEvent: (event, normalised) => {
         lastEventAt = Date.now();
@@ -1549,6 +1593,9 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       if (workspace.branch && project) {
         await git(path.join(PROJECTS, project.slug, "repo"), ["worktree", "remove", "--force", workspace.dir]).catch(() => undefined);
         await git(path.join(PROJECTS, project.slug, "repo"), ["branch", "-D", workspace.branch]).catch(() => undefined);
+        // The run's home holds a copy of the project deploy key, so it goes
+        // when the worktree does rather than lingering on disk.
+        await fs.rm(runHome, { recursive: true, force: true }).catch(() => undefined);
       }
       const summary = `harness reached outside its worktree: ${outcome.escape}`;
       await pool.query(
