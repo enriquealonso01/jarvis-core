@@ -4083,7 +4083,8 @@ was being restated in a different vocabulary each time, which is how a long
 document starts disagreeing with itself.
 
 **An authorization model that only covers typed calls covers only the paths we
-thought of.**
+thought of** — and **a default that is only written down per surface is a default
+the next surface will get wrong.**
 
 IV.6's three levels are enforced in the broker, on typed calls. Every capability
 that reaches the outside world can get around that simply by not being a typed
@@ -4099,15 +4100,39 @@ call:
 | WhatsApp | forwarded content is somebody else's words | S37 |
 | Console | grants the approvals every other gate resolves to | S12b |
 
-Three rules follow, and they are the same three every time:
+Four rules follow, and they are the same four every time:
 
 1. **The gate is built into the capability, not bolted beside it.** A check that only exists in the broker protects only what goes through the broker.
 2. **Capability follows what the channel proves, not where the request arrived.** A weakly-authenticated channel captures and proposes; it does not act unilaterally.
 3. **Whose words are these?** Content Jarvis was shown can describe a task. Only Enrique's own words can request one.
+4. **Unclassified means the strict reading.** Whatever has not been labelled is treated as the most restricted thing it could be, until somebody labels it.
+
+### Rule 4, because it was reached eight times before anyone named it
+
+An unclassified MCP tool is not callable (S31). An unmapped config key is
+immutable (IV.6). An unlabelled connection or branch is production (IV.6). An
+un-onboarded project is confidential and professional (S26). A project with no
+declared desktop paths gets no desktop access (S47). A tool whose only evidence
+of safety is its own description is Level 3 (S31). A health check that cannot run
+counts as a failure (VII.5). A candidate whose cost is unknown is not cheaper
+(VII.4).
+
+**Eight sections reached the same default independently**, which is the same
+signal the three rules above were consolidated on. Written once, it stops being
+something each new surface has to rediscover — and the cost of getting it wrong
+is not symmetric: **the permissive default means the first thing nobody
+classified is the one that gets deleted, sent, or spent.**
+
+**The one place it does not apply is display.** A health page must render an
+unmeasured signal as `unknown` — not as healthy, and **not as broken either**.
+Rule 4 chooses defaults for *decisions*; VII.1's rule tells the truth to a
+*person*. Conflating them gives you either a console shouting about everything it
+has not measured, or a gate that admits whatever it could not check — and the
+second one is how this rule fails quietly.
 
 Each surface's section carries its concrete rules. This is the shape they share,
 and a new surface — the eighth, whatever it turns out to be — is expected to
-answer these three before it ships rather than after someone notices.
+answer these four before it ships rather than after someone notices.
 
 ## IV.7 Idempotency
 
