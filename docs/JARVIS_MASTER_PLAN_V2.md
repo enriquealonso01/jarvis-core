@@ -2777,11 +2777,47 @@ see another project's session.
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
 
+### A reply is not an interruption, and only one of them needs a list
+
+Everything §17 describes is a **reply**: he asked, Jarvis answers, and the policy
+is about length and timing. Nothing here governs the other kind — the message
+Jarvis sends **when he did not ask for anything.**
+
+S23 gives the phone a closed list of six reasons to ring, and tests that *only*
+those ring. **WhatsApp has no such list**, and it is the channel that actually
+reaches him. Meanwhile the sources of unprompted messages keep accumulating:
+weekly findings (S48), a proposed capability (S44), an auth handoff (S46), an
+approval (S42), a maintenance issue, a queued desktop action (S47). Each one is
+defensible on its own, and together they turn the pager into a feed.
+
+The plan already knows this failure by name — *"a ticket per failover trains
+Enrique to ignore tickets"* — and applies it to tickets and to the build bar's
+blocked count while leaving the channel itself ungoverned.
+
+- **A closed set of reasons Jarvis may open a conversation**, the same shape as S23's six, and tested the same way: trigger each, then confirm **nothing else** produces one. A new feature that wants to message him is a change to that list, decided once, rather than a line of code nobody reviews.
+- **Unprompted items inside a window batch into one message.** Three findings at 09:00 are one message with three lines, not three notifications — the same principle as the repeated-condition counter, applied across kinds instead of within one.
+
+### Quiet hours currently push interruptions onto the channel that has none
+
+S23 enforces quiet hours **at the dial site**, and a blocked call *becomes a
+WhatsApp*. WhatsApp has no quiet hours. So the rule that stops the phone ringing
+at 03:00 **routes the interruption to the same phone by a different route** — it
+buzzes instead of ringing, which is not what "quiet hours" means to the person
+asleep next to it.
+
+- **Unprompted messages respect the same window**, held until 08:00 with the Issue raised immediately so nothing is lost and the console is accurate at 06:00 if he looks.
+- **The override is the same narrow one, not a second one.** A confirmed security incident or active data loss. Not an outage, not a blocked task, not an approval — identical to S23, because two override lists diverge and the looser one wins.
+- **Replies are not affected.** If he messages at 02:00, Jarvis answers at 02:00. Quiet hours govern what Jarvis starts, never what he starts.
+
 **Test** L10 — a trivial capture produces **zero** messages; a long task produces exactly two. Ten identical failures produce one notification with a count of ten. Every link in every notification actually opens the right page.
+- **Trigger every source of an unprompted message, and confirm only the listed reasons produce one.** The assertion that matters is the *absence* — a test that only proves the six work would pass on a system that also sends nine others.
+- Three unprompted items within the batching window → **one** message with three lines.
+- An unprompted message at 21:00 → held until 08:00, **and its Issue exists immediately**. A security incident at 21:00 → sent. Both halves, and the override list is the same object S23 reads.
+- **He messages at 02:00 → Jarvis replies at 02:00.** Quiet hours must not silence the conversation he started.
 
 **Debug** If notifications arrive that should not, log the classification decision alongside the message and read a day of it — the bug is nearly always in classification, not in delivery. If they do not arrive at all, check the outbox state before the transport: a message stuck `pending` and a message that failed to send look identical from the phone.
 
-**Done when:** a day of normal use produces only messages worth reading.
+**Done when:** a day of normal use produces only messages worth reading, and a night of it produces none Jarvis started.
 
 ## S34 — Schedules, maintenance, improvement
 *Size: 3 days.*
