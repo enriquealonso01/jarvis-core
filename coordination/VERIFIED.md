@@ -729,3 +729,49 @@ week." rather than inventing something.
 **Checked:** `scripts/s48-selfreview-probe.ts` — 30/2 before, **50/0 after, run
 on the box** in the API container against deployed source. The Builder's own
 `s48-selfreview-test` is **26/0**, unchanged.
+
+## S50 — the outbound booking call — ✓ verified (2026-09-03)
+
+S23 dials Enrique on a six-reason allow-list. This is the other direction:
+Jarvis calls a stranger and makes a commitment in his name. So the probe went at
+the four rules the file names as its own.
+
+**One hole found, fixed in PR #420.** `mayDial` is the single guard behind "no
+answer → does not redial in a loop". `attemptsSoFar >= MAX_ATTEMPTS` is false
+for `NaN`, and `NaN + 1` is `NaN`:
+
+```
+mayDial(NaN)        ->  { dial: true, attempt: NaN }   // and again, and again
+mayDial(undefined)  ->  { dial: true, attempt: NaN }
+mayDial("")         ->  { dial: true, attempt: "1" }   // "" + 1 is a STRING
+```
+
+A counter that arrived as `NaN` — a null column, a failed parse, an absent field
+— dialled, wrote `NaN` back, and returned the same answer on the next pass. The
+guard against the loop was the loop, and against a stranger's phone rather than
+his own.
+
+It now refuses rather than coercing to zero. The two errors are not comparable:
+treating an unreadable counter as zero means calling a restaurant that may
+already have been called twice, while refusing costs one booking he places
+himself plus a report saying why. The file is built on "a miss is a question,
+not an improvisation" — this is that rule applied to its own bookkeeping.
+
+**What held, and it is most of the file.** The grant is genuinely a ceiling: a
+later time, an earlier time, another day, a bigger table, a smaller table,
+changed seating and dropped seating all stop and ask, and the accept branch
+cannot be reached with a non-empty deviation list — there is no tolerance
+parameter to widen it. Casing and padding are correctly the *same* offer rather
+than a deviation, so it does not stop him for nothing. A card requirement stops
+the call even when the offer is otherwise exactly what he asked for, and
+`Disclosure` has nowhere to put a card, an address or an email. The question it
+brings back names what changed ("8:45pm instead of 8:00pm") rather than saying
+there was a problem. `openingLine` identifies without impersonating and carries
+the automated disclosure in the same sentence. `approvalForCall` fails safe to
+*asks* on `constructor`, `__proto__`, `"HE_NAMED_IT"`, `""` and a trailing
+space. `recordingPolicy` refuses the other party's audio.
+
+**Checked:** `scripts/s50-outboundtask-probe.ts` — 36/3 before, **39/0 after,
+run on the box** in the API container against deployed source. The Builder's own
+`s50-outbound-test` is **28/0**, unchanged. No production callers yet, so the
+fix landed before anything depended on the old behaviour.
