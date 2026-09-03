@@ -34,8 +34,20 @@ import type pg from "pg";
 import { audit, type Outcome } from "./audit.js";
 import { checkConnectionAccess, type Denial } from "./isolation.js";
 import { isAlwaysConfirm } from "./policy.js";
+import { toolStatus } from "./tools.js";
 
 export type ConnectorKind = "composio" | "mcp" | "direct" | "api" | "native";
+
+/**
+ * The kinds whose actions are tools a third party wrote, and which are
+ * therefore inert until somebody has classified what those tools do.
+ *
+ * `native` and `direct` are not here because their actions are ours: reading a
+ * file under a configured root and handing over a named secret are described by
+ * this repository, not by a vendor's manifest. `api` is: what a supplier's
+ * endpoint does is the supplier's claim.
+ */
+const TOOL_BEARING = new Set<string>(["composio", "mcp", "api"]);
 
 /** The connection row an adapter is allowed to see. No secret is in here. */
 export type ConnectionRow = {
@@ -162,6 +174,38 @@ export async function invokeConnector(
     // here means it was deleted in between. Fail closed rather than assume.
     await trail("denied", "connection disappeared between the check and the call");
     return { ok: false, code: "security.broker_deny", reason: "unknown connection" };
+  }
+
+  /*
+   * Blast radius, decided at attach time (S31).
+   *
+   * A tool-bearing kind is inert until a person has classified what its tools
+   * do, and stays inert if the manifest changes underneath the classification.
+   * The requirement is on the KIND rather than on "does this connection happen
+   * to have tool rows", because the second version fails open exactly when it
+   * matters: a server attached and never synced would have no rows and no gate.
+   */
+  if (TOOL_BEARING.has(conn.kind)) {
+    const tool = await toolStatus(pool, conn.id, inv.action);
+    if (!tool) {
+      const reason = `${inv.action} is not a tool this server has been seen to offer`;
+      await trail("denied", reason);
+      return { ok: false, code: "security.broker_deny", reason };
+    }
+    if (!tool.callable) {
+      await trail("denied", tool.reason);
+      return { ok: false, code: "security.broker_deny", reason: tool.reason };
+    }
+    /*
+     * Level 3 is always-confirm, and it is the per-tool form of the check
+     * above. "The gate is not 'is this server trusted', it is 'what is this
+     * specific call about to do'."
+     */
+    if (tool.level === 3 && !inv.approvalId) {
+      const reason = `${inv.action} is classified Level 3 and needs a confirmation`;
+      await trail("denied", reason);
+      return { ok: false, code: "security.broker_deny", reason };
+    }
   }
 
   const adapter = ADAPTERS.get(conn.kind);
