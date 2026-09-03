@@ -60,10 +60,23 @@ docker exec "${PG_CONTAINER}" psql -U jarvis -d postgres \
 docker exec "${PG_CONTAINER}" psql -U jarvis -d postgres \
   -c "CREATE DATABASE ${DRILL_DB}" >/dev/null
 docker cp "${DUMP}" "${PG_CONTAINER}:/tmp/drill.dump" >/dev/null
-docker exec "${PG_CONTAINER}" pg_restore -U jarvis -d "${DRILL_DB}" --no-owner /tmp/drill.dump >/dev/null 2>&1 || true
-docker exec "${PG_CONTAINER}" rm -f /tmp/drill.dump >/dev/null 2>&1 || true
 
 fail=0
+# The restore's own exit status is part of the drill. This step used to end in
+# `|| true`: a restore that half-failed still reported every table it happened
+# to look at as fine, so the drill could pass on a backup that cannot actually
+# bring Jarvis back. The output is printed rather than swallowed, because a
+# suppressed message from a step whose success is being assumed is how hours
+# disappear (DEBUG_NOTES, "Backups and deploys").
+RESTORE_LOG="$(mktemp)"
+if ! docker exec "${PG_CONTAINER}" pg_restore -U jarvis -d "${DRILL_DB}" \
+       --no-owner /tmp/drill.dump >"${RESTORE_LOG}" 2>&1; then
+  echo "  FAIL pg_restore reported errors:"
+  head -20 "${RESTORE_LOG}" | sed 's/^/    /'
+  fail=1
+fi
+rm -f "${RESTORE_LOG}"
+docker exec "${PG_CONTAINER}" rm -f /tmp/drill.dump >/dev/null 2>&1 || true
 check_rows() {
   local table="$1" min="$2"
   local n
@@ -74,6 +87,30 @@ check_rows() {
   else
     printf '  FAIL %-18s %s rows (expected >= %s)\n' "${table}" "${n}" "${min}"
     fail=1
+  fi
+}
+
+psql_drill() {
+  docker exec "${PG_CONTAINER}" psql -U jarvis -d "${DRILL_DB}" -t -A -c "$1" 2>/dev/null || echo 0
+}
+
+# Some tables cannot be judged against a fixed minimum, because how many rows
+# they should hold depends on what this box has been asked to remember. They are
+# compared against the LIVE database instead, so the check never cries wolf on a
+# box that genuinely has an empty corpus and never passes quietly on one whose
+# corpus did not make it into the backup.
+check_like_live() {
+  local table="$1" live back
+  live=$(docker exec "${PG_CONTAINER}" psql -U jarvis -d jarvis -t -A \
+           -c "SELECT count(*) FROM ${table}" 2>/dev/null || echo 0)
+  back=$(psql_drill "SELECT count(*) FROM ${table}")
+  if [[ "${live}" -eq 0 ]]; then
+    printf '  ok   %-18s nothing live to restore\n' "${table}"
+  elif [[ "${back}" -eq 0 ]]; then
+    printf '  FAIL %-18s %s rows live, none restored - not in this backup\n' "${table}" "${live}"
+    fail=1
+  else
+    printf '  ok   %-18s %s rows restored (%s live)\n' "${table}" "${back}" "${live}"
   fi
 }
 
@@ -88,6 +125,28 @@ check_rows credentials 1
 check_rows dek_keys 1
 check_rows config_versions 0
 check_rows audit_events 1
+
+# S30. Everything Jarvis was told and everything it was given to read lives in
+# these two tables, and until now the drill did not look at either: a backup
+# that restored the queue and lost the corpus reported "restore-drill ok".
+check_like_live knowledge_chunks
+check_like_live memory_items
+
+# A row count is not enough for this one table. `knowledge_chunks.search` is a
+# GENERATED column (migration 039), so the dump carries the expression and not
+# the values and every tsvector is recomputed by the restore. The rows can come
+# back complete while the thing that makes them findable comes back empty - and
+# from the outside that is indistinguishable from a corpus with nothing to say,
+# because retrieval returns nothing and the answer is an honest "I don't know".
+# Measured: with the vectors blanked, the count assertion passes and every
+# question fails.
+BLANK=$(psql_drill "SELECT count(*) FROM knowledge_chunks WHERE search IS NULL OR search = ''::tsvector")
+if [[ "${BLANK}" -eq 0 ]]; then
+  printf '  ok   %-18s every restored chunk has a tsvector\n' 'chunk index'
+else
+  printf '  FAIL %-18s %s restored chunks can never be retrieved\n' 'chunk index' "${BLANK}"
+  fail=1
+fi
 
 # The point of the drill: a restored credential must actually decrypt with the
 # restored master key. Fingerprints are compared; plaintext is never printed.
