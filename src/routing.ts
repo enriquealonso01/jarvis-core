@@ -571,20 +571,36 @@ export async function applyRoute(
     }
 
     if (segment.category === "capture") {
-      const stored = await pool.query<{ id: string }>(
-        `INSERT INTO memory_items (project_id, kind, body, source_inbox_id)
-         VALUES ($1, 'note', $2, $3) RETURNING id`,
-        [projectId, segment.text, args.inboxId],
-      );
+      /*
+       * Through recordStatement rather than a raw insert (S30).
+       *
+       * Everything captured used to become a note, which meant a standing
+       * instruction never replaced the one it contradicted - "from now on use
+       * the past tense" sat in the store beside "always use the imperative",
+       * and retrieval returned both with nothing to say which was current.
+       *
+       * It also delivers the half of the rule that is about SAYING so: the
+       * summary carries "that replaces what you told me before", at the moment
+       * of the replacement, because a preference that changes silently is one he
+       * cannot correct.
+       */
+      const { recordStatement } = await import("./preference.js");
+      const outcome = await recordStatement(pool, {
+        projectId,
+        text: segment.text,
+        inboxId: args.inboxId,
+      });
       destinations.push({
         category: "capture",
         projectSlug: slug,
         conversationId: null,
         taskId: null,
-        memoryId: stored.rows[0].id,
+        memoryId: "id" in outcome ? outcome.id : null,
         contextId: null,
         question: null,
-        summary: `remembered: ${segment.text.slice(0, 60)}`,
+        summary: outcome.action === "stored" && outcome.replaced.length
+          ? outcome.note
+          : `remembered: ${segment.text.slice(0, 60)}`,
       });
       continue;
     }

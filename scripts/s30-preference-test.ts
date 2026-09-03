@@ -132,7 +132,57 @@ async function main(): Promise<void> {
     ? ok("while unrelated statements are not")
     : bad("unrelated statements were treated as the same subject");
 
+  console.log("");
+  console.log("7. the same rule applies through the router, not only when called directly");
+  /*
+   * The gap this closes: recordStatement existed and nothing called it. The
+   * capture path inserted a plain note, so a standing instruction never
+   * replaced the one it contradicted - both sat in the store with nothing to
+   * say which was current. A rule that only holds when a test calls the
+   * function directly is not a rule the system has.
+   */
+  const { applyRoute } = await import("../src/routing.js");
+  const conv = await pool.query<{ id: string }>(
+    `INSERT INTO conversations (project_id, channel) VALUES ($1,'whatsapp') RETURNING id`, [pid]);
+
+  const capture = async (text: string) => {
+    const inbox = await pool.query<{ id: string }>(
+      `INSERT INTO inbox_events (channel, sender, raw_text, checksum, capture_state, processing_state, project_id)
+       VALUES ('whatsapp','enrique',$1,$2,'persisted','pending',$3) RETURNING id`,
+      [text, `pref-${Math.random()}`, pid]);
+    return applyRoute(pool, {
+      inboxId: inbox.rows[0].id,
+      sourceConversationId: conv.rows[0].id,
+      sourceProjectId: pid,
+      decision: {
+        available: true,
+        segments: [{ category: "capture", project: null, text }],
+      } as never,
+    });
+  };
+
+  await capture("always squash commits before merging");
+  const viaRouter = await pool.query<{ kind: string }>(
+    `SELECT kind FROM memory_items WHERE project_id = $1 AND body LIKE 'always squash%'`, [pid]);
+  viaRouter.rows[0]?.kind === "preference"
+    ? ok("a standing instruction routed through the router is stored as a preference")
+    : bad(`the router stored it as ${viaRouter.rows[0]?.kind ?? "nothing"}`);
+
+  const routed = await capture("from now on do not squash commits before merging");
+  const superseded = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM memory_items
+      WHERE project_id = $1 AND body LIKE 'always squash%' AND superseded_at IS NOT NULL`, [pid]);
+  Number(superseded.rows[0].n) === 1
+    ? ok("and contradicting it through the router supersedes the first")
+    : bad("the router left two contradicting instructions both live");
+  JSON.stringify(routed).includes("replaces what you told me")
+    ? ok("with the replacement said back, through the real path")
+    : bad("the router replaced a preference silently");
+
+  // Memories first: they point at the inbox events that produced them.
   await pool.query(`DELETE FROM memory_items WHERE project_id = $1`, [pid]);
+  await pool.query(`DELETE FROM conversations WHERE project_id = $1`, [pid]);
+  await pool.query(`DELETE FROM inbox_events WHERE project_id = $1`, [pid]);
   await pool.query(`DELETE FROM projects WHERE id = $1`, [pid]);
 
   console.log("");
