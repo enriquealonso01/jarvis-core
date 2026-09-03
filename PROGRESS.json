@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T19:47:58Z",
-  "current_step": "S39",
+  "updated_at": "2026-09-03T20:12:28Z",
+  "current_step": "S40",
   "steps": [
     {
       "id": "S1",
@@ -328,7 +328,8 @@
       "id": "S40",
       "title": "The execution brief",
       "stage": 8,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE BRIEF CANNOT LEAK THE STEP DECOMPOSITION BECAUSE IT NEVER RECEIVES IT. The plan's Debug note names the failure - 'if briefs read like task lists, the prompt is exposing the step decomposition' - so composeBrief takes a UserFacingPlan (intent, handoffs, completion channel) and nothing else, and userFacing() is the single door between the two. It is built field by field rather than by spreading the task and deleting `steps`: the spread form is a deny-list, correct about today's fields and silently wrong about the next one added to InternalTask, which would begin travelling into briefs without anybody choosing that. The suite asserts this with a field that does not exist yet - it hands the projection a credentialRef - because that is the only assertion that separates the two forms, and in the sabotage run the delete-form went red on THAT assertion alone. FOUR LINES IS A REAL LIMIT, SO SOMETHING HAS TO GIVE ON A LONG FLOW, AND WHICH THING IS A DECISION WITH A RIGHT ANSWER. What may go are the lines about things he does not have to act on; what may never go are the points where the work WAITS FOR HIM - dropping one of those produces exactly the surprise a brief exists to prevent, since he finds out he was needed only once the work has already stopped. When they will not fit as sentences they are folded into a line naming how many there are and where they arrive, so every blocking point is accounted for by name or by count. The suite never asserts the four-line limit on its own, because truncation satisfies it; it asserts the limit TOGETHER WITH the count adding up. THAT PAIRING CAUGHT A REAL BUG ON THE FIRST RUN: the folded line is itself a line, and budgeting only for the sentences emitted five lines while carefully respecting a limit of four. THE STORED PLAN IS THE ONE EXECUTION READS, which is what lets 'send it to the console instead' change anything. Migration 058 stores the user-facing plan as briefs.plan and a redirect rewrites it; recorded BESIDE the plan, a redirection would update the record of the conversation while the work carried on to WhatsApp - indistinguishable from success from his side until the message lands on the wrong surface. The suite reads the row back rather than the return value of redirect(), because a redirect that updates only what it returns passes every assertion made against what it returns. brief_text is kept verbatim and NOT re-rendered, so a redirect cannot show him a brief he never received. IT IS NOT A SECOND APPROVAL GATE - the plan says so twice within four sentences, so afterBrief() is a function returning proceed:true rather than a comment saying not to wait: turning briefs into a gate now has to delete something the tests hold rather than merely forget to add a wait. A trivial request produces no brief AND NO ROW, so nothing can report on it later; a task with one handoff still earns a brief when the work stops until he acts, because the failure mode is briefing a one-step task, not briefing a task with one interruption. A consequence worth stating: a job with a dozen internal steps, one outcome and one 'done' message gets NO brief, because from where he sits it is one thing - counting internal steps in needsBrief would put the decomposition back in charge by a side door and multiply briefs where the system is complicated rather than where he is involved. scripts/s40-brief-test.ts, 21 assertions, green. Sabotaged nine ways, all red on the assertion built for them: brief everything including the trivial (3 red), projection copies the task wholesale (2), projection deletes only the field it knows about (1 - the unknown-field assertion), fold line not budgeted for (1), overflow dropped instead of counted (3), completion line removed (1), brief waits for an answer (1), redirect never reaches execution (2), redirect rewrites what he was told (1). NOT BUILT: nothing calls recordBrief yet - the module and its table exist and are held by tests, but wiring it into the task executor so a real multi-step request emits a brief before work starts is the remaining half, and it belongs next to S42's approval rules rather than ahead of them."
     },
     {
       "id": "S41",
@@ -388,5 +389,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S39: continuity resolves one thread across surfaces; wiring the live call path onto it is the remaining half."
+  "working_on": "S40 built: briefs compose from a user-facing plan only, and the stored plan is the one execution reads. Next in my lane, from BLOCKERS on main: B10 (three unhandled failure classes need explicit notify/severity in src/notify.ts - and 'Issue + ui_only' vs 'ui_only' is a distinction the current ErrorClass type cannot express), then B8 (S32 tier-2 rung against powhttp), then B7 (S31 Done-when through Composio, whose health reads degraded)."
 }
