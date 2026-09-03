@@ -280,8 +280,45 @@ async function prepareWorkspace(
   await git(repo, ["worktree", "prune"]).catch(() => undefined);
   await git(repo, ["worktree", "remove", "--force", dir]).catch(() => undefined);
   await git(repo, ["branch", "-D", branch]).catch(() => undefined);
-  await git(repo, ["fetch", "--quiet", "origin", base]).catch(() => undefined);
-  await git(repo, ["worktree", "add", "-b", branch, dir, `origin/${base}`]);
+  /*
+   * Cut from the freshest ref, and never silently from a stale one.
+   *
+   * This fetched with `.catch(() => undefined)` and then cut the worktree from
+   * `origin/<base>` regardless. When the fetch failed the run got a worktree
+   * from whatever `origin/<base>` last pointed at - and on the S28 parity run
+   * that was the repository's initial commit. Codex opened a checkout holding
+   * only README.md, correctly reported the bug was "not reproducible", and
+   * looked like the weaker engine. It was reading a different repository state.
+   *
+   * So the fetch failing is recorded rather than swallowed, and the base is
+   * chosen from what actually exists: the remote ref when it is current, the
+   * local branch when the fetch could not update it.
+   */
+  const fetched = await git(repo, ["fetch", "--quiet", "origin", base])
+    .then(() => true)
+    .catch(() => false);
+  if (!fetched) console.error(`worktree base: fetch of origin/${base} failed; using the local ${base}`);
+  const remote = await git(repo, ["rev-parse", "--verify", `origin/${base}`])
+    .then((r) => r.trim())
+    .catch(() => "");
+  const local = await git(repo, ["rev-parse", "--verify", base])
+    .then((r) => r.trim())
+    .catch(() => "");
+  /*
+   * When both exist and differ, the one that CONTAINS the other is newer. A
+   * merge-base check answers that without guessing at timestamps.
+   */
+  let from = remote || local || base;
+  if (remote && local && remote !== local) {
+    const remoteHasLocal = await git(repo, ["merge-base", "--is-ancestor", local, remote])
+      .then(() => true)
+      .catch(() => false);
+    from = remoteHasLocal ? remote : local;
+    if (from === local) {
+      console.error(`worktree base: origin/${base} is behind the local ${base}; using the local one`);
+    }
+  }
+  await git(repo, ["worktree", "add", "-b", branch, dir, from]);
   // Jarvis's own scratch must be invisible to git. Without this, `.jarvis/`
   // shows as untracked, so a run that deliberately changed NOTHING still reads
   // as "changed", and `git add -A` would commit Jarvis's bookkeeping into
@@ -327,6 +364,15 @@ function git(cwd: string, args: string[]): Promise<string> {
 }
 
 async function cleanupWorkspace(project: Project | null, dir: string, isRepo: boolean): Promise<void> {
+  /*
+   * The run's home goes with its worktree, always.
+   *
+   * It holds a copy of the project's deploy key, so leaving it behind would
+   * turn a per-run credential into a permanent one sitting next to every other
+   * run's. Removed here rather than only on the isolation path, because every
+   * run ends through this function and only some end through that one.
+   */
+  await fs.rm(`${dir}.home`, { recursive: true, force: true }).catch(() => undefined);
   if (!isRepo || !project) {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
     return;
@@ -467,7 +513,28 @@ export function harnessIssueFor(reason: string): {
   };
 }
 
-export function allowedPathsFor(slug: string | null, taskId: string): string[] {
+export function allowedPathsFor(
+  slug: string | null,
+  taskId: string,
+  /**
+   * The harness auth directory this run was actually given.
+   *
+   * The runner hands the vendor CLI its own config dir - CLAUDE_CONFIG_DIR for
+   * Claude, CODEX_HOME for Codex - and the CLI then reads it. That read was
+   * outside every allowed path, so the tripwire killed a run that had done 22
+   * tool calls of honest work and reported `harness reached outside its
+   * worktree: /var/lib/jarvis/harness-auth`. Telling a process where its
+   * credentials live and then killing it for looking is not containment, it is
+   * a bug.
+   *
+   * Scoped to the ONE profile directory, never to `harness-auth` itself: the
+   * parent holds every other profile's tokens, and a run that can read those
+   * has stepped around the broker entirely.
+   */
+  authDir?: string | null,
+  /** The run's own HOME, when it has one: it holds this project's deploy key. */
+  runHome?: string | null,
+): string[] {
   /*
    * What a task may touch under the root, as a LIST rather than as prose
    * (II.5). Its own worktree is `cwd` and is added by the guard itself; these
@@ -481,8 +548,20 @@ export function allowedPathsFor(slug: string | null, taskId: string): string[] {
    * `openclaw/`, another project's `artifacts/` — is denied by the default,
    * so adding a directory does not mean remembering to add it here.
    */
-  if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8))];
-  return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug)];
+  /*
+   * The ssh known_hosts the runner itself installed.
+   *
+   * `git push` reads it, and the tripwire killed a run for that after 23 tool
+   * calls - having first watched the same run push its branch to GitHub
+   * successfully. The directory holds exactly one file, `known_hosts`, which is
+   * a list of public host fingerprints shared by every project: not a
+   * credential, and not another project's anything. The suite asserts that it
+   * stays that way, so this allowance cannot quietly become a key leak.
+   */
+  const sshHome = path.join(JARVIS_ROOT, "home", ".ssh");
+  const own = [sshHome, ...(authDir ? [authDir] : []), ...(runHome ? [runHome] : [])];
+  if (!slug) return [path.join(WORKTREES, "unscoped", taskId.slice(0, 8)), ...own];
+  return [path.join(PROJECTS, slug), path.join(ARTIFACTS, slug), ...own];
 }
 
 export function escapedPath(
@@ -595,6 +674,22 @@ async function runHarness(args: {
   cwd: string;
   configDir: string;
   prompt: string;
+  /**
+   * How the harness is to speak to the project's git remote.
+   *
+   * Without this the harness can do the whole job and not deliver it. Codex did
+   * exactly that on the S28 parity run: it reproduced the bug, fixed it,
+   * red-green verified the regression, ran the tests, made one focused commit -
+   * and then reported "Push is blocked because the environment lacks a usable
+   * GitHub SSH key". `gitEnv` existed and was used for the runner's own clone;
+   * it was simply never handed to the process that had to push.
+   *
+   * The key is the project's own deploy key, so this grants exactly the access
+   * the task needs and none beyond it.
+   */
+  gitSshCommand?: string | null;
+  /** A HOME of this run's own, so the deploy key is the default ssh identity. */
+  home?: string | null;
   transcriptPath: string;
   /** S28: which engine, and therefore how to start it and how to read it. */
   runtime: AgentRuntime;
@@ -674,6 +769,10 @@ async function runHarness(args: {
       // ignores CLAUDE_CONFIG_DIR entirely, which presents as a 401.
       ...spec.env,
       JARVIS_FAKE_VARIANT: FAKE_VARIANT ?? "",
+      ...(args.gitSshCommand
+        ? { GIT_SSH_COMMAND: args.gitSshCommand, GIT_TERMINAL_PROMPT: "0" }
+        : {}),
+      ...(args.home ? { HOME: args.home } : {}),
       // Never let the harness inherit Jarvis's own database handle.
       DATABASE_URL: "",
       POSTGRES_PASSWORD: "",
@@ -1259,6 +1358,54 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
     }
     await pool.query("UPDATE tasks SET ran_on_runtime = $2 WHERE id = $1", [task.id, runtime.id]);
 
+    /*
+     * The deploy key, materialised for the harness as well as for the clone.
+     * A project with no repository simply has none, and the harness then has
+     * nothing to push to - which is the honest state, not an error.
+     */
+    /*
+     * A HOME of this run's own, holding this project's deploy key as the
+     * DEFAULT ssh identity.
+     *
+     * `GIT_SSH_COMMAND` alone is not enough, and the parity run is what proved
+     * it: Codex pushes with `GIT_SSH_COMMAND='ssh -F /dev/null' git push`,
+     * overriding whatever Jarvis set and discarding every configured identity
+     * with it. `-F /dev/null` still falls back to the default key names, so a
+     * key at `$HOME/.ssh/id_ed25519` survives exactly the thing that defeated
+     * the variable. Claude, which uses what it is given, is unaffected either
+     * way.
+     *
+     * Per RUN rather than shared: the home sits beside the worktree and holds
+     * one project's key, so it cannot become a place where every project's
+     * credentials pile up. Isolation here is the point, not a side effect.
+     */
+    const runHome = `${workspace.dir}.home`;
+    const gitSshCommand = project
+      ? await (async () => {
+          // Imported here, like the checkout above, so a run with no repository
+          // does not pay for the module at all.
+          const { loadProject, materialiseDeployKey } = await import("./checkout.js");
+          const repo = await loadProject(pool, project.id).catch(() => null);
+          if (!repo) return null;
+          const key = await materialiseDeployKey(pool, repo).catch(() => null);
+          // A project whose key cannot be materialised gets no push access and
+          // says so through the harness, rather than failing the run here.
+          if (!key || !("sshCommand" in key)) return null;
+
+          const ssh = path.join(runHome, ".ssh");
+          await fs.mkdir(ssh, { recursive: true, mode: 0o700 }).catch(() => undefined);
+          // 0600 from the start: ssh refuses a key any wider, and a chmod after
+          // the write leaves a window where it is readable.
+          await fs.copyFile(key.keyFile, path.join(ssh, "id_ed25519")).catch(() => undefined);
+          await fs.chmod(path.join(ssh, "id_ed25519"), 0o600).catch(() => undefined);
+          await fs.copyFile(
+            path.join(JARVIS_ROOT, "home", ".ssh", "known_hosts"),
+            path.join(ssh, "known_hosts"),
+          ).catch(() => undefined);
+          return key.sshCommand;
+        })()
+      : null;
+
     const outcome = await runHarness({
       cwd: workspace.dir,
       configDir: profile.dir,
@@ -1266,7 +1413,9 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       runtime,
       transcriptPath: path.join(ARTIFACTS, relTranscript),
       signal: controller.signal,
-      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id),
+      allowedPaths: allowedPathsFor(project?.slug ?? null, task.id, profile.dir, runHome),
+      gitSshCommand,
+      home: gitSshCommand ? runHome : null,
       asUser,
       onEvent: (event, normalised) => {
         lastEventAt = Date.now();
@@ -1444,6 +1593,9 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       if (workspace.branch && project) {
         await git(path.join(PROJECTS, project.slug, "repo"), ["worktree", "remove", "--force", workspace.dir]).catch(() => undefined);
         await git(path.join(PROJECTS, project.slug, "repo"), ["branch", "-D", workspace.branch]).catch(() => undefined);
+        // The run's home holds a copy of the project deploy key, so it goes
+        // when the worktree does rather than lingering on disk.
+        await fs.rm(runHome, { recursive: true, force: true }).catch(() => undefined);
       }
       const summary = `harness reached outside its worktree: ${outcome.escape}`;
       await pool.query(
