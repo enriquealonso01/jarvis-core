@@ -294,7 +294,32 @@ async function prepareWorkspace(
    * chosen from what actually exists: the remote ref when it is current, the
    * local branch when the fetch could not update it.
    */
-  const fetched = await git(repo, ["fetch", "--quiet", "origin", base])
+  /*
+   * With the project's own deploy key, which it never had.
+   *
+   * This helper spawns git with no environment of its own, so the fetch went
+   * out as whatever identity the jarvis user happens to have - which is none.
+   * Against a private repository that can only fail, and it did, on every
+   * heavy run since the check was added: "fetch of origin/main failed" was in
+   * the log of every single task and read as background noise because the
+   * fallback quietly worked.
+   *
+   * It worked for the benchmark because the benchmark force-pushes its seed and
+   * then resets the local checkout to match, so local and remote agree. On a
+   * real project they do not: anything pushed to GitHub since the last clone is
+   * invisible, and the run silently engineers against stale code. That is the
+   * failure the fallback was written to prevent, arriving through the door it
+   * left open.
+   */
+  let fetchEnv: NodeJS.ProcessEnv | undefined;
+  if (project) {
+    const { loadProject, materialiseDeployKey, gitEnv } = await import("./checkout.js");
+    const full = await loadProject(pool, project.id);
+    const mat = full ? await materialiseDeployKey(pool, full) : { error: `project ${project.slug} not found` };
+    if ("sshCommand" in mat) fetchEnv = gitEnv(mat.sshCommand);
+    else console.error(`worktree base: fetching without a key (${mat.error})`);
+  }
+  const fetched = await git(repo, ["fetch", "--quiet", "origin", base], fetchEnv)
     .then(() => true)
     .catch(() => false);
   if (!fetched) console.error(`worktree base: fetch of origin/${base} failed; using the local ${base}`);
@@ -349,9 +374,15 @@ async function prepareWorkspace(
   return { dir, branch, isRepo: true, baseSha, checkoutError };
 }
 
-function git(cwd: string, args: string[]): Promise<string> {
+/**
+ * `env` is optional and matters for exactly one call: the fetch.
+ *
+ * Everything else here is local plumbing - prune, rev-parse, worktree add -
+ * which never touches the network and needs no credential.
+ */
+function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: env ?? process.env });
     let out = "";
     let err = "";
     p.stdout.on("data", (d) => (out += d));
