@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T22:29:37Z",
-  "current_step": "S49",
+  "updated_at": "2026-09-03T22:34:28Z",
+  "current_step": "S50",
   "steps": [
     {
       "id": "S1",
@@ -397,5 +397,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S49's three core-side rules built: nothing spoken executes, the orb has no clock in scope, and the link goes to the screen while the URL is still never spoken. NOT built: the transport and the orb are console-repo work, and nothing calls these decisions. Next: S50 (Jarvis calls a third party), then S51-S54."
+  "working_on": "S50 built as decisions: the grant is a ceiling with no tolerance argument, a card stops even a perfect table, the disclosure has nowhere to put anything but the booking, and impersonation is checked against what was synthesised. NOT built: nothing dials. Next: S51 (home is a map), S52, S53, S54 - the last four."
 }
