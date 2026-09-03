@@ -132,9 +132,16 @@ async function main(): Promise<void> {
       ? ok("and approving it twice does not make a second task")
       : bad("a double tap created two tasks");
   } finally {
-    await pool.query(
-      `DELETE FROM tasks WHERE id IN (SELECT approved_task_id FROM improvement_candidates
-        WHERE candidate_key LIKE $1 AND approved_task_id IS NOT NULL)`, [`${TAG}-%`]);
+    /*
+     * Candidates before tasks. `approved_task_id` is a foreign key INTO tasks,
+     * so deleting the task first is refused - and because this is the finally
+     * block, that refusal threw past the summary and left the whole fixture
+     * behind, project included. The first version did exactly that.
+     *
+     * The rule the S29 teardown work already paid for: walk the references
+     * before the things they point at, and do not assume an order because it
+     * reads naturally.
+     */
     await pool.query(`DELETE FROM improvement_candidates WHERE candidate_key LIKE $1`, [`${TAG}-%`]);
     await pool.query(`DELETE FROM tasks WHERE project_id = $1`, [pid]);
     await pool.query(`DELETE FROM projects WHERE id = $1`, [pid]);
