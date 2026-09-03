@@ -146,6 +146,45 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - **The engine grant is a DELIBERATE ONBOARDING STEP, not a missing feature.** Per the B3 ruling, onboarding does not auto-grant engines — fail-closed per S12b and "no automatic paid API enablement". Enrique ran the grant himself; the three profiles were verified present on the box before the run. Nobody should later read this as a gap and "fix" it by auto-granting.
   - **The PR is a real fix, checked rather than trusted.** It names the cause (`1.005 * 100 === 100.49999999999999`, so scaling drifts just below the half-cent boundary), fixes it by re-parsing at 15 significant digits, **corrects the wrong assertion the seeded `money.test.js` baked in** (`roundCents(1.005)` asserted as `1.0`), and adds a case for `8.165 → 8.17`. I ran the proposed implementation independently: it holds for `1.005`, `8.165`, `0.615`, `1.0`, `2.675` and `1.004`, including cases the PR does not test.
   - **This closes the gap the whole coordination scheme exists to catch** — 28 rows marked `done` over a front door that had never once run. It has now run, unaided past the one deliberate grant, on a repository that did not exist an hour earlier.
+  - **The evidence, copied in full because the artefact may not outlive the record.** Deleting the throwaway repository would 404 the link above, so the proof lives here rather than only there. PR #1 · branch `jarvis/task-02902a67` · commit `9ab2c87fe685` · *"Fix roundCents rounding half-cent boundaries down"*. The diff Jarvis produced, unedited:
+
+```diff
+diff --git a/money.js b/money.js
+index 779dd01..60fbcd3 100644
+--- a/money.js
++++ b/money.js
+@@ -1,6 +1,13 @@
+ export function roundCents(amount) {
+   // Rounds a money amount to whole cents.
+-  return Math.round(amount * 100) / 100;
++  //
++  // Scaling by 100 can leave the result just below a half-cent boundary
++  // (e.g. 1.005 * 100 === 100.49999999999999) because the input is not
++  // exactly representable in binary floating point. Re-parsing at 15
++  // significant digits snaps that drift back to the true boundary so
++  // Math.round rounds the half cent up rather than truncating it.
++  const scaled = Number((amount * 100).toPrecision(15));
++  return Math.round(scaled) / 100;
+ }
+ 
+ export function totalWithTax(amount, rate) {
+diff --git a/money.test.js b/money.test.js
+index dcdf213..7336a33 100644
+--- a/money.test.js
++++ b/money.test.js
+@@ -3,5 +3,9 @@ import assert from "node:assert";
+ import { roundCents } from "./money.js";
+ 
+ test("rounds whole cents", () => {
+-  assert.strictEqual(roundCents(1.005), 1.0);
++  assert.strictEqual(roundCents(1.005), 1.01);
++});
++
++test("rounds half-cent boundaries up", () => {
++  assert.strictEqual(roundCents(8.165), 8.17);
+ });
+```
+
   - **Every front-door bug in the original backlog is now verified fixed on the box:** the deploy-key 500 (uuid/text), root-owned project dirs, the missing per-project GitHub credential, and WhatsApp inbound never persisting.
 
 - **2026-09-03 — Box brought up to `main` (aa5ad42), and smoke-checked after.** The box was one build behind: it had `connectors.ts`, `mcp.ts` and `tools.ts` but not `connections.ts` from PR #296, so the S31 work on `main` was not actually running anywhere.
