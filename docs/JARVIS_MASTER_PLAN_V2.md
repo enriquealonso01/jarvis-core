@@ -3129,6 +3129,9 @@ memory. **The one thing that must never happen is two answers to "what was said"
 **Test before the number exists** — everything except pairing:
 - Synthesised inbound payloads of each type against `/internal/inbox/ingest` → correct inbox events, artifacts, transcripts and routing.
 - A real audio file through the full transcribe-and-route path.
+- **A voice note naming a project, transcribed badly.** With the name near a known slug it resolves to the slug **and says so**. With it near nothing, one short question rather than a guess — and **never a silent choice**, which is the outcome that looks like success and lands the work in the wrong project.
+- A voice note whose only low-confidence token is incidental → **no question at all.** The pair is the test; asking about everything is the failure the requirement was written against.
+- Correct a misheard name afterwards → supersedes the derived record, the original audio and transcript are untouched, and the route moves with it (S3).
 - Kill the API for 10 seconds mid-send → the bridge retries, reconciliation fills the gap, nothing is dropped (L1).
 - Ingest with a bad HMAC → refused.
 - An unknown sender → ignored, not processed.
@@ -3932,6 +3935,21 @@ upload, a scheduled firing, a webhook. Written before any model sees it and
 by adding a derived record that supersedes it, not by changing the original — the
 original is the evidence of what was actually said, and it is the only thing in
 the system that cannot be reconstructed.
+
+#### A transcript is a guess, and the plan has been treating it as text
+
+Voice is how Enrique mostly talks to Jarvis, and **every voice input is a model's
+best guess at what he said.** S19 handles the *authority* consequence — an
+unattested call proposes rather than acts — and nothing handles the *accuracy*
+one, which is present on a perfectly authenticated call and on every WhatsApp
+voice note.
+
+Confirming everything is the friction he asked to be rid of, so the rule is not
+about confidence in general:
+
+- **Check the transcription where it decides something.** A misheard *"remember that"* costs nothing. A misheard **project name** routes work into the wrong project — which S3 now establishes is a boundary crossing, not a filing error. A misheard **number**, **repository**, **branch** or **connection** changes what gets built or what gets touched. Those tokens, at low confidence, are worth one short question. Everything else is not.
+- **Bias transcription toward the vocabulary the system already knows.** Project slugs, connection names, repositories, branches — Jarvis holds all of them, and they are exactly the domain nouns VI.3 says `stt` will struggle with. A token near a known name resolves to the known name **and says which**, because *"I took that as Alpha"* is a sentence he can correct in three words.
+- **The correction path already exists; wire voice to it.** *"No, I said Alpha, not Alfa"* is a route correction (S3), and it supersedes rather than edits — IV.0's rule above, arriving through the channel that needs it most.
 
 #### The promise starts at the inbox event, and the doorway is before it
 
