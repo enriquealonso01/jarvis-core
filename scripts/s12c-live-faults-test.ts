@@ -129,6 +129,30 @@ async function main(): Promise<void> {
           input: { command: "cat /var/lib/jarvis/harness-auth/openai_codex_personal/auth.json" } }] } },
         scoped);
       truthy("and another profile's tokens are still an escape", Boolean(other));
+
+      /*
+       * The shared known_hosts is allowed, and must stay a known_hosts.
+       *
+       * git push reads it and a run was killed for that, having already pushed
+       * its branch successfully. Allowing the directory is only safe while it
+       * holds nothing but public host fingerprints, so that is asserted rather
+       * than assumed: the day a private key appears there, this fails.
+       */
+      const sshHome = "/var/lib/jarvis/home/.ssh";
+      truthy("the shared known_hosts directory is allowed", scoped.includes(sshHome));
+      const fs2 = await import("node:fs/promises");
+      const entries = await fs2.readdir(sshHome).catch(() => [] as string[]);
+      if (entries.length) {
+        const keys = entries.filter((f) => f !== "known_hosts");
+        keys.length === 0
+          ? ok("and it holds nothing but known_hosts")
+          : bad("the ssh home holds only known_hosts", "known_hosts only", keys.join(", "));
+      } else {
+        // Said out loud rather than skipped in silence: this container has no
+        // such directory, so the check above proved nothing here. It is the box
+        // that has to satisfy it, and a silent skip is how that gets forgotten.
+        console.log("  SKIP  no ssh home in this container; the key-material check did not run");
+      }
     }
 
     const allowed = allowedPathsFor(null, taskId);
