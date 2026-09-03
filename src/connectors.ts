@@ -537,6 +537,58 @@ export const apiAdapter: ConnectorAdapter = {
 };
 
 
+/* ------------------------------------------------------------------ *
+ * mcp — somebody else's program, in a box.
+ *
+ * The adapter is thin on purpose: everything that makes this safe is in
+ * src/mcp.ts, in the argv the launcher builds. What lives here is the mapping
+ * from a connection row to that launch, and nothing else - no authorising, no
+ * auditing, no classification, all of which happen above for every kind.
+ * ------------------------------------------------------------------ */
+
+export const mcpAdapter: ConnectorAdapter = {
+  kind: "mcp",
+  async declare(conn) {
+    const { listSandboxedTools } = await import("./mcp.js");
+    const tools = await listSandboxedTools(launchFor(conn));
+    return tools.map((t) => t.name).sort();
+  },
+  async invoke(conn, inv) {
+    const { callSandboxedTool } = await import("./mcp.js");
+    return await callSandboxedTool({
+      ...launchFor(conn),
+      tool: inv.action,
+      input: inv.input ?? {},
+    });
+  },
+};
+
+/**
+ * How this connection's server is started.
+ *
+ * `project_dir` comes from the connection's own row, so a server can only ever
+ * be handed the directory of the project it is attached to. There is no path
+ * here by which a caller names the directory - that is what makes "attached to
+ * one project and invisible to another" a property of the launch rather than a
+ * check somebody has to remember.
+ */
+function launchFor(conn: ConnectionRow): {
+  image: string; command: string[]; projectDir: string | null; network?: string;
+} {
+  const image = typeof conn.config.image === "string" ? conn.config.image : null;
+  if (!image) throw new Error("this mcp connection names no image");
+  const command = Array.isArray(conn.config.command)
+    ? (conn.config.command as unknown[]).map(String)
+    : [];
+  return {
+    image,
+    command,
+    projectDir: typeof conn.config.project_dir === "string" ? conn.config.project_dir : null,
+    network: typeof conn.config.network === "string" ? conn.config.network : undefined,
+  };
+}
+
+registerAdapter(mcpAdapter);
 registerAdapter(nativeAdapter);
 registerAdapter(directAdapter);
 registerAdapter(apiAdapter);
