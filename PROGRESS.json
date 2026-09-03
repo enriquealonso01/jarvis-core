@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T18:03:58Z",
-  "current_step": "S32",
+  "updated_at": "2026-09-03T18:12:23Z",
+  "current_step": "S33",
   "steps": [
     {
       "id": "S1",
@@ -280,7 +280,8 @@
       "id": "S33",
       "title": "Notification policy",
       "stage": 6,
-      "state": "not_started"
+      "state": "in_progress",
+      "evidence": "WHATSAPP NOW HAS THE CLOSED LIST THE PHONE ALREADY HAD. The plan's diagnosis is that everything in section 17 governs REPLIES - he asked, Jarvis answers - while the message Jarvis sends when he did not ask for anything was ungoverned, and the sources kept accumulating: weekly findings, a proposed capability, an auth handoff, an approval, a maintenance issue, a queued desktop action. 'Each one is defensible on its own, and together they turn the pager into a feed.' src/unprompted.ts is S23's shape applied to the channel that had none: eight reasons, enforced at the send site, everything else refused. THE OVERRIDE IS S23'S OBJECT, IMPORTED, NOT A SECOND ONE - the plan's reason is one sentence worth keeping, 'two override lists diverge and the looser one wins', so an unprompted reason carries no override flag of its own; it names which of S23's six it corresponds to and overrides exactly when that one does. Adding a WhatsApp reason that rings through the night therefore requires editing the list the phone reads. Quiet hours HOLD rather than drop, with the row written immediately so the console is accurate at 06:00 if he looks - which closes the routing bug the plan names, where S23 blocks a call at 03:00 and the call becomes a WhatsApp, so the rule that stops the phone ringing routes the interruption to the same phone by another route. Three items in a window become one message with three lines, each link on its own line, because a message with three items and one link at the bottom sends him to the wrong page two times in three. A refused reason is RECORDED as refused rather than dropped, since a caller that ignores the return value would otherwise make it invisible, and 'how often did something want to message him' is the question that catches a feed forming. scripts/s33-unprompted-test.ts, 19 assertions, with the absence asserted the way the plan demands: ten plausible unlisted reasons - task_finished, build_green, deploy_succeeded, daily_digest and six more, each of which a future feature would reasonably want - are all refused, because 'a test that only proves the six work would pass on a system that also sends nine others'. Sabotaged six ways: open the list (5 red), give a blocker the override too (5 red), make quiet hours never apply (5 red), send each item separately (3 red), drain refused rows (1 red), and silence replies during quiet hours. THAT LAST ONE PASSED AT FIRST AND SHOULD NOT HAVE. My assertion called mayReply() with no argument, so it tested whatever time the suite happened to run at - 14:00 - and a version obeying quiet hours was green. The plan's requirement is specifically 'he messages at 02:00, Jarvis replies at 02:00', so mayReply now ACCEPTS a clock and ignores it: ignored because the answer does not depend on the hour, which is the rule, and accepted because a rule about 02:00 has to be testable at 02:00. AND A PROCESS MISTAKE I MADE TWICE NOW: the sabotage script ends with git checkout on src/, which reverted that very fix because I had made the source edit and run the sabotage in one command. The suite still passed, because JavaScript ignores extra arguments, so the hole reopened silently under a commit message claiming it was fixed. Caught by checking git status rather than by the suite. Commit the fix, then sabotage - the same lesson as the S30 replacement tick, and the second time it has cost me a cycle. NOT BUILT for S33: the weekly report itself (S38 renders it as a document plus two lines), the staleness classes (wait / re-raise / block) and their fortnight behaviour, and Needs You sorting oldest first with a re-raised Issue saying what changed."
     },
     {
       "id": "S34",
@@ -383,5 +384,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S32: scraped output carries its origin into recall; what remains for S32 is live browser work on the box."
+  "working_on": "S33: the channel has a closed list, quiet hours and batching; the staleness classes and the weekly report remain."
 }
