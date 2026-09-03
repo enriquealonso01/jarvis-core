@@ -166,3 +166,40 @@ export function rankingReproduces(first: BenchRow[], second: BenchRow[]):
   }
   return { ok: true, order: [a.winner, ...a.order.slice(1).map((h) => h.harness)] };
 }
+
+/**
+ * The route order the ranking implies, for routes the suite actually measured.
+ *
+ * Deliberately narrow. Only routes whose engine appears in the ranking are
+ * touched, and they are given the order_by values those routes ALREADY occupy,
+ * redealt by rank. Nothing unmeasured moves: cursor and the hosted open-weights
+ * route have never been through the suite, and shuffling them on the strength
+ * of a benchmark they never ran would be the opinion this step exists to
+ * replace, wearing a benchmark's clothes.
+ *
+ * Reusing the existing slots rather than renumbering keeps every unmeasured
+ * route exactly where it was relative to the measured ones. The suite is
+ * answering "which of these two is better", not "what should the whole table
+ * look like".
+ *
+ * A no-op result is a real and expected answer: it means routing already agreed
+ * with the measurement. The difference it makes is provenance - after this the
+ * order is derived from recorded runs and can be recomputed, rather than being
+ * a number someone typed.
+ */
+export function routeOrderFrom(
+  order: string[],
+  routes: { modelId: string; engine: string; routeOrder: number }[],
+): { modelId: string; from: number; to: number }[] {
+  const measured = routes
+    .filter((r) => order.includes(r.engine))
+    .sort((a, b) => a.routeOrder - b.routeOrder);
+  const slots = measured.map((r) => r.routeOrder);
+
+  const byRank = [...measured].sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine));
+  const changes: { modelId: string; from: number; to: number }[] = [];
+  byRank.forEach((r, i) => {
+    if (r.routeOrder !== slots[i]) changes.push({ modelId: r.modelId, from: r.routeOrder, to: slots[i] });
+  });
+  return changes;
+}
