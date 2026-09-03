@@ -280,8 +280,45 @@ async function prepareWorkspace(
   await git(repo, ["worktree", "prune"]).catch(() => undefined);
   await git(repo, ["worktree", "remove", "--force", dir]).catch(() => undefined);
   await git(repo, ["branch", "-D", branch]).catch(() => undefined);
-  await git(repo, ["fetch", "--quiet", "origin", base]).catch(() => undefined);
-  await git(repo, ["worktree", "add", "-b", branch, dir, `origin/${base}`]);
+  /*
+   * Cut from the freshest ref, and never silently from a stale one.
+   *
+   * This fetched with `.catch(() => undefined)` and then cut the worktree from
+   * `origin/<base>` regardless. When the fetch failed the run got a worktree
+   * from whatever `origin/<base>` last pointed at - and on the S28 parity run
+   * that was the repository's initial commit. Codex opened a checkout holding
+   * only README.md, correctly reported the bug was "not reproducible", and
+   * looked like the weaker engine. It was reading a different repository state.
+   *
+   * So the fetch failing is recorded rather than swallowed, and the base is
+   * chosen from what actually exists: the remote ref when it is current, the
+   * local branch when the fetch could not update it.
+   */
+  const fetched = await git(repo, ["fetch", "--quiet", "origin", base])
+    .then(() => true)
+    .catch(() => false);
+  if (!fetched) console.error(`worktree base: fetch of origin/${base} failed; using the local ${base}`);
+  const remote = await git(repo, ["rev-parse", "--verify", `origin/${base}`])
+    .then((r) => r.trim())
+    .catch(() => "");
+  const local = await git(repo, ["rev-parse", "--verify", base])
+    .then((r) => r.trim())
+    .catch(() => "");
+  /*
+   * When both exist and differ, the one that CONTAINS the other is newer. A
+   * merge-base check answers that without guessing at timestamps.
+   */
+  let from = remote || local || base;
+  if (remote && local && remote !== local) {
+    const remoteHasLocal = await git(repo, ["merge-base", "--is-ancestor", local, remote])
+      .then(() => true)
+      .catch(() => false);
+    from = remoteHasLocal ? remote : local;
+    if (from === local) {
+      console.error(`worktree base: origin/${base} is behind the local ${base}; using the local one`);
+    }
+  }
+  await git(repo, ["worktree", "add", "-b", branch, dir, from]);
   // Jarvis's own scratch must be invisible to git. Without this, `.jarvis/`
   // shows as untracked, so a run that deliberately changed NOTHING still reads
   // as "changed", and `git add -A` would commit Jarvis's bookkeeping into
