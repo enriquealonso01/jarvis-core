@@ -128,13 +128,15 @@ async function knowledgeTier(
   const r = await pool.query<{
     id: string; body: string; locator: string | null; char_offset: number | null;
     path: string | null; rank: string; at: string | null; superseded: boolean;
-    artifact_version: number | null; artifact_project: string | null;
+    artifact_version: number | null; artifact_project: string | null; origin_url: string | null;
   }>(
     `SELECT k.id::text, k.body, k.locator, k.char_offset, a.path,
             -- Stored paths begin with the project's uuid (uploads.ts writes
             -- <projectId>/<sha>-<name>). It is the same uuid on every citation
             -- in a project, so it disambiguates nothing and is unreadable.
             a.project_id::text AS artifact_project,
+            -- S32: where it came from, when it did not come from him.
+            a.origin_url,
             -- S17 keeps a version number per lineage, incremented as each
             -- replacement is recorded. The citation needs it: "page 4 of the
             -- migration report" identifies nothing when there are three of them.
@@ -172,7 +174,8 @@ async function knowledgeTier(
      * reader to stop looking at the part that matters when it is not.
      */
     const version = x.superseded || (x.artifact_version ?? 1) > 1 ? x.artifact_version : null;
-    const cite = citationFor(shownPath(x.path, x.artifact_project), x.locator, x.char_offset, version);
+    const cite = citationFor(
+      shownPath(x.path, x.artifact_project), x.locator, x.char_offset, version, x.origin_url);
     return {
       tier: "knowledge" as const,
       id: x.id,
@@ -183,6 +186,18 @@ async function knowledgeTier(
       superseded: x.superseded,
     };
   });
+}
+
+/** The site, for a citation. A full URL in a sentence is unreadable. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    // A stored origin that is not a URL still has to render as something that
+    // reads as somebody else's, so it degrades to the raw value rather than to
+    // the filename branch below.
+    return url;
+  }
 }
 
 /**
@@ -229,8 +244,22 @@ function citationFor(
   locator: string | null,
   offset: number | null,
   version: number | null,
+  originUrl: string | null = null,
 ): string {
   const where = locator && locator !== "whole document" ? locator : null;
+  /*
+   * S32: something a stranger wrote does not get cited like something he did.
+   *
+   * "According to a page on example.com" and "according to your notes" must
+   * never render the same way - and three weeks later the citation is the only
+   * thing that still knows the difference, because by then both are chunks in
+   * the same table ranked by the same query. The host leads, so the difference
+   * is the first thing read rather than a suffix somebody scans past.
+   */
+  if (originUrl) {
+    const host = hostOf(originUrl);
+    return where ? `a page on ${host} — ${where}` : `a page on ${host}`;
+  }
   const source = path === null ? null : version !== null ? `${path} v${version}` : path;
   if (source && where) return `${source} — ${where}`;
   if (where) return where;
