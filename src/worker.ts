@@ -3,7 +3,7 @@ import { hostMetrics } from "./hostmetrics.js";
 import { sampleResources } from "./activity.js";
 import { startSseBridge } from "./sse.js";
 import { claimTask, runSystemTask, transitionTask } from "./jobs.js";
-import { backoffSeconds, raiseIssue } from "./notify.js";
+import { raiseIssue } from "./notify.js";
 import { cronMatches } from "./cron.js";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -240,20 +240,44 @@ export async function drainOutbox(pool: ReturnType<typeof createPool>) {
       );
       continue;
     }
-    // Back off on the taxonomy curve instead of hammering a flat interval.
-    const attempts = await pool.query<{ attempts: number }>(
-      `SELECT attempts FROM notifications_outbox WHERE id = $1`,
-      [n.id],
-    );
-    const next = backoffSeconds((attempts.rows[0]?.attempts ?? 0) + 4);
+    /*
+     * THE MESSAGE WAS HANDED TO THE TRANSPORT, AND THE TRANSPORT OWNS RETRY.
+     *
+     * This used to walk a backoff curve and re-send up to seven times. Retry is
+     * transport (II.2c) and OpenClaw already does it: on 2026-09-03 its
+     * delivery-recovery held 65 entries and retried each about 150 times in
+     * twenty minutes. A second ladder on top of that does not make delivery
+     * more likely, it multiplies it - and the multiplication is what reached
+     * Enrique, who got the same ten messages three and four times each.
+     *
+     * So a request that reached the bridge is sent exactly once from here,
+     * whatever the outcome. `handed_off` is not success: it says a message may
+     * exist and Jarvis is no longer the one deciding. The Issue is what stops
+     * that becoming a silent loss - the failure is visible without anybody
+     * being messaged about it again.
+     *
+     * The one path that still defers is `unavailable`, above, and it is
+     * different in the way that matters: no message was produced, so deferring
+     * cannot duplicate anything.
+     */
     await pool.query(
       `UPDATE notifications_outbox
-       SET attempts = attempts + 1, last_error = $3,
-           next_attempt_at = now() + ($2 || ' seconds')::interval,
-           state = CASE WHEN attempts >= 7 THEN 'failed' ELSE 'pending' END
+       SET attempts = attempts + 1, last_error = $2, next_attempt_at = NULL,
+           state = 'handed_off'
        WHERE id = $1`,
-      [n.id, String(next), sent.detail.slice(0, 500)],
+      [n.id, sent.detail.slice(0, 500)],
     );
+    await raiseIssue(pool, {
+      category: "provider.degraded",
+      service: "outbox",
+      owner: "provider",
+      title: `[outbox] ${n.channel} did not confirm delivery`,
+      dedupeKey: `outbox.unconfirmed:${n.channel}`,
+      evidence: { channel: n.channel, detail: sent.detail.slice(0, 300) },
+      requiredAction:
+        `A notification was handed to ${n.channel} and the transport did not confirm it. `
+        + `The transport owns retry, so Jarvis will not send it again. Check the channel.`,
+    });
   }
 }
 
@@ -318,10 +342,28 @@ async function sendViaBridge(
     // The flag if the bridge sent one; the words only as a fallback, since the
     // text this reads is truncated and the words can fall off the end.
     let unavailable = /channel is unavailable|not paired/i.test(text);
+    /*
+     * CONFIRMED DELIVERY, NOT A REACHABLE BRIDGE.
+     *
+     * This returned `res.ok` - the HTTP status of the bridge ROUTE. The bridge
+     * answers 200 with {"ok": false} when the send itself failed, so every
+     * failed delivery was recorded as sent: on 2026-09-03 the outbox held 273
+     * rows, all `sent`, all `attempts = 1`, while OpenClaw was logging 34
+     * failed sends and retrying them. Jarvis was not merely wrong about one
+     * message, it was structurally blind - its own retry curve could never fire
+     * because it never saw a failure, and the only layer that knew anything was
+     * the transport.
+     *
+     * `ok` now means the bridge said the message went. A response that is not
+     * JSON, or JSON without a true `ok`, is not a delivery.
+     */
+    let delivered = false;
     try {
-      unavailable = JSON.parse(text).unavailable === true || unavailable;
-    } catch { /* not JSON: keep the fallback */ }
-    return { ok: res.ok, unavailable, detail: `${res.status} ${text.slice(0, 300)}` };
+      const parsed = JSON.parse(text) as { ok?: unknown; unavailable?: unknown };
+      delivered = parsed.ok === true;
+      unavailable = parsed.unavailable === true || unavailable;
+    } catch { /* not JSON: not a confirmation either */ }
+    return { ok: res.ok && delivered, unavailable, detail: `${res.status} ${text.slice(0, 300)}` };
   } catch (err) {
     return { ok: false, unavailable: false, detail: `bridge unreachable: ${String((err as Error).message ?? err)}` };
   }
