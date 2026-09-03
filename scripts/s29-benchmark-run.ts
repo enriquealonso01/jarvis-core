@@ -153,6 +153,16 @@ async function main(): Promise<void> {
         await run("git", ["checkout", branch, "--", "src/"], { cwd: work }).catch(() => undefined);
       }
 
+      /*
+       * The directory has to exist before the hidden suite can land in it.
+       *
+       * An empty `test/` is not tracked by git, so a branch where the agent put
+       * its tests somewhere else - or wrote none - simply has no `test/`, and
+       * the copy failed with ENOENT after a run that had otherwise succeeded.
+       * The scoring crashed and the run was lost, which is the worst possible
+       * place to be strict.
+       */
+      await fs.mkdir(path.join(work, "test"), { recursive: true });
       for (const f of await fs.readdir(path.join(c.dir, "hidden"))) {
         await fs.copyFile(path.join(c.dir, "hidden", f), path.join(work, "test", f));
       }
