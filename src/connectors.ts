@@ -164,6 +164,15 @@ export type Invocation = {
   input?: Record<string, unknown>;
   /** A live approval, for an action that needs one. */
   approvalId?: string | null;
+  /**
+   * Filled in by the broker, never by a caller.
+   *
+   * A caller that could set this could hand an adapter any secret it liked,
+   * which is the broker bypass this whole module exists to close. It is on the
+   * invocation rather than on the connection row because the row is what an
+   * adapter is allowed to see, and a secret is not.
+   */
+  secret?: Record<string, string>;
 };
 
 export type ConnectorResult =
@@ -315,9 +324,30 @@ export async function invokeConnector(
     return { ok: false, code: "connector.unsupported", reason };
   }
 
+  /*
+   * The broker resolves the credential, and it OVERWRITES whatever the caller
+   * put in `secret` rather than merging with it. A caller able to supply its
+   * own would be able to hand an adapter any secret it liked, which is the
+   * bypass this module exists to close - so the field is rebuilt from the
+   * connection's own credential_id or left undefined.
+   */
+  let secret: Record<string, string> | undefined;
+  const credentialId = typeof conn.config.credential_id === "string" ? conn.config.credential_id : null;
+  if (credentialId) {
+    try {
+      const { readJsonCredential } = await import("./credentials.js");
+      secret = await readJsonCredential(pool, credentialId);
+    } catch (err) {
+      const reason = `the credential for ${conn.slug} could not be read`;
+      await trail("failed", reason);
+      return { ok: false, code: "connector.failed", reason };
+    }
+  }
+  const call: Invocation = { ...inv, secret };
+
   try {
     const output = await withTimeout(
-      () => adapter.invoke(conn, inv),
+      () => adapter.invoke(conn, call),
       conn.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     );
     if (conn.consecutiveTimeouts > 0) {
@@ -436,5 +466,77 @@ export const directAdapter: ConnectorAdapter = {
   },
 };
 
+/* ------------------------------------------------------------------ *
+ * api — a plain API key against somebody's HTTP endpoint.
+ *
+ * The plan asks for the seam to be built against this AND a native local-files
+ * connection at the same time, "or the seam gets shaped around the incumbent
+ * and the incumbent is the thing it exists to survive". This is the third
+ * non-vendor kind on it, and the first that carries a real secret.
+ *
+ * Operations are declared in the connection's config rather than discovered:
+ *
+ *   config: {
+ *     base_url: "https://supplier.example.com/v1",
+ *     credential_id: "<uuid>",
+ *     operations: { list_orders: { method: "GET", path: "/orders" } }
+ *   }
+ *
+ * It is still a TOOL-BEARING kind, and the distinction is worth being precise
+ * about because it decides whether classification applies. The operation's name
+ * and path are ours; what the supplier's endpoint DOES when called is theirs,
+ * and that is the thing a classifier is judging. `list_orders` pointing at an
+ * endpoint that quietly cancels them is exactly the case IV.6 exists for.
+ * ------------------------------------------------------------------ */
+
+type ApiOperation = { method?: string; path?: string };
+
+export const apiAdapter: ConnectorAdapter = {
+  kind: "api",
+  async declare(conn) {
+    const ops = (conn.config.operations ?? {}) as Record<string, ApiOperation>;
+    return Object.keys(ops).sort();
+  },
+  async invoke(conn, inv) {
+    const base = typeof conn.config.base_url === "string" ? conn.config.base_url : null;
+    if (!base) throw new Error("this api connection has no base_url configured");
+    const ops = (conn.config.operations ?? {}) as Record<string, ApiOperation>;
+    const op = ops[inv.action];
+    if (!op) throw new Error(`this api connection declares no operation called ${inv.action}`);
+
+    /*
+     * The key arrives already resolved. Reading it is the BROKER's job - that
+     * is what a credential broker is - so the adapter never touches the
+     * credential store, and there is exactly one place where a secret is
+     * decrypted rather than one per adapter.
+     */
+    let headers: Record<string, string> = { Accept: "application/json" };
+    const key = inv.secret?.api_key ?? inv.secret?.token
+      ?? (inv.secret ? Object.values(inv.secret)[0] : undefined);
+    if (key) headers = { ...headers, Authorization: `Bearer ${key}` };
+
+    const url = new URL(`${base.replace(/\/$/, "")}${op.path ?? ""}`);
+    const res = await fetch(url, {
+      method: op.method ?? "GET",
+      headers,
+      body: op.method && op.method !== "GET" ? JSON.stringify(inv.input ?? {}) : undefined,
+    });
+    const text = await res.text();
+    /*
+     * A non-2xx is a FAILURE of the call, not a value to hand back. Returning
+     * the body of a 500 as though it were an answer is how "the supplier says
+     * your order shipped" gets built on top of an error page.
+     */
+    if (!res.ok) throw new Error(`${inv.action} returned HTTP ${res.status}`);
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
+  },
+};
+
+
 registerAdapter(nativeAdapter);
 registerAdapter(directAdapter);
+registerAdapter(apiAdapter);
