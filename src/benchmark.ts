@@ -347,13 +347,24 @@ export async function caseIsGradeable(
      * it. What actually distinguishes the two is the thrown error - an
      * assertion failure raises AssertionError, a broken module does not.
      */
-    if (LOAD_ERROR.test(onSeed.output)) {
-      return {
-        gradeable: false,
-        detail: `the hidden tests failed on the seed without running: ${firstError(onSeed.output)}`,
-      };
-    }
+    /*
+     * Assertions are checked BEFORE load errors, and the order is the whole
+     * point. A hidden suite may assert ON an error message, so the words
+     * SyntaxError and ReferenceError appear in the output of a run that
+     * executed perfectly and failed honestly. Matching them first reclassifies
+     * a real failure as a broken harness.
+     *
+     * Found by the corpus: the case built from this very bug was rejected by
+     * this function, because its own test data contains those words. The check
+     * had the defect the case describes.
+     */
     if (!/AssertionError/.test(onSeed.output)) {
+      if (LOAD_ERROR.test(onSeed.output)) {
+        return {
+          gradeable: false,
+          detail: `the hidden tests failed on the seed without running: ${firstError(onSeed.output)}`,
+        };
+      }
       return {
         gradeable: false,
         detail: `nothing asserted its way to red on the seed: ${firstError(onSeed.output)}`,

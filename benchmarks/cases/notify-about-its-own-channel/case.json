@@ -1,0 +1,9 @@
+{
+  "id": "notify-about-its-own-channel",
+  "title": "the notice telling you to pair WhatsApp is queued on WhatsApp",
+  "source": "Jarvis in production, 2026-09-02: send 13c8b36e retried for hours because the Pair WhatsApp notification was queued on WhatsApp, which was unpaired. It was a large share of the delivery-recovery retry spam, and the one message that would have unblocked it was the one that could not be delivered.",
+  "objective": "chooseChannel routes a notification that is ABOUT a channel over that same channel. A notification about a channel must never be delivered on it - the one telling you how to fix a channel is the one that cannot use it. Fix chooseChannel and add a regression test.",
+  "expectedFiles": ["src/route.js", "test/route.test.js"],
+  "difficulty": "medium",
+  "note": "The trap is that the obvious reading of the bug - do not use a dead channel - is already what the seed does, and it passes the reported case by accident. The rule is about SUBJECT, not liveness: a pairing notice must not go over its own channel even when that channel is working. The second trap is the fallback: excluding the subject channel can leave nothing, and a fix that returns null or an empty string there loses precisely the notification that explains the outage."
+}
