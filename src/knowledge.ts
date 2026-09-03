@@ -58,6 +58,13 @@ export async function ingestDocument(
     kind: ChunkKind;
     /** When the SOURCE is from, not when it was ingested. S41 searches on this. */
     sourceDate?: Date | null;
+    /**
+     * Prepended to every chunk locator, for sources with no artifact to name.
+     *
+     * A forward has no file to point at, and "a dumped document" is not a
+     * citation anybody can act on.
+     */
+    locatorPrefix?: string;
   },
 ): Promise<number> {
   const chunks = chunkDocument({ text: args.text, kind: args.kind });
@@ -71,8 +78,9 @@ export async function ingestDocument(
       `INSERT INTO knowledge_chunks
          (project_id, body, source_artifact_id, kind, locator, char_offset, chunk_index, source_date)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [args.projectId, c.body, args.artifactId, c.kind, c.locator, c.offset, c.index,
-        args.sourceDate ?? null],
+      [args.projectId, c.body, args.artifactId, c.kind,
+        args.locatorPrefix ? `${args.locatorPrefix} — ${c.locator}` : c.locator,
+        c.offset, c.index, args.sourceDate ?? null],
     );
   }
   return chunks.length;
@@ -240,4 +248,80 @@ export async function retrieve(
   ].filter((t) => t.hits.length);
 
   return { tiers, total: tiers.reduce((n, t) => n + t.hits.length, 0) };
+}
+
+/**
+ * A forwarded thread, made findable.
+ *
+ * N2 is "he forwards a 40-message thread and three PDFs, they are stored,
+ * chunked and indexed, and three weeks later a phrase inside one of them is
+ * answerable with a citation". The forward was already stored - S37 keeps it
+ * separately so it can never be mistaken for something he said - but stored is
+ * not indexed, and a thread nobody can retrieve is a thread that was filed
+ * rather than kept.
+ *
+ * Chunked as chat, because that is what it is: one message plus the two around
+ * it, since a line like "yes, that works" answers nothing on its own.
+ *
+ * Returns the number of chunks, and never throws into the message path: a
+ * failure to index must not cost him the message. It is reported instead.
+ */
+export async function ingestForward(
+  pool: pg.Pool,
+  args: { inboxEventId: string; projectId: string | null; text: string; at?: Date | null },
+): Promise<{ chunks: number; error?: string }> {
+  try {
+    /*
+     * The forward is named as the chunks are written, not patched afterwards.
+     *
+     * The first version updated the rows it had just inserted, matched by "same
+     * project, written in the last minute". That is a race dressed as a query -
+     * two forwards arriving together would relabel each other - and it also
+     * passed a parameter the statement never mentioned, which Postgres refuses
+     * outright.
+     */
+    const chunks = await ingestDocument(pool, {
+      projectId: args.projectId,
+      artifactId: null,
+      text: args.text,
+      kind: "chat",
+      sourceDate: args.at ?? new Date(),
+      locatorPrefix: `forward ${args.inboxEventId.slice(0, 8)}`,
+    });
+    return { chunks };
+  } catch (err) {
+    return { chunks: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type Answer =
+  | { known: true; citations: string[]; hits: Hit[] }
+  | { known: false; reason: string; searched: Tier[] };
+
+/**
+ * What to say when nothing was found.
+ *
+ * The Done-when asks for "an honest I do not know when the answer is not
+ * there", and the reason it has to be built rather than assumed is that the
+ * natural failure is the opposite: a retrieval that returns the three
+ * least-irrelevant chunks, handed to a model that writes a confident paragraph
+ * from them. Nothing in that path ever says "there was nothing here".
+ *
+ * So the decision is made before any prose is generated, and it is made on
+ * whether anything was retrieved at all - not on how the answer reads.
+ */
+export function answerFrom(retrieved: Retrieved, searched: Tier[]): Answer {
+  const hits = retrieved.tiers.flatMap((t) => t.hits);
+  if (!hits.length) {
+    return {
+      known: false,
+      reason: "nothing in the indexed documents, memory or activity matches that",
+      searched,
+    };
+  }
+  return {
+    known: true,
+    hits,
+    citations: [...new Set(hits.map((h) => h.citation))],
+  };
 }
