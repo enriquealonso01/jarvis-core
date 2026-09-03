@@ -31,7 +31,17 @@ import type pg from "pg";
 import { raiseIssue } from "./notify.js";
 import { stalenessFor } from "./staleness.js";
 
-/** Start refusing new uploads here. Below the prune threshold on purpose. */
+/**
+ * Start refusing new uploads here — ABOVE the prune threshold, deliberately.
+ *
+ * The comment here used to read "below the prune threshold on purpose",
+ * which is the opposite of the number. The ordering is right and the
+ * sentence was wrong: pruning at 0.85 removes only rebuildable or expired
+ * debris, so it is cheap and runs first; refusing his uploads is the
+ * harsher measure and waits until 0.90. A comment that contradicts the
+ * constant beside it is worse than no comment, because the next person to
+ * change a threshold will trust it.
+ */
 export const INGEST_REFUSE_AT = 0.90;
 /** Start reclaiming here. N7's number. */
 export const PRUNE_AT = 0.85;
@@ -215,6 +225,23 @@ export type IngestVerdict =
  * the box down rather than merely disappointing him."
  */
 export function mayAcceptUpload(disk: DiskUsage, bytes: number): IngestVerdict {
+  /*
+   * A disk we cannot measure is not an empty disk.
+   *
+   * `usedRatio` answers 0 for a non-positive total, which is the right
+   * answer for the prune side - it means maintenance does not start
+   * deleting on a garbage reading. Here it read as "0% used" and accepted
+   * anything, so a failed statfs would have taken an upload of any size.
+   * This module's own rule is that refusing is recoverable and accepting
+   * is not, so both sides now fail in the safe direction.
+   */
+  if (!(disk.totalBytes > 0)) {
+    return {
+      accept: false,
+      reason: "I cannot read how much room is left, and I will not accept "
+        + "something I might not be able to keep. Try again shortly.",
+    };
+  }
   const after: DiskUsage = { ...disk, freeBytes: disk.freeBytes - bytes };
   if (usedRatio(after) >= INGEST_REFUSE_AT) {
     const pct = Math.round(usedRatio(disk) * 100);
