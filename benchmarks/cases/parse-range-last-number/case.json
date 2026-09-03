@@ -1,0 +1,9 @@
+{
+  "id": "parse-range-last-number",
+  "title": "parseRange drops the last number",
+  "source": "s6-bugfix, a real run: an engine reported it without fixing it, and the Issue is still open in the queue",
+  "objective": "parseRange(\"1-5\") returns [1,2,3,4] — the last number of the range is missing. It should return [1,2,3,4,5]. Fix it and add a regression test.",
+  "expectedFiles": ["src/parseRange.js", "test/parseRange.test.js"],
+  "difficulty": "real",
+  "note": "The bug survived a test file that covers a single number, nonsense input and a backwards range — every case EXCEPT an inclusive one. That is why it is worth scoring: the fix is one character, and finding it means reading the loop rather than the tests."
+}

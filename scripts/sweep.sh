@@ -31,7 +31,7 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         outbound-leg-test unscoped-heavy-test handover-scope-test
         harness-issue-test fixture-teardown-test confidential-eligibility-test
         s37-outbox-send pairing-notification-test
-        s29-escalation-test s29-scoring-test s29-error-events-test"
+        s29-escalation-test s29-scoring-test s29-error-events-test s29-corpus-test"
 
 # Suites deliberately NOT in the sweep, and why. Each needs something the sweep
 # cannot give it, and a suite that cannot pass here would train everyone to

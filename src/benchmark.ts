@@ -181,3 +181,71 @@ export async function collectEvidence(
     prTitle: null,
   };
 }
+
+export type BenchmarkCase = {
+  id: string;
+  title: string;
+  source: string;
+  objective: string;
+  expectedFiles: string[];
+  difficulty: string;
+  note?: string;
+  dir: string;
+};
+
+/**
+ * Load the case corpus from disk.
+ *
+ * Cases are files rather than rows because they are code: a seed the agent
+ * starts from and a hidden suite it never sees. Keeping them in the repository
+ * means a case is reviewed like code, and the fix it expects can be read.
+ */
+export async function loadCases(root: string): Promise<BenchmarkCase[]> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const dirs = await fs.readdir(path.join(root, "cases")).catch(() => [] as string[]);
+  const out: BenchmarkCase[] = [];
+  for (const id of dirs.sort()) {
+    const dir = path.join(root, "cases", id);
+    const raw = await fs.readFile(path.join(dir, "case.json"), "utf8").catch(() => null);
+    if (!raw) continue;
+    const c = JSON.parse(raw) as Omit<BenchmarkCase, "dir">;
+    out.push({ ...c, dir });
+  }
+  return out;
+}
+
+/**
+ * Is this case honest?
+ *
+ * A case whose hidden tests pass against the SEED measures nothing: the bug is
+ * either not in the seed or not covered by the tests, and every engine scores
+ * full marks for doing nothing. Checked by running them, not by reading them.
+ */
+export async function caseIsFailable(
+  c: BenchmarkCase,
+  run: (cwd: string) => Promise<boolean>,
+): Promise<{ failable: boolean; detail: string }> {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const os = await import("node:os");
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), `bench-${c.id}-`));
+  try {
+    await fs.mkdir(path.join(tmp, "src"), { recursive: true });
+    await fs.mkdir(path.join(tmp, "test"), { recursive: true });
+    for (const f of await fs.readdir(path.join(c.dir, "seed"))) {
+      await fs.copyFile(path.join(c.dir, "seed", f), path.join(tmp, "src", f));
+    }
+    for (const f of await fs.readdir(path.join(c.dir, "hidden"))) {
+      await fs.copyFile(path.join(c.dir, "hidden", f), path.join(tmp, "test", f));
+    }
+    await fs.writeFile(path.join(tmp, "package.json"), JSON.stringify({ type: "module" }));
+    const passed = await run(tmp);
+    return {
+      failable: !passed,
+      detail: passed ? "the hidden tests PASS against the seed - the case proves nothing" : "fails on the seed, as a case must",
+    };
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
