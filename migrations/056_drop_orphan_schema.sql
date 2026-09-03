@@ -15,7 +15,7 @@ DROP TABLE IF EXISTS mcp_tools;
 -- Their schema_migrations rows go too: the files exist in no branch, so leaving
 -- the rows records the application of something nobody can read.
 DELETE FROM schema_migrations
- WHERE version IN ('041_connection_actions.sql', '042_mcp_tools.sql');
+ WHERE filename IN ('041_connection_actions.sql', '042_mcp_tools.sql');
 
 -- 044_outbox_handed_off and 045_outbox_dropped are DELIBERATELY LEFT ALONE,
 -- though B11 lists them, because they are not orphans in the same sense.
