@@ -57,6 +57,30 @@ export const ERROR_CLASSES: Record<string, ErrorClass> = {
   "telnyx.quiet_hours": { severity: "low", retryable: false, limit: null, notify: "whatsapp_blocker" },
   "setup.pending": { severity: "medium", retryable: false, limit: null, notify: "whatsapp_blocker" },
   "supervisor.fail": { severity: "high", retryable: true, limit: 5, notify: "whatsapp_degraded" },
+
+  /*
+   * The three classes that used to fall through to worker.crash (B10).
+   *
+   * They are in failures.ts's POLICY but were never given a row here, so
+   * `classify` returned the worker.crash fallback for all three: high /
+   * ui_only, silently. The fallback is right for a category nobody has
+   * classified; these are not that - they are known members of the taxonomy,
+   * and agent.repeat fires in production.
+   *
+   * `retryable` and `limit` are not choices: they are read off the retry policy
+   * already recorded for each in failures.ts, so the two tables cannot disagree.
+   *
+   * TWO TRANSLATIONS were needed and are written down so they can be overruled.
+   * Enrique's decision used "error" and "warning", which are not values this
+   * enum has - mapped to `high` and `medium`. And "Issue + WhatsApp" for
+   * agent.repeat became `whatsapp_degraded` rather than `whatsapp_blocker`,
+   * because a blocker sends messageType "blocker" and puts the required action
+   * in the body: it is the level for something he must act on. A repeating
+   * agent parks the task as stalled and wants him to know, not to do.
+   */
+  "agent.repeat": { severity: "high", retryable: false, limit: null, notify: "whatsapp_degraded" },
+  "dependency.unavailable": { severity: "medium", retryable: true, limit: 4, notify: "ui_only" },
+  "resource.cpu": { severity: "medium", retryable: true, limit: 3, notify: "ui_only" },
 };
 
 /** Unknown errors are worker.crash severity: Issue, no data deleted. */
