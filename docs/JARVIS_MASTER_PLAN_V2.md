@@ -744,7 +744,7 @@ The boundaries that still hold inside the system layer:
 - It reads and changes **configuration**: instructions, connections, schedules, routing, policy. It does **not** get project *secrets*, and it does not run inside another project's worktree.
 - It never uses a project-owned auth profile, so a professional project's model account cannot be spent by a system job.
 - Everything it does is audited with the project it touched, because a layer that can reach everywhere is exactly the layer that must be reconstructable afterwards.
-- The immutable list (§59) binds it hardest: it may recommend changes to isolation, auth, audit, backups, spend ceilings or the always-confirm list, and may never make them.
+- **The immutable list (Part V, eight items) binds it hardest**, and item 8 — *the authority of system projects* — is about this layer. It may recommend changes to any of them and may never make them. Note that the list is eight, not the six usually recalled: **secret scope and the authority of system projects are the two that get dropped**, and they are the two that constrain the layer doing the dropping.
 
 Writing this down matters because S27 (configuration by conversation) and
 Maintenance both need to cross project lines, and an implementer without a
@@ -1156,7 +1156,7 @@ autonomous loop is ever pointed at the suite again.
 
 **Build** Task grants per IV.6 with all eight invalidation conditions. Merge and deploy broker-gated. Production on professional projects needs a live approval and defaults off.
 
-**Test** Each of the eight invalidation conditions **individually**. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
+**Test** Each of the eight invalidation conditions in IV.6 **individually**, including the three that can only be discovered mid-run. "Fix it, PR it, merge it" on non-production personal → merges with no second click. Amend the commit after tests → grant invalidated, approval raised (L7). Production on a professional project → refused (N6).
 
 **Debug** A grant surviving a SHA change means it is bound to the task rather than the commit. Check what is actually stored.
 
@@ -1624,7 +1624,7 @@ running, on the box, today.
 |---|---|---|---|
 | 1 | **The deterministic router** (ADR 005) | **yes** | A model is the first reader of every inbound body, confidential ones included |
 | 2 | **SSH hardening** (V.1) | **yes** | Password auth and root login at Debian defaults, on a public port |
-| 3 | **Output scrubber and canary** (Part V) | unverified | "Never logged" has nothing behind it |
+| 3 | **Output scrubber and canary** (Part V) | unverified | "Never logged" has nothing behind it — and the app's log path is not the only one |
 | 4 | **The extended path guard** (II.5) | no | `openclaw/` and other projects' `artifacts/` unguarded |
 | 5 | **Harness network egress** (II.5) | no | A run can POST to `/internal/*` or open Postgres |
 | 6 | **Audit keys and console hardening** (IV.9, Part V) | no | Level 3 approvals need no re-auth; audit keys inconsistent |
@@ -2165,11 +2165,38 @@ without Enrique being told anything.
 
 On finalize it **writes `AGENTS.md` into the repository** from `docs/TEMPLATES.md` and versions it in `project_instructions_versions`.
 
-**Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
+### The window between "the project exists" and "the project is onboarded"
+
+Onboarding is ten questions, and N5 already decided not to ask them on the phone:
+*he talks for two minutes about a new project, Tier 2 creates it, and the
+questions arrive in a thread he reads later.* That is the right call — a
+ten-question interrogation is the opposite of what a call is for.
+
+But it opens a window nobody has specified, and **it is exactly the window in
+which he will ask for something.** *"Start a project for the AIDP thing and look
+into the pricing model"* creates a project and a request in the same breath.
+Under which model? Which credentials? Is it confidential? Every one of those is a
+question that has not been answered yet.
+
+- **An un-onboarded project is real, but restricted.** It captures, stores, holds conversations and accumulates context — nothing is lost, which is the promise that matters. It runs **no heavy work, uses no credential, and reaches no repository**, because each of those is governed by an answer that does not exist.
+- **While unanswered, the strict reading applies: confidential and professional.** The cost of being wrong in that direction is a slower answer. The cost of being wrong in the other direction is a leak, and the two are not comparable.
+- **It never silently stalls.** A task requested against an un-onboarded project queues with a truthful reason — the same shape as the workstation-is-off case in S47 — and runs the moment onboarding finishes. It does not fail, and it does not sit looking healthy while nothing happens.
+- **The remaining questions are visible and one tap away**, on the project and in Needs You. A half-created project that quietly waits is how he ends up asking why Jarvis ignored him.
+
+**And answering is not all-or-nothing.** The questions have different
+consequences: confidentiality and repository gate everything, while monitoring
+and backup preferences gate almost nothing. Ask in that order, and let the
+project become useful as soon as the gating answers exist rather than at the end
+of the questionnaire.
+
+**Test** Create a project by voice; the committed `AGENTS.md` matches the answers. Skip a required answer → it asks again rather than defaulting.
+- **Create a project by voice and ask for work in the same sentence** → the project exists, the request is captured and queued with a truthful reason, and **no credential is touched and no heavy work starts**. Then finish onboarding and confirm the queued task runs by itself.
+- An un-onboarded project is treated as confidential until answered — attempt something a confidential project would refuse, and confirm it is refused.
+- The unanswered questions appear in Needs You, and answering the gating ones makes the project usable **before** the rest are answered. Create a professional project → paid/subscription profiles only, and a free consumer endpoint is refused for its source code.
 
 **Debug** If `AGENTS.md` lands with template placeholders still in it, finalize ran before every answer was collected — the onboarding session must refuse to finalize on a missing required field rather than substituting a default. If the committed file and the database disagree, decide which is canonical now and enforce it; two sources of project policy is a bug that gets worse with time.
 
-**Done when:** a project created by voice ends with a correct committed `AGENTS.md`.
+**Done when:** a project created by voice ends with a correct committed `AGENTS.md` — written when the thread is answered, not when the call ends — and anything asked for in between is waiting, not lost and not running ungoverned.
 
 ## S27 — Configuration by conversation
 
@@ -2200,6 +2227,8 @@ always-confirm list, secret scope, and the authority of the system projects.
 - "What changed in Alpha's policy last week?" answers correctly from the version history.
 - Roll a change back and confirm the previous version is restored exactly.
 - An instruction that would weaken isolation or raise a spend ceiling → refused, approval raised, nothing applied.
+- **One attempt against each of the eight items**, not against isolation twice. The two that get dropped from restatements — secret scope and the authority of system projects — are the two most likely to be unprotected in code.
+- **Add a config key nobody has classified, then try to change it → refused.** A setting nobody labelled is protected until somebody does, and this is the assertion that keeps the list from shrinking as the system grows.
 - A garbled or ambiguous instruction → one clarifying question, no partial application. **A half-applied config change is worse than none.**
 
 **Debug** If a change applies but does not show in history, the write is bypassing the versioning path. Every config write goes through one function; find the one that does not.
@@ -2750,11 +2779,47 @@ see another project's session.
 
 **Build** §17 exactly: silence on trivial capture; one line on short work; ack-plus-result on long work; one message per blocker with a working link; the weekly report. A repeated condition is a counter, not another page.
 
+### A reply is not an interruption, and only one of them needs a list
+
+Everything §17 describes is a **reply**: he asked, Jarvis answers, and the policy
+is about length and timing. Nothing here governs the other kind — the message
+Jarvis sends **when he did not ask for anything.**
+
+S23 gives the phone a closed list of six reasons to ring, and tests that *only*
+those ring. **WhatsApp has no such list**, and it is the channel that actually
+reaches him. Meanwhile the sources of unprompted messages keep accumulating:
+weekly findings (S48), a proposed capability (S44), an auth handoff (S46), an
+approval (S42), a maintenance issue, a queued desktop action (S47). Each one is
+defensible on its own, and together they turn the pager into a feed.
+
+The plan already knows this failure by name — *"a ticket per failover trains
+Enrique to ignore tickets"* — and applies it to tickets and to the build bar's
+blocked count while leaving the channel itself ungoverned.
+
+- **A closed set of reasons Jarvis may open a conversation**, the same shape as S23's six, and tested the same way: trigger each, then confirm **nothing else** produces one. A new feature that wants to message him is a change to that list, decided once, rather than a line of code nobody reviews.
+- **Unprompted items inside a window batch into one message.** Three findings at 09:00 are one message with three lines, not three notifications — the same principle as the repeated-condition counter, applied across kinds instead of within one.
+
+### Quiet hours currently push interruptions onto the channel that has none
+
+S23 enforces quiet hours **at the dial site**, and a blocked call *becomes a
+WhatsApp*. WhatsApp has no quiet hours. So the rule that stops the phone ringing
+at 03:00 **routes the interruption to the same phone by a different route** — it
+buzzes instead of ringing, which is not what "quiet hours" means to the person
+asleep next to it.
+
+- **Unprompted messages respect the same window**, held until 08:00 with the Issue raised immediately so nothing is lost and the console is accurate at 06:00 if he looks.
+- **The override is the same narrow one, not a second one.** A confirmed security incident or active data loss. Not an outage, not a blocked task, not an approval — identical to S23, because two override lists diverge and the looser one wins.
+- **Replies are not affected.** If he messages at 02:00, Jarvis answers at 02:00. Quiet hours govern what Jarvis starts, never what he starts.
+
 **Test** L10 — a trivial capture produces **zero** messages; a long task produces exactly two. Ten identical failures produce one notification with a count of ten. Every link in every notification actually opens the right page.
+- **Trigger every source of an unprompted message, and confirm only the listed reasons produce one.** The assertion that matters is the *absence* — a test that only proves the six work would pass on a system that also sends nine others.
+- Three unprompted items within the batching window → **one** message with three lines.
+- An unprompted message at 21:00 → held until 08:00, **and its Issue exists immediately**. A security incident at 21:00 → sent. Both halves, and the override list is the same object S23 reads.
+- **He messages at 02:00 → Jarvis replies at 02:00.** Quiet hours must not silence the conversation he started.
 
 **Debug** If notifications arrive that should not, log the classification decision alongside the message and read a day of it — the bug is nearly always in classification, not in delivery. If they do not arrive at all, check the outbox state before the transport: a message stuck `pending` and a message that failed to send look identical from the phone.
 
-**Done when:** a day of normal use produces only messages worth reading.
+**Done when:** a day of normal use produces only messages worth reading, and a night of it produces none Jarvis started.
 
 ## S34 — Schedules, maintenance, improvement
 *Size: 3 days.*
@@ -2782,7 +2847,7 @@ replacing it now would be the rebuild.
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
 
-**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
+**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself. **Decline a candidate, then run the scan again → it does not come back.** Change its version and run again → it returns, and the message names what changed rather than repeating the pitch. A week with twenty findings produces the capped number of asks and the rest in the console. **Approve one → a task exists**; one-tap approval that produces no work is a button, not a decision.
 
 **Debug** A duplicate fire after a restart means idempotency is keyed on something other than `scheduled_for`. A schedule that silently stops has usually hit its error count and paused itself — that is correct behaviour, but it must be visible in the console rather than only in a column. For Maintenance, confirm each auto-repair wrote what it did; a repair with no audit row is indistinguishable from a bug that fixed itself.
 
@@ -3234,9 +3299,9 @@ impactful by definition and still always-confirm. What changes is everything
 below: an action that IV.6 would have gated on its *type* now proceeds if nobody
 but Enrique can see it.
 
-**The immutable list (§59) is untouched.** Isolation, authentication, audit,
-backups, spend ceilings and the always-confirm list are not subject to this or
-any other convenience rule.
+**The immutable list (Part V) is untouched — all eight items**, secret scope and
+the authority of system projects included. They are not subject to this or any
+other convenience rule.
 
 ### Learning his preferences
 
@@ -3718,6 +3783,25 @@ by adding a derived record that supersedes it, not by changing the original — 
 original is the evidence of what was actually said, and it is the only thing in
 the system that cannot be reconstructed.
 
+#### The promise starts at the inbox event, and the doorway is before it
+
+*"Durable before any model sees it"* is a promise about what happens **once the
+API has the message.** Every inbound item crosses something else first — OpenClaw
+for WhatsApp, a Telnyx webhook for the phone — and **that stretch is outside the
+guarantee.** If the API is down for ten minutes, the outage lands precisely there.
+
+The two doorways fail differently, and only one of them can be reasoned about
+from inside this system:
+
+- **WhatsApp arrives once.** OpenClaw holds a session with Meta; a message delivered to it and lost on the way to the API is not re-delivered by anyone. So OpenClaw **must not acknowledge until the inbox event is written** — an ack-then-forward is a message-shaped hole. Where the gateway cannot be made to wait, it spools locally and replays, and the spool is part of the backup (S35), because a spool nobody restores is a spool that loses the outage it was built for.
+- **Telnyx retries, then stops.** Its webhook retry window is finite and it is *shorter than a plausible outage*. A call that arrived while the API was restarting is simply gone — and unlike a message, nobody will send it again.
+
+So, the same shape as the watchdog coming back blind: **after an outage, the
+system asks what it missed rather than resuming from now.** Telnyx can be queried
+for the calls and recordings it handled during the window, and reconciliation on
+startup turns a silent loss into a late arrival. **A late inbox event is an
+inconvenience. A missing one is the promise broken.**
+
 **Conversation — the ongoing context around something.**
 
 Scoped to a project, or global for the Supervisor thread. Titled from its first
@@ -3879,8 +3963,37 @@ is for the detail, not for the decision.
 
 "Fix this, PR it, merge it" pre-authorises named Level 1 and Level 2 actions for
 **that task, that repository, that commit, that environment**, with an expiry.
-It is invalidated by any of the eight conditions in S10. It can never reach
-Level 3.
+It can never reach Level 3.
+
+#### The eight invalidation conditions
+
+**These were referred to five times and written down nowhere.** S10 says *"per
+IV.6 with all eight invalidation conditions"*; this section said *"the eight
+conditions in S10"*; the acceptance gate says *"all eight (S10) verified
+individually"*. Each pointed at the other. A builder told to implement eight
+conditions and given none will invent eight, and they will be the eight that are
+easy to check.
+
+1. **Expiry.** Every grant carries one. A grant with no expiry is a policy change wearing a sentence's clothes.
+2. **Scope materially expands** beyond what the instruction described — more files, more services, a second repository, a blast radius the sentence did not cover. (S42 relies on this one by number.)
+3. **The commit changes.** A grant is bound to a SHA. Amend, rebase or add a commit and it is void, which is why it is stored against the commit and not the task.
+4. **A destructive migration appears** in the change — a drop, a truncate, a non-reversible alter. Not "the diff got bigger": a different kind of change from the one authorised.
+5. **Metered spend would have to be enabled**, or a ceiling raised, to continue. No grant purchases anything.
+6. **The task ends** — completed, failed, or cancelled. A grant does not outlive the work it was issued for, and a resumed task re-derives its authority rather than inheriting it.
+7. **The action's level rises to 3**, however it rises: reclassification of an MCP tool (S31), a project policy change, or the target turning out to be production. **Level 3 is never inside a grant**, so anything arriving there leaves it.
+8. **Enrique revokes or contradicts it** — explicitly, or by saying something incompatible on any channel. *"Actually hold off on that"* is a revocation wherever he says it.
+
+**Re-validated at the point of action, never at issue.** Conditions 3, 4 and 7
+are discovered *while working*; a grant checked once at creation cannot see any
+of them. Fail closed: a grant that cannot be evaluated is not a grant.
+
+**An invalidated grant parks the task and asks. It does not fail it.** The work
+already done stays, the reason names which condition fired, and one approval
+resumes it — otherwise invalidation costs more than never granting, and the
+feature gets turned off.
+
+**Only Enrique's words create one.** Not a model restating an instruction, not a
+task's own plan, not content Jarvis was shown (IV.6b).
 
 ### The console grants the approvals, so it is the gate behind every gate
 
@@ -4057,6 +4170,24 @@ transcript for that string. Expect zero hits. This is the same "assert the
 absence" technique that S12 used for isolation, and it is the only way to turn an
 unfalsifiable claim into a test.
 
+**Three things the scrubber cannot see, and they are where it will fail.**
+
+*Matching on live decrypted values* is the right choice — patterns find `sk-...`
+and miss a 44-character password — but it defines the scrubber's blind spots
+exactly:
+
+- **A rotated value stops being matched the moment it stops being live.** A buffered write or a delayed provider error carrying the *old* key arrives after rotation and passes straight through, because nothing in memory matches it any more. **Retired values stay in the matching set for a window** — they are exactly as sensitive as they were an hour ago.
+- **It can only redact what it holds.** A project's credential is decrypted in the runner, not in the API — and the runner writes the harness transcript, which is the single most likely place for a CLI to echo a key. **The scrubber has to run where the text is written**, with that project's values, or the transcript artifact is an unscrubbed copy of everything.
+- **The container runtime keeps its own log.** Anything on stderr — an unhandled rejection, a library printing a request it failed on — is captured by Docker to disk **without passing through the application's logger at all.** A scrubber installed in the app's log path is not installed on that one, and it is the path taken by exactly the errors nobody planned for.
+
+**One canary proves one shape.** A single long random string is the easiest thing
+in the world to redact. The canaries have to look like the credentials that
+actually exist: a long random token, a short one, one containing regex
+metacharacters, one that is an ordinary English word — and **one belonging to a
+project, decrypted in the runner rather than the API.** A canary that only
+exercises the API path says nothing about the path the confidential material
+actually takes.
+
 **The tension with keeping provider error bodies, resolved.** `DEBUG_NOTES.md`
 says to store the provider's response body rather than the bare status code,
 because a bare status turned a five-minute diagnosis into an afternoon. Provider
@@ -4071,7 +4202,29 @@ diagnosis and safety.
 - **Professional projects**: dedicated unix user, project-owned model accounts only, no free or consumer endpoint whose terms permit training on submitted data. The Ticketflipping Anthropic subscription is used **only** for Ticketflipping.
 - **Files**: uploads scanned and quarantined; executables blocked; path traversal rejected; downloads gated through the API.
 - **Audit**: every broker decision, every approval, every config change, every model route, permanently.
-- **Immutable without approval** (§59): isolation, authentication, audit, backup, spend ceilings, the always-confirm list, secret scope, and the authority of system projects. Jarvis may recommend changes to these; it may never make them.
+- **Immutable without approval** (§59): isolation, authentication, audit, backup, spend ceilings, the always-confirm list, secret scope, and the authority of system projects. Jarvis may recommend changes to these; it may never make them. **This is the canonical list — eight items. Everywhere else refers to it rather than restating it.**
+
+### The immutable list is enforced by judgement unless something enumerates it
+
+Two problems, and they compound.
+
+**It is restated with different membership.** Three places in this plan list
+**six** items and drop *secret scope* and *the authority of system projects* —
+including §II.5's rule for the **system layer itself**, which is the one place
+item 8 exists to constrain. A reader acting on the shorter list is acting on a
+list that omits the constraint most relevant to what they are doing, and shorter
+restatements are the ones people quote.
+
+**And the list names topics, while a config change is a key.** Nothing maps
+*"isolation"* to the settings that constitute it, so deciding whether a change
+touches the list is an act of interpretation — performed, in practice, by the
+thing interpreting the instruction. That is exactly what IV.6 forbids in its own
+first paragraph: **the model does not decide whether approval is required.** A
+list enforced by meaning is enforced by whatever is reading it that day.
+
+- **The list is a set of config paths, tables and keys**, mapped once, in one place. The pipeline checks membership, not meaning.
+- **Unmapped keys default to immutable.** A setting nobody classified is protected until somebody does. The opposite default is how the list quietly shrinks as the system grows — every new feature adds settings, and none of them arrive labelled. This is S31's *"an unclassified tool is not callable"*, applied to configuration.
+- **The mapping is itself on the list.** Otherwise the way to change something protected is to edit what "protected" means, which is a shorter path than the one it guards.
 
 ## V.1 Host hardening
 
@@ -4470,7 +4623,7 @@ second-machine test in S31 is what keeps it honest, because a portability claim
 nobody has exercised is a portability claim that is false.
 
 ## VII.4 Improvement (seeded at boot, weekly)
-Discovers new models, free tiers, provider changes, MCP servers, GitHub skills,
+Discovers new models, provider changes, MCP servers, GitHub skills,
 OpenClaw releases, harnesses, browser and scraping tools, memory systems, and
 telephony improvements. Records source, licence, maintainer, activity, and
 reputation. Inspects, static-checks, sandboxes, benchmarks, and evaluates
@@ -4506,6 +4659,28 @@ and an explicit **Recommendation:** line. Something like:
 > Repository maintained, tests passed in isolation. Introduces write access to
 > infrastructure. **Recommendation: install only if you want Cloudflare
 > management.**
+
+**A decline is a decision, and nothing currently records it.** The pipeline
+produces one recommendation per candidate every week, from a world that never
+stops producing candidates — so a thing he said no to in March is proposed again
+in April, and in May, with the same evidence. **A cycle that re-asks until the
+answer changes is not a recommendation system; it is attrition.** Declines are
+recorded with their reason, and a declined candidate returns only when something
+about it actually changed — a new version, a new capability, a cost that moved —
+and the message says what changed rather than re-running the original pitch.
+
+**The number of asks is capped, and the cap is about him, not about the
+findings.** Three proposals he will read beat eleven he will not, and the rest
+stay visible in the console without being asked about. **S48's honesty test does
+not transfer to this half**: the inward cycle can legitimately find nothing wrong
+in a good week, but the industry always did something, so *"it found nothing"*
+will never bound this list. Only a cap will.
+
+**Cost is a comparison, not a category.** The transcript's framing was free tiers
+— *"I found this new free tier, we should try it"* — and that is superseded
+(VI.0). Candidates are now proposed on merit against what is running: better for
+a named role, or cheaper for the same quality, with the number attached. **Free
+is not a recommendation, and neither is new.**
 
 A recommendation that does not commit to a verb is not a recommendation. "This
 looks interesting" pushes the decision back onto Enrique, which is the work the
@@ -4678,6 +4853,9 @@ purpose, and that crossing is what it exists to check.
 ## Gate 2 — It loses nothing
 - **Ingestion at volume**: send **20 messages across 5 projects, rapidly, while a coding job is running.** All 20 persist, and all 20 are eventually routed to the correct project. Not 19.
 - **L1** capture while busy, including a 10-second API kill mid-send
+- **An API outage longer than the shortest transport retry window.** Ten seconds proves nothing — it fits inside every transport's own retry, so the test passes because the transport saved it. Kill the API for longer than Telnyx will keep retrying, send a WhatsApp and place a call during the window, then assert **both** arrive. This is the test that distinguishes *"we lose nothing"* from *"our vendors have not made us notice yet."*
+- After that outage, **startup reconciliation finds the call** rather than the system resuming from now
+- The gateway does not acknowledge a WhatsApp until its inbox event exists — kill the API between receipt and write, and confirm the message is re-delivered or replayed rather than acknowledged into nothing
 - **Duplicate delivery**: deliver the same webhook **5 times** → exactly one logical inbox event and one task (IV.7)
 - **L2** restart the entire server with queued *and* running work → queued state survives in order; running work is reconciled or recovered
 - **Transition conformance**: every illegal state pair across all ten machines refused with 409 and audited, generated from `STATE_MACHINES.md`
@@ -4691,11 +4869,14 @@ purpose, and that crossing is what it exists to check.
 - **L6** two repos, distinct deploy-key fingerprints
 - **L11** auth-profile isolation, denied before any HTTP leaves the box
 - **L8** always-confirm blocked
-- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (S10) verified individually
+- **Approval**: approve commit SHA A, then alter the branch → the old approval no longer authorises merge or deploy. All eight invalidation conditions (IV.6) verified individually, and an invalidated grant **parks and asks** rather than failing the task
 - **N6** production deploy refused without a live approval
 - Search scoped to project A never returns project B (S18)
 - **The harness cannot reach Jarvis**: from inside a run, attempt `/internal/inbox/ingest`, a Postgres connection, and the OpenClaw gateway. All three refused at the network layer, not by the application. **An application-layer refusal proves the wrong thing** — it proves the request arrived.
 - **The secret canary**: a credential with a known unique value, the system exercised until something fails, then every log, audit row, issue, artifact and transcript grepped for it. **Zero hits.** A property this easy to state needs a test this blunt
+- **Five canaries, not one** — long random, short, regex-metacharacter, ordinary word, and one project-scoped credential decrypted in the runner. One shape proves one shape
+- **Grep the container's own logs and the database dump too**, not only the application's. `docker logs` and the backup are the two copies nobody scrubbed
+- **Rotate a canary, then trigger a delayed write carrying the old value** → still redacted. A retired secret is exactly as sensitive as a live one
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
@@ -4936,24 +5117,35 @@ added in the same change that adds the requirement** — this table went a dozen
 requirements out of date within a night, which made it worse than no table,
 because it reads as a completeness claim.
 
+**"Where" names the section that decides it and the step that builds it**, in
+that order. A row with only a section is a requirement nobody has been asked to
+implement, and a row with only a step is a requirement with no stated reasoning —
+both are worth noticing rather than tidying away.
+
+The table also accreted **duplicate rows** as it grew: the same requirement
+listed twice, once against a section and once against a step, with neither
+mentioning the other. **A requirement with two answers has none**, and a reader
+checking coverage stops at whichever row they find first. Those are merged
+below.
+
 | Requirement (transcript msg) | Where |
 |---|---|
-| Project-scoped connections, never mixed (01, 20) | II.5, IV.4, C5 |
-| WhatsApp text + voice in (01, 15) | I.1, B3, B4 |
-| Phone calls both ways (06, 07, 15) | I.2, B6 |
+| Project-scoped connections, never mixed (01, 20) | II.5, IV.4, C5, S5, S12, S31 |
+| WhatsApp text + voice in (01, 15) | I.1, B3, B4, S37 |
+| Phone calls both ways (06, 07, 15) | I.2, B6, S19–S24 |
 | Butler voice, ElevenLabs (10–14) | I.2, VI |
 | Software engineer, issue → merged PR (02) | A3, A4, A5 |
 | Scheduled tasks (05) | II.4, VII.2 |
 | Provider-level auth, not per model (10) | VI |
 | Jarvis manages its own models (08, 09) | VI |
 | Free/subscription models first (01, 22–24) | VI |
-| Control Center with all projects + stats (15, 18) | I.3, C1, C2 |
+| Control Center with all projects + stats (15, 18) | I.3, C1, C2, S13, S15 |
 | Queue that never loses input (15) | 0.3, II.4, B2 |
 | Watchdog for stuck agents (15) | II.3, A6 |
 | API-key request by link (15, 17, 18) | C4 |
-| Weekly self-improvement scan (17) | VII.4 |
-| Maintenance project (17) | VII.2 |
-| Change instructions from WhatsApp (17) | B8 |
+| Weekly self-improvement scan, one-tap approve (17) | VII.4, S34 |
+| Maintenance that heals the system (17) | VII.2, S34 |
+| Change any project's setup from any channel (17) | B8, S27 |
 | Health page with actionable tickets (18) | I.3, C2 |
 | GitHub repo creation + per-project scoping (19, 20) | A2, PART V |
 | Dedicated Jarvis WhatsApp number (20) | I.1, B3 |
@@ -4963,25 +5155,16 @@ because it reads as a completeness claim.
 | Netcup hosting (15) | II.1 |
 | Composio for MCP connections (01) | C5 |
 | Scraping ability (01) | C7 |
-| Exportable to another machine (01) | C8 |
+| Exportable to another machine (01) | C8, VII.5, S35 |
 | Short WhatsApps, no chatter (19) | I.1, B5 |
-| Somewhere to dump everything and ask later (01) | B7, N2 |
-| Jarvis tests models and picks its own primaries (09) | A9 |
+| Somewhere to dump everything and ask later (01) | B7, N2, S30 |
+| Jarvis tests models and picks its own primaries (09) | A9, S29 |
 | Project onboarding asks before assuming (15, 20) | B10 |
-| Move everything to another machine (01) | C8, VII.5 |
 | Never spend money without asking (01, 20) | VI, IV.6 |
-| Phone calls, both directions (06, 07, 15) | S19–S24 |
 | Jarvis can call me (06, 15) | S23 |
 | Five-second turn-taking on calls (01) | S20 |
-| WhatsApp voice notes (01, 15) | S37 |
 | Nothing I say is ever lost (15) | S2, S11, S37, Gate 2 |
 | Testing, trying, debugging built in | III.0, IX.2, IX.4, every step |
-| Jarvis tests models and picks its own primaries (09) | S29 |
-| Change any project's setup from any channel (17) | S27 |
-| Weekly scan of the AI world, one-tap approve (17) | S34 |
-| Maintenance project that heals the system (17) | S34 |
-| Dump anything, ask about it later (01) | S30, N2 |
-| Never mix connections between projects (01, 20) | S5, S12, S31 |
 | Two browser modes: agent vs scraping engine (01) | S32 |
 | Three permission levels: safe / reversible / production (01) | IV.6 |
 | One input, several projects — the five-minute memo (15) | S3 |
@@ -4995,6 +5178,11 @@ because it reads as a completeness claim.
 | The harness is disposable (01, turn 01) | II.2b, S28 |
 | Jarvis Improvement and Maintenance as system projects (17) | II.5, S34 |
 | Nothing developed on the laptop (ADR 014) | S1 |
+| Everything important behind an interface, no vendor dependency (turn 02) | II.2b, VI, S28, S31 |
+| One connector interface: composio, direct, api, native (turn 02) | IV.4, S31 |
+| A normal pool and an escalation pool per role (09) | VI.3, S29 |
+| Reviewer from a different family than the implementer (09) | VI.3, S9 |
+| Everything metered has a ceiling, not only inference (01, 20) | VI, S25 |
 
 **From `Jarvis — Thoughts & Requirements Inbox`:**
 
