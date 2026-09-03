@@ -265,6 +265,12 @@ index dcdf213..7336a33 100644
   - **What is not built:** the plan is emphatic that these must be three *behaviours* — *"All three, or the policy is one behaviour with three names."* Today `stalenessFor` has exactly one consumer (`maintenance.diskStaleness`), nothing branches on the three classes, and `issues.staleness` is NULL for all 537 rows on the box. **This is not a finding.** S33 and S34 are both `in_progress`, so the wiring is simply still being written.
   - **The property to test when it lands**, recorded now so it is not invented after the fact: a `wait` item must never nag, a `re-raise` item must reappear in the weekly report with its age, and a `block` item must actually stop something. If all three merely file an Issue, the plan's own sentence says that is a failure however green the suite is.
 
+- **2026-09-03 — Regression sweep over my own changes: 10 suites, 376 assertions, 0 failures.** I have edited six source files in the last few ticks — `outbound.ts`, `unprompted.ts`, `artifacts.ts`, `callstate.ts`, `config.ts`, `maintenance.ts` — and had only run the suite nearest each change. That is how a fixer becomes the next defect, so this checks the neighbours rather than the patch.
+  - Chosen for adjacency, not convenience: the call path because `callstate.canMove` is a transition guard the whole call machinery leans on, and the rest because they cover the files directly.
+  - `s19-call` 41/0 · `s20-turntaking` 52/0 · `s21b-call-defects` 35/0 · `s24-callreview` 34/0 · `s25-routing` 12/0 · `s17-artifacts` 75/0 · `s27-config` 85/0 · `s23-outbound` 5/0 · `s33-unprompted` 19/0 · `s34-maintenance` 18/0.
+  - Dev images (api, runner, worker) rebuilt against `main` first, so the suites read the current source rather than a cached image — the mistake that once cost a confused re-run.
+  - Box brought to the same commit afterwards: runner restarted 20:44:39 against a 20:44:31 build, `/api/health` 200, five containers up.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
