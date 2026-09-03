@@ -597,6 +597,26 @@ because models and harnesses are both replaceable parts (II.2b).
 `running → stalled → recovering → running`, each step written down and visible in
 the console. **The task never disappears.**
 
+### The event stream and the account of what happened are different objects
+
+`task_events` is the highest-volume table in the system by a wide margin — every
+tool call of every run — and **it has no retention class**, while raw audio has one
+down to the day. VII.1 forecasts disk growth and S35 puts the database in a
+nightly backup, so the fastest-growing table is also in every copy of everything.
+
+Pruning it is the obvious answer and it breaks the requirement directly: *"see
+what the agent did"* stops working on anything older than the window, which is
+precisely when he is most likely to ask. **Both horns are real, and they are
+resolved by noticing that these are two objects, not one.**
+
+- **The stream is telemetry.** Thousands of rows, useful while the task is live and for a short while after. It expires.
+- **The account is the record.** Phases, decisions, tests run and their results, review findings, artifacts, the PR, the final checkpoint. Small, bounded per task, and **permanent** — this is what S14's Work detail should be built on, with the stream as expiring detail beneath it.
+
+Two rules make that safe rather than merely tidy:
+
+- **The account is written when the task ends, never by the pruner.** If it is generated at prune time, a bug in the pruner loses the record silently and it is discovered a month later by someone asking a question. Compaction then only deletes what has already been summarised, and a task with no account is a task that does not get pruned.
+- **A link to an expired artifact renders as expired, not as broken.** The account will outlive some of what it points at (S17 retention, raw audio at 7 days), and *"this transcript was deleted on the 14th"* is an answer, while a dead link is a bug report.
+
 ### What a checkpoint must contain
 
 Checkpointing is what makes recovery useful rather than merely tidy, and a
@@ -1787,6 +1807,7 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Prune a completed task's events, then open its Work detail.** It still reads as an account of what happened — phases, tests, findings, PR — rather than an empty page. Then confirm a task **without** an account is not pruned at all.
 - **Run a task through a long test suite and watch the console.** No paused banner — it says what the task is doing and for how long. Then **kill the SSE connection** and confirm the banner *does* appear. Both halves: a banner that never appears is as wrong as one that always does.
 - **Kill the watchdog with a task running, then hang the task** → nothing recovers, which is expected — and **the health page says the watchdog is not sweeping** rather than showing a calm system. Assert on what the console claims while blind; that is the actual defect.
 - Restart it → the hung task is stalled and recovered on the **first** sweep, not skipped for having gone silent before the watchdog started.
