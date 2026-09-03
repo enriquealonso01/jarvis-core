@@ -68,6 +68,18 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
   - **The audit row is the same statement as the write** — two writes produced exactly two `config.change` audit rows.
   - **Worth recording, because it nearly became a false alarm:** the box had three `config_versions` rows and *zero* `config.change` audit rows, which reads like the audit silently not firing. It is not: `auditConfigChange` was added in `bfa758f` on 2026-09-02 21:03 and all three rows predate it (2026-09-01). The real state was that the audit path had **never once been exercised on the box** since it landed. It has now.
 
+- **2026-09-03 — A stopped input channel is now visible (was BROKEN #2).** Fixed in PR #281 and verified on the box **in both directions**, by reproducing the actual 12:08 condition rather than reasoning about it:
+
+  | gateway | `openclaw` | `whatsapp` |
+  |---|---|---|
+  | up | `healthy` — gateway responding | `healthy` — allowlist configured; gateway responding |
+  | **stopped** | **`failed`** — gateway not reachable, inbound WhatsApp is not being received | **`failed`** — allowlist configured, but the gateway is down so nothing is being received |
+  | restored | `healthy` | `healthy`, and WhatsApp listening again |
+
+  - **What was actually wrong** was never the restart policy. The OpenClaw row was a hardcoded string (`"container profile not started; WhatsApp pairing is pending"`) — true when written, false since pairing, and a constant cannot report an outage. The WhatsApp row derived `healthy` from `channels.has("whatsapp")`, an **allowlist row**, which survives the container being dead. That was the dangerous one: it is the row a person would look at, and it read `healthy` for the whole three-hour outage.
+  - Both rows now come from one probe of the gateway. Paired-and-dead has its own state rather than being folded into the allowlist answer, because never-paired is a setup step and paired-and-dead is an outage.
+  - **Backlog note:** this makes the outage *visible*. It does not yet page anyone — nothing periodically reads this and raises an issue. That is a smaller, separate piece of work and it is not claimed here.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 1. **No engine is allowlisted for a project onboarded through the API — the front door's last gate.** Found by the end-to-end run above, 2026-09-03, and not previously on any list.
@@ -75,14 +87,6 @@ Currently verifying: _front-door items are done except the engine allowlist, whi
    - **This is fail-closed by design, not a bug in itself.** `src/runner.ts:509` calls it "the per-project allowlist, which fails closed by design (S12b), so a new project has no engine until one is granted." The bench path grants it; only test scripts (`scripts/dev-seed.ts`, `scripts/fixture-teardown-test.ts`, `scripts/confidential-eligibility-test.ts`) ever insert `auth_profile_allowlists` rows, and they do it with direct SQL.
    - **There is no API endpoint to grant it.** So onboarding through the API can never finish unaided as things stand.
    - **I have deliberately not fixed this, because the two options differ in security posture and the call is Enrique's:** (a) auto-grant an engine at onboarding — makes the front door work unaided, but weakens a deliberate S12b boundary; (b) add an explicit, audited `POST /api/projects/:id/engine-allowlist` and make the grant a real onboarding step — keeps the boundary and keeps the grant a decision. **My recommendation is (b)**: granting an engine to a fresh project looks exactly like the kind of thing that should be an act, not a default. Awaiting Enrique's answer.
-
-2. **A dead input channel is silent — and the health page actively says the wrong thing.** Re-diagnosed twice on 2026-09-03; both earlier explanations were wrong, so the trail is written out.
-   - **Not a missing restart policy.** `restart: unless-stopped` is set in `deploy/compose.yaml` *and* on the live container (`docker inspect` → `{"Name":"unless-stopped"}`).
-   - **Not the deploy.** api and worker restarted at the same 12:08, so `deploy-core.sh` looked guilty. I started openclaw, ran a full deploy, and it came through `Up (healthy)`. Cleared by experiment, not by argument.
-   - **It was an explicit stop.** The Docker daemon journal has, at 14:08:08 local (= 12:08:08 UTC), `stopping restart-manager container=ea2c6f6e…` — the openclaw container. That is the line Docker writes when a container is *deliberately* stopped, and it is exactly why `unless-stopped` correctly declined to bring it back. openclaw exited 0 after SIGTERM with `RestartCount=0`, which all agrees.
-   - **Who issued it is not recoverable, and here is why:** no `docker stop` / `compose stop` / `compose down` appears in the sudo log before that moment — but SSH to this box logs in **as root**, so a root-issued `docker stop` leaves no sudo record at all. Most likely another agent session. I am not going to guess further; the forensics end here and the engineering conclusion does not depend on the answer.
-   - **The real defect, which is fixable and is mine:** nothing notices. `src/services.ts:246` hardcodes the OpenClaw row to `state: "not_configured"`, `detail: "container profile not started; WhatsApp pairing is pending"` — a sentence that is now simply false, since the container is up and pairing is done. And the WhatsApp row derives `healthy` from `channels.has("whatsapp")`, i.e. **an allowlist row, not liveness** — so the gateway can be dead for three hours and the health page still reads healthy. That is the whole of the silence.
-   - **Next:** make both rows reflect the running gateway (the API container can reach `openclaw:18789` on the compose network), so a stopped input channel raises an issue instead of being invisible. A restart policy was never the fix.
 
 ### Deploying the OpenClaw bridge — read before changing `packages/openclaw-jarvis-bridge/`
 `scripts/deploy-core.sh` is **not enough**. OpenClaw runs an *installed copy* at `/home/node/.openclaw/extensions/jarvis-bridge/`, made at install time from the bind mount `/plugins/jarvis-bridge`; the deploy only refreshes the bind-mounted source. A bridge change deployed the normal way will appear to do nothing. The full sequence is:
