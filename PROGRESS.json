@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "29e2e2086a79a5bb64f792a201c36b242bfcb5f9",
   "total_steps": 51,
-  "updated_at": "2026-09-03T03:02:18Z",
+  "updated_at": "2026-09-03T03:26:22Z",
   "current_step": "S29",
   "steps": [
     {
@@ -246,7 +246,7 @@
         "title": "The runtime interface and a second harness",
         "stage": 5,
         "state": "done",
-        "evidence": "Done-when observed: the same task ran to a passing pull request on BOTH harnesses, changing only tasks.runtime. Live parity run s28-parity-kws8pw, 10 passed 0 failed: claude succeeded pr=1 (13 tools), codex succeeded pr=2 (28 tools), and GitHub confirms both PRs open against the same repo, each touching src/slugify.js plus its own test. Reaching it took five runs and fixed five production defects invisible offline: IS_SANDBOX dropped by a rebase, the tripwire killing a run for reading its own auth dir, the harness never receiving the deploy key, a worktree cut from a stale origin ref, and codex overriding GIT_SSH_COMMAND with 'ssh -F /dev/null'."
+        "evidence": "Done-when observed: the same task ran to a passing pull request on BOTH harnesses, changing only tasks.runtime. Live parity run s28-parity-kws8pw, 10 passed 0 failed: claude succeeded pr=1 (13 tools), codex succeeded pr=2 (28 tools), and GitHub confirms both PRs open against the same repo, each touching src/slugify.js plus its own test. Reaching it took five runs and fixed five production defects invisible offline: IS_SANDBOX dropped by a rebase, the tripwire killing a run for reading its own auth dir, the harness never receiving the deploy key, a worktree cut from a stale origin ref, and codex overriding GIT_SSH_COMMAND with 'ssh -F /dev/null'. REPRODUCIBILITY, recorded rather than glossed: across seven live parity runs Claude reached a pull request every time it was given a working environment (four consecutive successes at the end), while Codex reached one ONCE. Its other attempts ended three different ways - push blocked by its own 'ssh -F /dev/null' overriding the supplied identity, push blocked reporting both SSH and HTTPS unavailable, and an agent.repeat loop on 'Reading additional input'. The per-run home is confirmed built each time ('key in place' in the runner log), so this is Codex's push strategy varying between runs rather than a missing key. The Done-when was observed in the world; it is not yet reliably reproducible on the second engine."
     },
     {
         "id": "S29",
@@ -380,5 +380,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S29: a run’s failures are recorded now, so reliability can be measured rather than assumed."
+  "working_on": "S28 holds for Claude on every run; Codex reaches a PR about one run in four, three different ways of not."
 }
