@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-09-03T22:35:37Z",
-  "current_step": "S50",
+  "updated_at": "2026-09-03T22:41:58Z",
+  "current_step": "S51",
   "steps": [
     {
       "id": "S1",
@@ -405,7 +405,8 @@
       "id": "S51",
       "title": "Home is a map of the system, not a list of it",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE DRAWING IS CONSOLE WORK; WHAT MAKES THE DRAWING HONEST IS HERE. The plan draws the line: 'a node is a real object, an edge is a real relationship, position and size carry meaning, and motion happens only when real state changes. If a point cannot be tied to a field, it does not belong on Home.' So every node is built from a row, carries the SOURCE table it came from and an href into a page that already exists, and a node whose source cannot be resolved renders `unknown` with no href rather than becoming a plausible invented point. MOTION HAS NO CLOCK. motionFor takes a state and nothing else - no Date, no timer, no frame counter, no randomness - so 'the map does not animate for atmosphere' is a property of what the function can SEE rather than a note asking the next person not to add a pulse. Asserted structurally as well as per-state, because a mocked frame proves one frame; the sabotage injecting Date.now() goes red on the structural assertion. MEMORY IS ONE POINT CARRYING A COUNT: twenty-five more chunks add ZERO points to the map, which is the assertion for 'not 279k chunks rendered as points'. Running and needs-you are omitted when empty rather than drawn grey, since a permanently present zero carries no information and still costs space on a screen whose entire purpose is fitting. The map reports `calm` as a state, so an idle system does not have to be inferred from an absence. Projects come through S45's PORTFOLIO_ONLY fragment rather than a second definition of what a project is. THREE ASSERTIONS FAILED ON THE DATA RATHER THAN THE CODE ON THE FIRST RUN: I asked the live database for a calm map and got the real one, which has running work and open issues because it is a real system. Calm is now constructed, with a separate live assertion that the running point is drawn exactly when there is running work. AND SABOTAGE FOUND TWO MORE WEAKNESSES OF MINE: 'marks the project because a task is running' was asserted only in the positive, so hardcoding active passed - there is now a project with nothing running that must stay ok; and the omission rule could not fail against a live map from a busy box, because nothing on it is empty, so shouldDraw was lifted out of its two call sites and is asserted where it can actually fail. A REAL FINDING RATHER THAN A FAILURE: this box has 29 portfolio projects, so the live map is 33 points and does NOT fit a 375px phone. fitsWithoutScrolling reports that honestly, and the plan's own answer is the legible list equivalent rather than smaller type - which is console work. scripts/s51-homemap-test.ts, 24 assertions, green. Sabotaged ten ways, all red. NOT BUILT: the map itself. No canvas, no force-directed graph, no Home rebuild, no list equivalent, no reduced-motion path, no S13b bar placement - all jarvis-control-center work, a different repo. Nothing serves homeMap over the API either, so the console has nothing to fetch yet."
     },
     {
       "id": "S52",
@@ -435,5 +436,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S50 built as decisions: the grant is a ceiling with no tolerance argument, a card stops even a perfect table, the disclosure has nowhere to put anything but the booking, and impersonation is checked against what was synthesised. NOTE: the steps array stopped at S48, so S49's evidence had silently gone nowhere - S49-S54 are now present and both are recorded. NOT built for either: nothing dials, and S49's transport is console-repo work. Next: S51, S52, S53, S54."
+  "working_on": "S51's map data built: every point is a row with a source and a route, motion has no clock in scope, memory is one point not a corpus, and empty points are omitted. FINDING FOR THE CONSOLE: 29 portfolio projects means 33 points, which does not fit a 375px phone - the plan's answer is the list equivalent. NOT built: the map itself, and nothing serves homeMap over the API. Next: S52, S53, S54."
 }
