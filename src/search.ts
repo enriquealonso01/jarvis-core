@@ -44,6 +44,48 @@ function snippet(body: string | null, q: string, width = 160): string | null {
 }
 
 export function registerSearchRoutes(app: FastifyInstance, pool: pg.Pool) {
+  /**
+   * Ask a question, rather than search for a string (plan S30).
+   *
+   * Deliberately a different route from `/api/search`, which finds things by
+   * substring and orders them by recency - that is the right shape for "where
+   * is that task" and the wrong one for "what did the client say about the
+   * refund window". This one ranks by relevance, keeps the tiers apart, cites
+   * what it found, and says plainly when it found nothing.
+   *
+   * The honest no is the reason this is a route at all rather than a flag on
+   * the existing one: a caller that gets `known: false` cannot accidentally
+   * render a confident answer, because there is nothing to render.
+   */
+  app.get("/api/ask", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const q = ((req.query as { q?: string }).q ?? "").trim();
+    const projectId = (req.query as { project_id?: string }).project_id ?? null;
+    const limit = Math.min(Math.max(Number((req.query as { limit?: string }).limit ?? 5) || 5, 1), 20);
+
+    if (q.length < 2) {
+      return { query: q, known: false, reason: "type at least two characters", searched: [] };
+    }
+
+    const { answerFrom, retrieve } = await import("./knowledge.js");
+    const found = await retrieve(pool, { q, projectId, limit });
+    const answer = answerFrom(found, ["activity", "knowledge", "project_memory", "global_memory"]);
+
+    if (!answer.known) {
+      return { query: q, known: false, reason: answer.reason, searched: answer.searched, tiers: [] };
+    }
+    return {
+      query: q,
+      known: true,
+      citations: answer.citations,
+      // Tiers stay separate all the way to the caller: flattening them here
+      // would undo the whole point one layer from the screen.
+      tiers: found.tiers,
+      total: found.total,
+    };
+  });
+
   app.get("/api/search", async (req, reply) => {
     const user = await requireUser(pool, req, reply);
     if (!user) return;

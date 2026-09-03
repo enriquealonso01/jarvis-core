@@ -75,6 +75,7 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
 #                           the box; it verifies the backups, which are frozen
 #   s13-console-owner-live  publishes to the box and checks file ownership there
 #   s13b-publish-live       asserts the live build bar and its systemd timer
+#   s30-ask-live            asks the live box over HTTPS and seeds a real row
 #   s29-fluent-fraud        needs recorded benchmark runs to derive a floor from,
 #                           and the dev database has none
 #
