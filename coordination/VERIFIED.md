@@ -1054,3 +1054,69 @@ shared teardown that **discovers** the referencing tables from `pg_constraint`
 and deletes in dependency order, or `ON DELETE CASCADE` in a migration. Either
 is real work and neither belongs in a rushed multi-table delete against the dev
 database at the end of a tick. Next.
+
+## `no-test-litter-test` — ✓ fixed, and a correction to what I wrote (2026-09-03)
+
+The sweep can be green now. `no-test-litter-test` passes, `s12-isolation-test`
+is 47/0 leaving zero rows behind, `s28-park-test` 11/0.
+
+### First, correcting my own record
+
+Last tick I wrote that `s12-isolation-test` "**never removes them**" and that
+"nothing else does either — it is the only file in `scripts/` that mentions
+those slugs". Both statements were wrong. `removeProject` existed, was called,
+and had a careful comment explaining a `task_dependencies` two-column case it
+had already been caught by. I inferred the absence of a teardown from the
+presence of litter and did not look.
+
+The truth is a worse defect than the one I reported: the teardown ran every time
+and **half-failed in silence**.
+
+### What was actually wrong
+
+Two hand-written lists, rotted in both of the ways such a list rots:
+
+- `REFERENCING_PROJECT` omitted **`active_project`, `briefs` and
+  `sender_project_binding`** — three of the 29 tables that point at `projects`.
+- `REFERENCING_TASK` named `call_turns` and `improvement_candidates` with a
+  `task_id` column that exists on **neither**: they use `handover_task_id` and
+  `approved_task_id`, so those deletes had never worked at all.
+
+Every failure went into a `.catch()` that printed and continued, so the teardown
+reported nothing wrong and left the project standing. 24 accumulated while every
+run reported success — which is why the litter was the only visible symptom.
+
+### The fix
+
+`scripts/_teardown.ts` discovers the graph from `pg_constraint` and recurses, so
+a table added next month is handled by a teardown that never knew the old list.
+A failed teardown now **fails the suite** rather than printing and continuing —
+silence was the reason this survived.
+
+The recursion matches children on the constraint's **own parent column** rather
+than the column that pointed upward. My first version got that wrong and asked
+`call_turns` for a `task_id` equal to a project id. Postgres refusing was the
+*good* outcome: the bad one is a column name that happens to exist on both
+tables and a teardown that quietly deletes the wrong rows.
+
+Also added `scripts/reap-fixture-projects.ts`, which takes slug patterns and
+refuses to run without one — the difference between it and a very bad afternoon
+is the `WHERE` clause.
+
+### The lesson was already in the repo
+
+`s28-park-test` already discovers its references exactly this way, and its
+comment says a hand-written list "**failed three times in a row**" there —
+`task_transitions`, then `task_attempts`, then `task_checkpoints`, each time
+because the run got further than the last and wrote a table the teardown had
+never had to know about. That reasoning was written down in one file and not
+applied to the other. Worth remembering the next time I find a pattern: check
+whether this codebase has already solved it somewhere before designing it again.
+
+### Two of my own instrument errors this tick, both the same one
+
+I ran `docker compose run` directly twice instead of `scripts/suite.sh`, and got
+a stale image both times — once against a script that was not yet committed and
+therefore not in the build context at all. That is the third time this loop I
+have hit the staleness `suite.sh` exists to prevent, while working on tooling
+meant to prevent it.
