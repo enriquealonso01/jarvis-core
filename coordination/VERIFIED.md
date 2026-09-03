@@ -291,6 +291,13 @@ index dcdf213..7336a33 100644
   - **Also present:** `/var/lib/jarvis/openclaw.pre-8.2`, 110MB, dated 2026-09-02 23:48 — a leftover from the OpenClaw 8.2 upgrade. Harmless at 4% disk; noted so it is a decision rather than a discovery.
   - **Not cleaned up by me.** Empty directories are safe to remove, but a one-off `rm` fixes today and not the leak, and deleting on the production box is Enrique's call. Wiring it into the reap is the Builder's lane.
 
+- **2026-09-03 — The box carries two source files that exist in no branch, and the deploy now says so.** Found by comparing file counts rather than contents: **96 `src/*.ts` on the box against 94 in `main`**.
+  - The extras are `adapters.ts` and `connector.ts`, from `feat/s31-connector-interface` — the same unmerged branch that left migrations 041 and 042. `deploy-core.sh` lays its tarball *over* `/opt/jarvis/core` and never removes what is no longer shipped, so anything a branch deploy introduced stays permanently.
+  - **Both are compiled into `dist` by every build** (timestamps match the latest one) and **imported by nothing**, so nothing runs them today.
+  - **Dead code is the small half.** The real cost is that a future `import "./connector.js"` would **resolve** — silently binding to an abandoned implementation instead of failing the build the way a missing module should. That is the same shape as the orphan migrations: production quietly holding something no branch contains, waiting for a name collision to turn it into a bug.
+  - **Fixed the blindness, not the state** (PR #332): the deploy now diffs the box's source list against the tree and names anything extra. Verified on a real deploy — it printed both files and continued. It **reports rather than deletes**, because removing files from the production tree is a decision, and a deploy script that quietly deletes is how the wrong thing goes at the wrong moment.
+  - **For Enrique, alongside the orphan migrations:** removing `adapters.ts`, `connector.ts` and their compiled `dist` output is safe today — nothing imports them — but it is a production deletion and therefore his call, not mine.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
