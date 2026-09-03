@@ -2135,6 +2135,7 @@ because nothing is lost by being shallow.
 - Async tool invocation with progress events, a hard phone-side budget (~25s), and clean handover to the queue when it expires.
 - Barge-in that cancels playback, in-flight TTS render, and any speech queued behind it.
 - Latency instrumentation on every leg, stored per turn, so "it felt slow" becomes a number.
+- **The conversational model on the call is the latency-first realtime route (S25) — a paid low-latency model where it hits the p50/p95 target.** The phone is where model latency is actually felt, and this is the leg S25 authorises paying to speed up; the acknowledgement bank stays pre-rendered so a fast model is not spent on fixed phrases.
 
 ### Test
 
@@ -2206,7 +2207,7 @@ It must **act**.
 - **The one override, and it is narrow.** A confirmed security incident or active data loss may ring inside quiet hours. Nothing else may — not a production outage, not a blocked task, not an approval. The override list lives in config, is auditable, and is short enough to read aloud.
 
   *Flagged for Enrique:* the planning conversation recommended this override and you confirmed the rule set while changing the hours to 19:30. It was never restated explicitly, so it is written narrowly here. Say the word if you want quiet hours to be absolute instead — a 3am data-loss call is precisely the case where the stricter reading costs the most.
-- It opens by saying who it is and why it is calling, in one sentence, before anything else.
+- **Every outbound call carries a prepared reason before it dials, and stating it is not optional.** It opens by saying who it is; the moment identity is confirmed (below), **the very next thing it says is why it called** — the specific reason, in one sentence, before anything else. A call that reaches Enrique and opens with only a greeting — *"good afternoon, sir"* and nothing about why — is a **failure, not a style.** The reason is the point of the call; the greeting is not, and a greeting with no reason behind it is worse than no call.
 - No answer → voicemail-safe behaviour, then fall back to WhatsApp. Never redial in a loop.
 
 ### Outbound has no idea who answered
@@ -2247,11 +2248,13 @@ retained indefinitely, and audible to whoever next picks up the phone.
 - Never redials. Assert on the dial log, not on the absence of a complaint.
 - Schedule a call for a specific time → it rings then, with its subject ready, and does not ring twice after a restart.
 - Decline the call → one WhatsApp, no redial loop.
-- Answer it → the reason is stated in the first sentence.
+- Answer it → **the specific reason is spoken as the first sentence after identity is confirmed.** Grep the synthesised opening: a call whose opening turn is a bare greeting with no reason **fails the test**. This has regressed in production — calls have opened with *"good afternoon, sir"* and never said why — so the assertion is on the *content* of the opening utterance, not merely that a call connected.
 
 **Debug** The commonest failure will be calling too often. Instrument the decision and review a week of it before trusting it; a Jarvis that cries wolf gets silenced permanently.
 
-**Done when:** a genuinely blocked task rings the phone during the day and stays silent at 21:00.
+**Observed in production: the call opens with a greeting and never states its reason.** The reason that triggered the call is not being threaded into the opening utterance — the runtime speaks a generic greeting template instead of the prepared reason. Check that the reason is **built before dialing** and passed into the call's first turn, and that the identity-confirmation step does not swallow it: the flow is greeting → confirm it is him → **reason**, and the reason must always arrive, never be skipped because the greeting path returned first. A "verified" S23 that still does this in the field is the exact verified-but-broken gap the coordination model exists to catch — re-verify on the content of a real call, not on the call happening.
+
+**Done when:** a genuinely blocked task rings the phone during the day, **opens by telling Enrique why it called**, and stays silent at 21:00.
 
 ## S24 — Voice memory and review
 *Size: 1–2 days.*
@@ -2353,9 +2356,29 @@ engine that was actually available.
 - At the hard ceiling, Jarvis **writes instead of speaking** rather than going silent.
 - Attempt a metered call through the broker directly, bypassing routing, with the profile over its ceiling → refused there too.
 
-**Done when:** every registered route has passed a real tool-enabled call, and a
+### The realtime voice turn is the one role where latency beats cost
+
+The Supervisor route is chosen for reasoning and portability, which is right for
+WhatsApp and text where a second of thinking is invisible. **On a live call it is
+wrong.** Enrique's report: the voice agent is as fast as an open-weights model can
+be, and that is not fast enough — on the phone **speed is the product**, and he has
+said plainly he will pay for it.
+
+So the **realtime conversational turn (Tier 1 on a call, S21/S22)** gets its own
+route, selected on one criterion above the rest: **latency.** A paid low-latency
+model is allowed and expected here — this is the one role where the plan trades
+open-weights portability for speed, deliberately.
+
+- **It keeps an open-weights fallback**, so a dead or throttled paid route **degrades latency rather than dropping the call** — the same "the fallback he hears" discipline the voice identity already has (VI, §"The voice is an identity").
+- **It is metered with a visible ceiling**, like any paid route. Speed is worth paying for, not worth paying *unboundedly* for.
+- **Measure before swapping, and speed up the leg that is actually slow.** S21 instruments every leg. If the slow leg is TTS render on an uncached phrase, a faster LLM changes nothing — pre-render the acknowledgement bank (S21). The paid model is for the leg that generates the *answer*, which is the one an open-weights model genuinely slows. Pick the model that hits S21's p50/p95 target on **real calls**, not the one that benchmarks fastest on a page.
+
+**Test (realtime voice):** measure the answer-generation leg on the realtime route against S21's p50/p95 target on real calls — it meets it, and it beats the open-weights route measured on the same calls. Kill the paid route mid-call → it **falls back to open-weights and the call continues**, slower, announcing the fallback voice if the voice itself also changed. Past the voice spend ceiling → it writes instead of speaking (the existing rule above), never silently keeps paying.
+
+**Done when:** every registered route has passed a real tool-enabled call, a
 coding task whose primary subscription is exhausted completes on the next engine
-without Enrique being told anything.
+without Enrique being told anything, **and a live call answers on the latency-first
+route fast enough that the phone stops feeling like it is waiting on a model.**
 
 ## S26 — Project onboarding and `AGENTS.md`
 *Size: 2–3 days. S6 reads `AGENTS.md`; this step is what writes it.*
@@ -5133,6 +5156,7 @@ stay routable; hard failures drop out.
 | Role | Route | Cost |
 |---|---|---|
 | Supervisor / utility | Hosted open-weights, one primary + one fallback (Fireworks today) | ~$5–10/mo |
+| Realtime voice (Tier 1 on a live call) | **Latency-first — a paid low-latency model is allowed and expected** (S25); speed is the product on the phone. Open-weights fallback so a dead paid route degrades latency, not the call. | metered, capped |
 | Senior engineer | Claude Code on `anthropic_personal`, with a named open-weights fallback (S25) | $0 marginal |
 | Reviewer | Different family from the implementer — an open-weights route is a candidate on merit, not only as fallback (S25) | pennies per diff |
 | STT | Groq Whisper — free tier is genuinely adequate for this one narrow job | $0 |
