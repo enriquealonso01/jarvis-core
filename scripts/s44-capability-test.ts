@@ -122,9 +122,26 @@ function main(): void {
   formFor(["schema_change"], "mcp_server") === "core_change"
     ? ok("the form is read off the requirements, never off the shape the caller wanted")
     : bad("a caller-supplied shape overrode the requirements");
-  CORE_REQUIREMENTS.every((r) => formFor([r], "adapter") === "core_change")
-    ? ok(`all ${CORE_REQUIREMENTS.length} core requirements do this, not just the schema one`)
-    : bad("some core requirement can be expressed as a plugin");
+  /*
+   * Named here rather than iterated from CORE_REQUIREMENTS. The first version
+   * looped over the exported list, which derives the test's expectations from
+   * the thing under test: deleting an entry deleted the assertion with it, and
+   * shrinking the list to just the schema change passed. Sabotage found that.
+   * The plan names schema changes, new lanes and broker changes explicitly; the
+   * rest are the same kind of thing and are listed because forgetting one is
+   * the failure.
+   */
+  const MUST_BE_CORE = [
+    "schema_change", "migration", "new_lane",
+    "broker_change", "new_queue_state", "safety_surface",
+  ];
+  const escapable = MUST_BE_CORE.filter((r) => formFor([r], "adapter") !== "core_change");
+  escapable.length === 0
+    ? ok(`all ${MUST_BE_CORE.length} of them do this, not just the schema one`)
+    : bad(`can be expressed as a plugin: ${escapable.join(", ")}`);
+  MUST_BE_CORE.every((r) => (CORE_REQUIREMENTS as readonly string[]).includes(r))
+    ? ok("and none has been quietly dropped from the exported list")
+    : bad(`missing from CORE_REQUIREMENTS: ${MUST_BE_CORE.filter((r) => !(CORE_REQUIREMENTS as readonly string[]).includes(r)).join(", ")}`);
 
   console.log("");
   console.log("5. a new paid provider is a recommendation, never a signup");

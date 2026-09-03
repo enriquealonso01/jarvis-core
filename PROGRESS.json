@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T21:49:10Z",
-  "current_step": "S43",
+  "updated_at": "2026-09-03T21:57:05Z",
+  "current_step": "S44",
   "steps": [
     {
       "id": "S1",
@@ -356,7 +356,8 @@
       "id": "S44",
       "title": "Build the missing capability",
       "stage": 9,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE FORM IS DERIVED FROM WHAT THE CAPABILITY NEEDS, NEVER CHOSEN. S44's boundary is that a capability Jarvis builds for itself lands as something attachable - MCP server, adapter, connection, script - and never in core, and the failure the plan names is 'finding a plugin-shaped way to express' a core change. That is only possible where the form is an INPUT, so formFor reads the requirements and there is no argument through which a caller can declare something attachable. The suite asks for a schema_change while INSISTING the shape is an mcp_server, which is exactly how the mistake would arrive, and still gets core_change back with the deciding requirement named so the answer is checkable rather than trusted. The plan's 'assert this directly' - nothing it builds requires a core deploy - is then a property of the type. THE ESTIMATE IS MANDATORY: 'building a tool is sometimes the wrong answer and the estimate is what makes that visible', so a request without one produces no proposal at all, and over EXPENSIVE_DAYS a proposal must carry the cheaper alternative - the plan's own 'I could build that but it would take a week and here is the cheaper alternative'. A new paid provider is a recommendation and is checked BEFORE the form, because a signup is a signup whether the code behind it is a plugin or a core change; sabotage 7 reorders exactly that and goes red. NOTHING IS TRUSTED FOR BEING HOMEGROWN: mayCall refuses until a person has assigned a level, refuses once the manifest has drifted from what was classified, and refuses from any project but the one it was built for - S31 and S5 unchanged, applied to Jarvis's own work because 'nobody else has ever run it'. scripts/s44-capability-test.ts, 28 assertions, green. Sabotaged ten ways, all red - but ONE CAME BACK GREEN FIRST TIME AND IT WAS MY OWN VACUOUS ASSERTION: the core-requirements check iterated the exported CORE_REQUIREMENTS, so shrinking that list to just the schema change shrank the test with it. The requirements are now named in the test, plus an assertion that none has been dropped from the export. AND THE BACKSPACE TRAP CAUGHT ME A THIRD TIME, in this suite's own regex - so the guard I said I would add after the second one is now in migration-hygiene-test: it scans src/ and scripts/ for control characters (379 files) and fails on any that is not tab, newline or return. Sabotage only finds a dead regex when the dead assertion happens to be the one under test, which is luck; this finds it by looking. IT IMMEDIATELY FOUND A FOURTH INSTANCE - a raw NUL in scripts/s30-index-artifact-test.ts - which turned out to be DELIBERATE binary fixture content rather than an eaten escape, and is now written as \\u0000 escapes: same bytes, no ambiguity. The guard's own newline escape was eaten on the way to disk on first write, which is the bug catching itself. NOT BUILT: nothing calls proposeCapability - a request Jarvis cannot serve does not yet produce a proposal in practice; no capability has actually been built, tested and attached end to end; and the research/build/test loop the step describes is not wired to the S6 workflow."
     },
     {
       "id": "S45",
@@ -392,5 +393,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S43's decision layer built: per-channel preferences on S27's config_versions (channel is a dimension of the value, not the owner of the record), consulted through an output rather than a row, and a console gate that is an allow-list of what is cosmetic. NOT built: the entrance - nothing routes an incoming message through owningSurface, UI changes do not become S6 tasks, and the console deploy health-check/rollback is untouched. Next: S44."
+  "working_on": "S44's decision layer built: the capability form is derived from requirements so a core change cannot be dressed as a plugin, the estimate is mandatory, a new provider is a recommendation, and a homegrown tool gets S31's classification before it is callable. A repo-wide control-character guard now catches the eaten-escape trap that has bitten four times. NOT built: nothing calls proposeCapability, and no capability has been built and attached end to end. Next: S45."
 }
