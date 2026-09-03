@@ -229,6 +229,11 @@ index dcdf213..7336a33 100644
   - **Why that specific row matters, by the tool's own argument:** `approved` plus `degraded` is *selectable* — route lookups accept `health IN ('healthy','degraded')` — so a fixture has left behind a live, selectable supervisor route with no real credential behind it. That is precisely the "live routing target" the cleanup exists to prevent, in a table the cleanup does not look at.
   - Dev-only today; the box's `model_registry` is clean (14 legitimate rows, checked). Recorded rather than fixed, because a fixture-teardown change belongs to the Builder's lane, not mine.
 
+- **2026-09-03 — S32 deployed to the box and its schema verified there; behaviour is still only proved in dev, and that is worth saying out loud.** Deployed `main` (51 migrations applied, runner restarted 20:12:32 against a 20:11:48 build, `/api/health` 200, all four S32 source files present).
+  - **On the box:** `browser_actions` and `browser_sessions` exist, and migration `052_artifact_origin` genuinely took effect — `artifacts.origin_url text` is there, not merely recorded as applied. Checking the column rather than the migration row matters: `ADD COLUMN IF NOT EXISTS` will happily mark itself done against a table that already had it.
+  - **The honest limit:** S32 registers **no HTTP routes** — it is internal machinery reached through the harness and a browser — so there is nothing on the box I can exercise from outside the way I could with `/api/ask` or `deploy-key`. Its behaviour rests on the five dev suites (88 assertions, 0 failures) plus the schema check above. That is weaker than "watched it work on the box", and I am recording it as such rather than letting a green suite count as a box verification.
+  - What would close the gap is a live suite that drives a real browser session on the box, in the shape of `s26-live-test` or `s30-ask-live`. None exists yet; that is a Builder-lane gap, noted not claimed.
+
 ## ✗ BROKEN — Tester backlog (start here)
 
 _Empty as of 2026-09-03. Every item that was on this list — the deploy-key 500, root-owned project dirs, the missing per-project GitHub credential, WhatsApp inbound, and the silent dead input channel — is verified fixed on the box above. The engine grant is **not** an open item: per B3 it is a deliberate onboarding step, by design.
