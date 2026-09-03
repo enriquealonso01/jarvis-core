@@ -12,7 +12,7 @@
  * This builds the cycle on purpose and requires the teardown to survive it.
  */
 import { createPool } from "../src/db.js";
-import { teardownFixtureProject } from "./lib/fixture.js";
+import { teardownFixtureProject, teardownTask } from "./lib/fixture.js";
 
 const pool = createPool();
 let passes = 0;
@@ -74,6 +74,38 @@ async function main(): Promise<void> {
   Number(orphan.rows[0].n) === 0
     ? ok("and so is the issue that closed the cycle")
     : bad("the issue outlived its project");
+
+
+  // ---- the same cycle, torn down from the task instead of the project
+  console.log("");
+  console.log("the benchmark reuses its project, so the per-run cleanup is a task");
+  const p2 = await pool.query<{ id: string }>(
+    `INSERT INTO projects (slug, name, project_type, confidentiality)
+     VALUES ($1, $1, 'personal', 'normal') RETURNING id`, [`${SLUG}-keep`]);
+  const pid2 = p2.rows[0].id;
+  const t2 = await pool.query<{ id: string }>(
+    `INSERT INTO tasks (project_id, title, objective, state, lane, priority)
+     VALUES ($1, 'cycle2', 'x', 'waiting_for_user', 'heavy', 'normal') RETURNING id`, [pid2]);
+  const task2 = t2.rows[0].id;
+  const i2 = await pool.query<{ id: string }>(
+    `INSERT INTO issues (project_id, task_id, title, category, status, severity, service, owner)
+     VALUES ($1, $2, 'blocked', 'agent.repeat', 'waiting_for_user', 'medium', 'runner', 'jarvis')
+     RETURNING id`, [pid2, task2]);
+  await pool.query(`UPDATE tasks SET blocked_by_issue_id = $2 WHERE id = $1`, [task2, i2.rows[0].id]);
+
+  const tt = await teardownTask(pool, task2).catch((e: unknown) => {
+    bad(`teardownTask threw: ${e instanceof Error ? e.message : e}`);
+    return null;
+  });
+  tt && tt.leftBehind.length === 0
+    ? ok("the task and its cycle are gone")
+    : bad(`left behind: ${JSON.stringify(tt?.leftBehind ?? "n/a")}`);
+  const survived = await pool.query<{ n: string }>(
+    `SELECT count(*) AS n FROM projects WHERE id = $1`, [pid2]);
+  Number(survived.rows[0].n) === 1
+    ? ok("and the project it belonged to is untouched, which is the point")
+    : bad("tearing down a task took its project with it");
+  await teardownFixtureProject(pool, pid2).catch(() => null);
 
   console.log("");
   console.log(`==== ${passes} passed, ${fails} failed ====`);

@@ -321,3 +321,39 @@ export async function githubPutFile(
     html_url: json.content?.html_url ?? "",
   };
 }
+
+/**
+ * An existing repository, or null when there is none.
+ *
+ * Exists so a caller can reuse a repository instead of creating one. The
+ * benchmark created a fresh private repo per run and nothing deletes them -
+ * deleting a repository is irreversible and Enrique's call - so a campaign long
+ * enough to be statistically useful would have left dozens behind for someone
+ * else to tidy.
+ */
+export async function githubGetRepo(
+  pool: pg.Pool,
+  owner: string,
+  name: string,
+): Promise<{ full_name: string; owner: string; name: string; default_branch: string } | null> {
+  const token = await adminToken(pool);
+  const res = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "jarvis-core",
+    },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`github API ${res.status}`);
+  const json = (await res.json()) as {
+    full_name: string; name: string; owner: { login: string }; default_branch: string;
+  };
+  return {
+    full_name: json.full_name,
+    owner: json.owner.login,
+    name: json.name,
+    default_branch: json.default_branch || "main",
+  };
+}
