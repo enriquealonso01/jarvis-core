@@ -128,8 +128,22 @@ async function main(): Promise<void> {
     g2.conversationId === g1.conversationId
       ? ok("two global messages share one thread rather than creating one each")
       : bad("the global thread does not continue with itself");
-    await pool.query(`DELETE FROM conversations WHERE id = ANY($1::uuid[])`,
-      [[g1.conversationId, g2.conversationId]]);
+    /*
+     * Only delete what this run CREATED.
+     *
+     * The first version deleted both ids unconditionally, and on a seeded
+     * database `g1` is the existing global thread - which resolveConversation
+     * correctly JOINED rather than creating. So the teardown was trying to
+     * remove a conversation it did not own, and only a foreign key from
+     * inbox_events stopped it. Standalone the thread happened to have no
+     * events and the delete succeeded silently, which is the worse outcome: it
+     * passed while removing somebody else's row.
+     */
+    if (g1.outcome === "created") {
+      await pool.query(`DELETE FROM conversations WHERE id = $1`, [g1.conversationId]);
+    } else {
+      ok("(the global thread already existed and was joined, so nothing to clean up)");
+    }
   } finally {
     await pool.query(`DELETE FROM conversations WHERE project_id = ANY($1::uuid[])`, [[alpha, beta]]);
     await pool.query(`DELETE FROM projects WHERE id = ANY($1::uuid[])`, [[alpha, beta]]);
