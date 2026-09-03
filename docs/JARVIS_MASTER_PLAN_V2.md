@@ -1624,7 +1624,7 @@ running, on the box, today.
 |---|---|---|---|
 | 1 | **The deterministic router** (ADR 005) | **yes** | A model is the first reader of every inbound body, confidential ones included |
 | 2 | **SSH hardening** (V.1) | **yes** | Password auth and root login at Debian defaults, on a public port |
-| 3 | **Output scrubber and canary** (Part V) | unverified | "Never logged" has nothing behind it |
+| 3 | **Output scrubber and canary** (Part V) | unverified | "Never logged" has nothing behind it — and the app's log path is not the only one |
 | 4 | **The extended path guard** (II.5) | no | `openclaw/` and other projects' `artifacts/` unguarded |
 | 5 | **Harness network egress** (II.5) | no | A run can POST to `/internal/*` or open Postgres |
 | 6 | **Audit keys and console hardening** (IV.9, Part V) | no | Level 3 approvals need no re-auth; audit keys inconsistent |
@@ -4168,6 +4168,24 @@ transcript for that string. Expect zero hits. This is the same "assert the
 absence" technique that S12 used for isolation, and it is the only way to turn an
 unfalsifiable claim into a test.
 
+**Three things the scrubber cannot see, and they are where it will fail.**
+
+*Matching on live decrypted values* is the right choice — patterns find `sk-...`
+and miss a 44-character password — but it defines the scrubber's blind spots
+exactly:
+
+- **A rotated value stops being matched the moment it stops being live.** A buffered write or a delayed provider error carrying the *old* key arrives after rotation and passes straight through, because nothing in memory matches it any more. **Retired values stay in the matching set for a window** — they are exactly as sensitive as they were an hour ago.
+- **It can only redact what it holds.** A project's credential is decrypted in the runner, not in the API — and the runner writes the harness transcript, which is the single most likely place for a CLI to echo a key. **The scrubber has to run where the text is written**, with that project's values, or the transcript artifact is an unscrubbed copy of everything.
+- **The container runtime keeps its own log.** Anything on stderr — an unhandled rejection, a library printing a request it failed on — is captured by Docker to disk **without passing through the application's logger at all.** A scrubber installed in the app's log path is not installed on that one, and it is the path taken by exactly the errors nobody planned for.
+
+**One canary proves one shape.** A single long random string is the easiest thing
+in the world to redact. The canaries have to look like the credentials that
+actually exist: a long random token, a short one, one containing regex
+metacharacters, one that is an ordinary English word — and **one belonging to a
+project, decrypted in the runner rather than the API.** A canary that only
+exercises the API path says nothing about the path the confidential material
+actually takes.
+
 **The tension with keeping provider error bodies, resolved.** `DEBUG_NOTES.md`
 says to store the provider's response body rather than the bare status code,
 because a bare status turned a five-minute diagnosis into an afternoon. Provider
@@ -4810,6 +4828,9 @@ purpose, and that crossing is what it exists to check.
 - Search scoped to project A never returns project B (S18)
 - **The harness cannot reach Jarvis**: from inside a run, attempt `/internal/inbox/ingest`, a Postgres connection, and the OpenClaw gateway. All three refused at the network layer, not by the application. **An application-layer refusal proves the wrong thing** — it proves the request arrived.
 - **The secret canary**: a credential with a known unique value, the system exercised until something fails, then every log, audit row, issue, artifact and transcript grepped for it. **Zero hits.** A property this easy to state needs a test this blunt
+- **Five canaries, not one** — long random, short, regex-metacharacter, ordinary word, and one project-scoped credential decrypted in the runner. One shape proves one shape
+- **Grep the container's own logs and the database dump too**, not only the application's. `docker logs` and the backup are the two copies nobody scrubbed
+- **Rotate a canary, then trigger a delayed write carrying the old value** → still redacted. A retired secret is exactly as sensitive as a live one
 
 ## Gate 4 — It is usable
 - **N4** credential loop repaired from a phone, parked task resumes itself
