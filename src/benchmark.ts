@@ -51,6 +51,39 @@ export type Scored = {
 
 const JUDGEMENT = ["root_cause_accuracy", "code_quality"];
 
+/** A path that is a test rather than a fix. */
+export function isTestPath(f: string): boolean {
+  return /(^|\/)tests?\//.test(f) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(f);
+}
+
+/**
+ * How well the run tested its own fix.
+ *
+ * The distinction that matters is between "could not be determined" and "the
+ * agent did not do it", and treating both as null rewarded the second. Red-green
+ * is null when no test was added, that null excluded the dimension AND its
+ * weight from the average, and so a run that wrote NO test scored higher than
+ * one that wrote a test which failed to go red. Writing nothing beat writing
+ * something imperfect - in a suite whose whole purpose is to stop process points
+ * carrying a run that did not do the work.
+ *
+ * Measured on a real pair: a claude run that added no test scored 0.67, where a
+ * bad test would have scored 0.61 and a good one 0.74.
+ *
+ * `correctness` does not already account for this, though a comment in the
+ * runner claimed it did: the seed tests still pass when the agent adds none, so
+ * that run scored correctness 1.
+ *
+ * Null survives for the case it was meant for: a test was added and the harness
+ * could not run it, and a run that produced no diff at all, where nothing about
+ * testing can be read either way.
+ */
+function testQuality(e: RunEvidence): number | null {
+  if (e.redGreenVerified !== null) return e.redGreenVerified ? 1 : 0;
+  if (e.filesChanged.length === 0) return null;
+  return e.filesChanged.some(isTestPath) ? null : 0;
+}
+
 export function scoreRun(e: RunEvidence): Scored {
   const bool = (b: boolean | null): number | null => (b === null ? null : b ? 1 : 0);
 
@@ -73,7 +106,7 @@ export function scoreRun(e: RunEvidence): Scored {
     correctness: bool(e.ownTestsPassed),
     hidden_tests: bool(e.hiddenTestsPassed),
     regression_safety: bool(e.regressionTestsPassed),
-    test_quality: bool(e.redGreenVerified),
+    test_quality: testQuality(e),
     tool_reliability: reliability,
     scope_control: scope,
     code_quality: null,

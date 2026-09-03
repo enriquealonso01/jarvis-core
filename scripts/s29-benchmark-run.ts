@@ -26,7 +26,7 @@ import { teardownFixtureProject } from "./lib/fixture.js";
 import {
   ensureProjectCheckout, gitEnv, loadProject, materialiseDeployKey, repoDir, sshUrl,
 } from "../src/checkout.js";
-import { collectEvidence, loadCases, scoreRun } from "../src/benchmark.js";
+import { collectEvidence, isTestPath, loadCases, scoreRun } from "../src/benchmark.js";
 
 const run = promisify(execFile);
 const pool = createPool();
@@ -142,7 +142,17 @@ async function main(): Promise<void> {
     try {
       own = await nodeTest(work);
       const diff = await run("git", ["diff", "--name-only", `${repo.default_branch}...${branch}`], { cwd: dir });
-      changed = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+      /*
+       * The work of the agent, not the paperwork of the harness.
+       *
+       * .jarvis/ holds phases.jsonl and outcome.json - files this harness asks
+       * the agent to write. Counting them as changed files scored a run down for
+       * scope creep because it committed the bookkeeping we demanded, and two of
+       * the four codex runs lost half their scope_control to exactly that. The
+       * reviewer already excludes this directory for the same reason.
+       */
+      changed = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean)
+        .filter((f) => !f.startsWith(".jarvis/"));
       /*
        * Red-green, checked rather than taken on trust.
        *
@@ -158,7 +168,16 @@ async function main(): Promise<void> {
        * and scoring that as a failure would double-count the missing test,
        * which `correctness` has already accounted for.
        */
-      if (changed.some((f) => f.startsWith("test/"))) {
+      /*
+       * Wherever the agent put its test.
+       *
+       * This looked in test/ and nowhere else, so a run that wrote
+       * src/score.test.js - beside the code, an ordinary convention - had its
+       * red-green check skipped, reported test_quality as unmeasured, and had
+       * the dimension dropped from its average entirely. It scored 0.67 for
+       * writing a test this harness declined to look at.
+       */
+      if (changed.some(isTestPath)) {
         await run("git", ["checkout", repo.default_branch, "--", "src/"], { cwd: work });
         const stillPasses = await nodeTest(work);
         redGreen = !stillPasses;
