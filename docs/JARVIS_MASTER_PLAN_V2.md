@@ -2847,7 +2847,7 @@ replacing it now would be the rebuild.
 
 **Build** Schedules with overlap policy and misfire handling. The Maintenance project repairing what is safe and reversible and filing an Issue for the rest. The weekly Improvement scan (transcript msg 17) with one-tap approvals.
 
-**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself.
+**Test** L14: overlap skipped, misfire >15 min skipped with an Issue, three errors pause the schedule, restart causes no duplicate fire. **Assert there is exactly one scheduler**: with OpenClaw running, a due schedule fires once, and no `jarvis:` automation exists on the OpenClaw side to fire it a second time. L19: simulate disk at 85%, an expired credential, a missed backup and a stuck browser — safe repairs happen, the rest become Issues, none of it wakes Enrique (N7). Force an Improvement run and confirm nothing activates itself. **Decline a candidate, then run the scan again → it does not come back.** Change its version and run again → it returns, and the message names what changed rather than repeating the pitch. A week with twenty findings produces the capped number of asks and the rest in the console. **Approve one → a task exists**; one-tap approval that produces no work is a button, not a decision.
 
 **Debug** A duplicate fire after a restart means idempotency is keyed on something other than `scheduled_for`. A schedule that silently stops has usually hit its error count and paused itself — that is correct behaviour, but it must be visible in the console rather than only in a column. For Maintenance, confirm each auto-repair wrote what it did; a repair with no audit row is indistinguishable from a bug that fixed itself.
 
@@ -4623,7 +4623,7 @@ second-machine test in S31 is what keeps it honest, because a portability claim
 nobody has exercised is a portability claim that is false.
 
 ## VII.4 Improvement (seeded at boot, weekly)
-Discovers new models, free tiers, provider changes, MCP servers, GitHub skills,
+Discovers new models, provider changes, MCP servers, GitHub skills,
 OpenClaw releases, harnesses, browser and scraping tools, memory systems, and
 telephony improvements. Records source, licence, maintainer, activity, and
 reputation. Inspects, static-checks, sandboxes, benchmarks, and evaluates
@@ -4659,6 +4659,28 @@ and an explicit **Recommendation:** line. Something like:
 > Repository maintained, tests passed in isolation. Introduces write access to
 > infrastructure. **Recommendation: install only if you want Cloudflare
 > management.**
+
+**A decline is a decision, and nothing currently records it.** The pipeline
+produces one recommendation per candidate every week, from a world that never
+stops producing candidates — so a thing he said no to in March is proposed again
+in April, and in May, with the same evidence. **A cycle that re-asks until the
+answer changes is not a recommendation system; it is attrition.** Declines are
+recorded with their reason, and a declined candidate returns only when something
+about it actually changed — a new version, a new capability, a cost that moved —
+and the message says what changed rather than re-running the original pitch.
+
+**The number of asks is capped, and the cap is about him, not about the
+findings.** Three proposals he will read beat eleven he will not, and the rest
+stay visible in the console without being asked about. **S48's honesty test does
+not transfer to this half**: the inward cycle can legitimately find nothing wrong
+in a good week, but the industry always did something, so *"it found nothing"*
+will never bound this list. Only a cap will.
+
+**Cost is a comparison, not a category.** The transcript's framing was free tiers
+— *"I found this new free tier, we should try it"* — and that is superseded
+(VI.0). Candidates are now proposed on merit against what is running: better for
+a named role, or cheaper for the same quality, with the number attached. **Free
+is not a recommendation, and neither is new.**
 
 A recommendation that does not commit to a verb is not a recommendation. "This
 looks interesting" pushes the decision back onto Enrique, which is the work the
