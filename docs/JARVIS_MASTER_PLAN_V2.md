@@ -281,6 +281,23 @@ the friction that stops him sending it.
 console goes through exactly the same capture, routing, conversation and queue
 path as WhatsApp.** The console is a channel, not a privileged shortcut.
 
+**The console proves who. The approval page proves what.** Both are required, and
+being on a console page supplies only the first — which is the trap here, because
+the console *is* where approvals legitimately happen, so a composer sitting on
+every console page reads like an approval surface. It is not one. *"Deploy to
+production"* typed into the composer is a **request**: it raises the approval and
+he clicks it with re-authentication, exactly as if he had said it on WhatsApp.
+IV.6 already refuses to let a natural-language grant reach Level 3; **the composer
+is the single most likely place for a well-meaning implementation to break that
+rule**, because everything about its surroundings suggests authority it does not
+carry.
+
+**What he uploads is not what he wrote.** A PDF, a screenshot or a pasted log
+arriving through the composer is content — IV.6b rule 3 — exactly as a forwarded
+WhatsApp message is (S37). The temptation is stronger here only because he
+selected the file himself, and **choosing to show Jarvis a document is not the
+same as writing its contents.**
+
 That matters more than it looks. A second input path that skips the inbox would
 have its own bugs, its own dropped messages, and its own provenance gaps — and
 the one guarantee this whole system rests on is that **every input arrives the
@@ -1839,6 +1856,8 @@ half that matters.
 - Trigger each of the three new error classes and confirm the taxonomy's severity, retry and notify behaviour actually fires.
 - The status bar shows all six states, forced individually.
 - Submit from the composer on three different pages; each produces an inbox event indistinguishable in shape from a WhatsApp one. **Diff the rows** — if the console's differ, there are two input paths and only one of them is tested.
+- **Type a Level 3 instruction into the composer** → it raises an approval and does **not** act, even though the session is fully authenticated and the page is the console. Then approve it properly and confirm it proceeds. **Both halves** — the first alone would pass on a composer that does nothing.
+- Upload a document containing an instruction → stored, quoted, searchable, **and not obeyed.** Same assertion as the forwarded-thread case, on the channel where it looks most like his own words.
 - **Drive a task to terminal failure and confirm it passed rung 10 first** — he was asked before it died. A task that reaches `failed_terminal` without a record of asking him is the bug this rule exists to catch.
 - Its Work detail reads as an account: attempted, observed, blocking, what would unblock. Then say *"try again with X"* → **it resumes from the checkpoint** rather than restarting.
 - **Prune a completed task's events, then open its Work detail.** It still reads as an account of what happened — phases, tests, findings, PR — rather than an empty page. Then confirm a task **without** an account is not pruned at all.
@@ -3110,6 +3129,9 @@ memory. **The one thing that must never happen is two answers to "what was said"
 **Test before the number exists** — everything except pairing:
 - Synthesised inbound payloads of each type against `/internal/inbox/ingest` → correct inbox events, artifacts, transcripts and routing.
 - A real audio file through the full transcribe-and-route path.
+- **A voice note naming a project, transcribed badly.** With the name near a known slug it resolves to the slug **and says so**. With it near nothing, one short question rather than a guess — and **never a silent choice**, which is the outcome that looks like success and lands the work in the wrong project.
+- A voice note whose only low-confidence token is incidental → **no question at all.** The pair is the test; asking about everything is the failure the requirement was written against.
+- Correct a misheard name afterwards → supersedes the derived record, the original audio and transcript are untouched, and the route moves with it (S3).
 - Kill the API for 10 seconds mid-send → the bridge retries, reconciliation fills the gap, nothing is dropped (L1).
 - Ingest with a bad HMAC → refused.
 - An unknown sender → ignored, not processed.
@@ -3913,6 +3935,21 @@ upload, a scheduled firing, a webhook. Written before any model sees it and
 by adding a derived record that supersedes it, not by changing the original — the
 original is the evidence of what was actually said, and it is the only thing in
 the system that cannot be reconstructed.
+
+#### A transcript is a guess, and the plan has been treating it as text
+
+Voice is how Enrique mostly talks to Jarvis, and **every voice input is a model's
+best guess at what he said.** S19 handles the *authority* consequence — an
+unattested call proposes rather than acts — and nothing handles the *accuracy*
+one, which is present on a perfectly authenticated call and on every WhatsApp
+voice note.
+
+Confirming everything is the friction he asked to be rid of, so the rule is not
+about confidence in general:
+
+- **Check the transcription where it decides something.** A misheard *"remember that"* costs nothing. A misheard **project name** routes work into the wrong project — which S3 now establishes is a boundary crossing, not a filing error. A misheard **number**, **repository**, **branch** or **connection** changes what gets built or what gets touched. Those tokens, at low confidence, are worth one short question. Everything else is not.
+- **Bias transcription toward the vocabulary the system already knows.** Project slugs, connection names, repositories, branches — Jarvis holds all of them, and they are exactly the domain nouns VI.3 says `stt` will struggle with. A token near a known name resolves to the known name **and says which**, because *"I took that as Alpha"* is a sentence he can correct in three words.
+- **The correction path already exists; wire voice to it.** *"No, I said Alpha, not Alfa"* is a route correction (S3), and it supersedes rather than edits — IV.0's rule above, arriving through the channel that needs it most.
 
 #### The promise starts at the inbox event, and the doorway is before it
 
