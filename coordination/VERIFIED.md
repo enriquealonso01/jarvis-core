@@ -677,3 +677,55 @@ the box** in the API container against deployed source. The Builder's own
 `s46-handoff-test` is **21/0**, unchanged: its swap case uses a different host,
 not userinfo. No production callers yet, so the fix landed before anything
 depended on the old behaviour.
+
+## S48 — the weekly self-review — ✓ verified (2026-09-03)
+
+The plan calls this "the single deliberate exception to isolation in the whole
+plan" and says so in the knowledge that "an exception that broad, arriving in
+the last step, is how isolation quietly stops meaning anything". So the thing
+worth testing was the exception, not the feature.
+
+**One hole found, fixed in PR #417.** The `Finding` comment is correct that
+there is no `quote`, `excerpt`, `body` or `sample` field, and that absence is
+real. But `correctedTo` is a free string, filled by the analyser that has just
+read the transcript, and `describeWeek` interpolates it straight into the merged
+report. The one field that crosses the project boundary was a body-shaped hole
+with a comment on it saying not to put a body in.
+
+Observed on the box, from a **confidential** project's pass into a merged report
+sitting next to another project's findings:
+
+```
+correctedTo = "he said the ticketflipping rds password is hunter2 and to stop asking about it"
+report      = "Form of address — should be he said the ticketflipping rds password is hunter2…"
+```
+
+The file's own Debug note names this defect from the other side — prose in the
+finding shape breaks cross-project matching. It reads that as a *matching*
+failure, which it also is. The same prose is the *leak*, and that half was not
+written down.
+
+`isNormalisedTarget` now constrains the shape: non-empty, ≤48 characters, no
+`://` or `@`, conservative charset. It is deliberately **not** a closed
+vocabulary — `correctedTo` exists to carry targets the vocabulary cannot
+anticipate — and its comment says outright that a shape check stops a sentence,
+not a short lie. Corrections that fail it are **skipped, not thrown**, matching
+the `isBehaviour` line two lines above rather than the foreign-transcript
+refusal further up: a foreign transcript is a caller that has already broken
+isolation and must be stopped, while prose is the analyser wobbling on one item,
+and killing the pass would turn a bad sentence into a lost week of review.
+
+**What held, and this is the substantial half.** A pass refuses a transcript
+belonging to another project — refuses rather than filters, in both project and
+system scope. `isBehaviour` is genuinely closed (`constructor`, `__proto__`,
+`toString`, `""`, `"WRONG_PROJECT"` all rejected) and an unknown behaviour
+produces no finding at all. Citations carry exactly `conversationId` and `turn`
+and nothing else. Fingerprints match across differently-worded passes and across
+casing and whitespace. A correction seen in two projects outranks one seen three
+times in one. The strictest classification wins across a merge. Already-fixed
+findings are dropped silently. A quiet week says "Nothing worth changing this
+week." rather than inventing something.
+
+**Checked:** `scripts/s48-selfreview-probe.ts` — 30/2 before, **50/0 after, run
+on the box** in the API container against deployed source. The Builder's own
+`s48-selfreview-test` is **26/0**, unchanged.
