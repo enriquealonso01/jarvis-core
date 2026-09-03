@@ -24,6 +24,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [Two engines, four different reasons the same task could not finish](#two-engines-four-different-reasons-the-same-task-could-not-finish)
 - [A CRITICAL isolation alert for an `ls`](#a-critical-isolation-alert-for-an-ls)
 - [A pleasantry became a heavy task, twice over](#a-pleasantry-became-a-heavy-task-twice-over)
 - [The sweep stopped at s25, so a runner change broke a suite unseen](#the-sweep-stopped-at-s25-so-a-runner-change-broke-a-suite-unseen)
@@ -176,6 +177,35 @@ are written. The ones that CANNOT (live site, real money, real credentials) are
 listed there with the reason, because a sweep that cannot pass is a sweep people
 learn to ignore.
 **Lesson:** writing a suite is half of it. A suite nothing runs is a comment.
+
+### Two engines, four different reasons the same task could not finish
+**Symptom:** the S28 parity run failed for both engines, four runs in a row, with
+a different cause each time. Each one was invisible to every offline suite.
+**1. Claude exited in five seconds with zero tool calls.** `IS_SANDBOX=1` had
+been dropped from the spawn env by a rebase. Claude refuses to bypass
+permissions as root, and inside the egress namespace it IS root because
+`unshare -r` is how the runner obtains the capabilities to install its blackhole
+routes. Twelve heavy tasks crashed this way before anyone looked.
+**2. Then the tripwire killed it after 22 tool calls** for reading the harness
+auth directory the runner had just handed it. Allowed, scoped to the one profile
+directory - never the parent, which holds every other profile.
+**3. Then it could do the work and not deliver it.** `gitEnv` existed for the
+runner's own clone and was never given to the harness, so the push failed with
+`Permission denied (publickey)`. With the key passed, Claude reached a merged-
+ready pull request: `{"state":"succeeded","pr":1,"tools":16}`.
+**4. Codex opened a checkout holding only README.md** and correctly reported the
+bug was not reproducible - it was reading the repository's initial commit. The
+worktree is cut from `origin/<base>` after a fetch wrapped in
+`.catch(() => undefined)`, so a failed fetch silently produced a worktree from a
+stale ref. Now the base is chosen by merge-base between the remote and local
+refs, and a failed fetch is said out loud.
+**Still open:** Codex sets `GIT_SSH_COMMAND=ssh -F /dev/null` on its own push,
+overriding the one Jarvis supplies and discarding every identity file with it.
+The key has to be findable without the variable - a per-run HOME whose
+`.ssh/id_ed25519` is the project deploy key would survive `-F /dev/null`.
+**Lesson:** a suite that only runs offline proved all of this green. The step's
+Done-when was "one task runs on either harness", and running it is what found
+four production defects in one evening.
 
 ### A CRITICAL isolation alert for an `ls`
 **Symptom:** `[isolation] harness wrote outside the worktree`, critical, evidence

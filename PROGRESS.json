@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "8879f76c26b869b957ab43a78aec5911af838cc5",
   "total_steps": 51,
-  "updated_at": "2026-09-03T01:41:12Z",
+  "updated_at": "2026-09-03T02:28:10Z",
   "current_step": "S37",
   "steps": [
     {
@@ -246,7 +246,7 @@
         "title": "The runtime interface and a second harness",
         "stage": 5,
         "state": "partial",
-        "evidence": "The interface and the registry landed and are asserted: src/runtime.ts with ClaudeLikeRuntime and CodexRuntime, migration 030 (tasks.runtime, tasks.ran_on_runtime, projects.default_runtime), and the runner selecting by runtime rather than by vendor. scripts/s28-runtime-test.sh passes 40 and scripts/s28-park-test.sh passes 11 - an unknown runtime parks, names itself, and nothing is recorded as having run it. NOT done: the plan's Done-when is one task running on EITHER harness by changing one field, which is scripts/s28-parity-live.ts, and that has never completed a run - it parked at the pull-request step because its fixture provisioned no GitHub API credential (fixed in #167, not yet re-run)."
+        "evidence": "Interface and registry asserted (s28-runtime-test 40, s28-park-test 11). The plan's Done-when is one task running on EITHER harness, and running it four times found four production defects, each invisible offline: IS_SANDBOX dropped by a rebase (Claude exited in 5s with 0 tools, 12 heavy tasks crashed), the tripwire killing a run for reading its own auth dir, the harness never being given the deploy key it needed to push, and a worktree cut from a stale origin ref so Codex read the repo's initial commit. All four fixed. CLAUDE NOW COMPLETES: succeeded, pr=1, 16 tools. Codex does the full engineering (36 tools: reproduced, fixed, regression-tested, committed) and cannot push because it sets GIT_SSH_COMMAND='ssh -F /dev/null' itself, discarding the identity Jarvis supplies. One engine of two, so the step is not done."
     },
     {
       "id": "S29",
@@ -379,5 +379,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "The whole suite board is green — 43 suites, 0 failures — and main is deployed."
+  "working_on": "S28: Claude now runs a task end to end to a pull request. Codex does the work and cannot push."
 }
