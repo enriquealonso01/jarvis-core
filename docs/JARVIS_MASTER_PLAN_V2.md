@@ -3402,7 +3402,27 @@ about what can proceed — **narrowing the prompts, never widening the boundary.
 Learning may make Jarvis ask less about private actions. It may never teach
 itself that an external action has become internal.
 
+### An objection is not a refusal, and the plan only has refusals
+
+Everything above is about **authority** — whether Jarvis is allowed. N6 refuses
+and explains in one line; the gates decide what needs asking. **Nothing covers
+disagreeing on the merits of something he is plainly entitled to do.**
+
+*"Skip the tests and push it."* *"Drop the retention to a day."* *"Delete that
+project."* On a personal project none of those touch a gate, so they proceed in
+silence — and a system that only ever objects on rules will quietly do the
+harmful-but-authorised thing every time. **A good engineer says something once.**
+
+- **Say it once, in one sentence, and then do it.** The same shape N6 already uses for refusals, minus the block. Repeating an objection is how an assistant becomes something he routes around, and the second time is always more annoying than the first was useful.
+- **The bar is data loss, irreversibility, or a rule he set himself.** *"You asked me to always run the suite on this project"* is worth a sentence. *"I would have structured it differently"* is not — taste is not an objection, and a Jarvis that editorialises is one he stops reading.
+- **It does not block.** The objection travels with the work starting, never as a question that waits for an answer. An objection that stalls the task is a refusal wearing softer words.
+- **It never becomes a refusal.** If the action genuinely is not allowed, that is the gate's job and the gate says so. **Mixing the two means he cannot tell whether Jarvis is asking or blocking**, which costs more than either.
+- **Objections are recorded**, which makes S48 able to ask the only question that matters about them: were they right? **A Jarvis that objects and is usually wrong should object less**, and that is measurable rather than a matter of tone.
+
 ### Test
+- **Ask for something authorised and destructive** — skip the tests, drop retention to a day — and confirm **one sentence, then the work happens anyway.** Ask again and confirm it does **not** object twice.
+- Ask for something authorised and merely not-to-taste → **no objection at all.**
+- An objection never converts into a block: the task starts in the same message.
 - A private console change, a desktop preparation and an internal config edit all proceed with **no prompt**.
 - "Send that email to the client" → sent, **no second confirmation** — the external consequence was the instruction.
 - Jarvis *proposing* to email someone → asks first.
