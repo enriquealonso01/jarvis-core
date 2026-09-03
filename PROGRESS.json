@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T22:18:00Z",
-  "current_step": "S47",
+  "updated_at": "2026-09-03T22:22:35Z",
+  "current_step": "S48",
   "steps": [
     {
       "id": "S1",
@@ -384,7 +384,8 @@
       "id": "S48",
       "title": "Learning from the conversations themselves",
       "stage": 10,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE PLAN GRANTS S48 THE ONE CROSS-PROJECT READ IN THE WHOLE DOCUMENT AND SAYS WHY THAT IS DANGEROUS: 'an exception that broad, arriving in the last step, is how isolation quietly stops meaning anything. So it needs a shape.' The shape is: fan out per project, merge FINDINGS, never transcripts. projectPass is the only function that sees a body, its signature is single-project, and it REFUSES rather than filters when handed another project's transcripts - a caller doing that has already made the mistake this step is built around, and silently dropping the extras would let it keep making it. Finding has no quote, excerpt, body or sample field, and that absence IS the mechanism: a helpful excerpt is the obvious next improvement and nothing else would have stopped it. mergeFindings takes Finding[] and has no parameter through which a transcript could arrive. ASSERTED ON WHAT CROSSED, NOT ON WHAT THE REPORT SAYS ABOUT ITSELF, exactly as the plan instructs. The confidential fixture contains a phrase existing nowhere else, and the suite hunts for it in the merge INPUT, the merge OUTPUT and the REPORT - three separate assertions - plus a fourth confirming the phrase really was in the transcripts the pass read, so the absences are facts about the projection rather than about the fixture. The sabotage that adds one excerpt to a citation goes red on three of them. CROSS-PROJECT MATCHING IS OVER A NORMALISED CORRECTION, per the Debug note: 'two passes describing the same defect in different words will never match', and the step would then 'report three unrelated one-offs where there is one standing complaint'. The suite words the two projects' corrections DIFFERENTLY on purpose - 'Enri' and '  ENRI ' - and requires one merged finding. The behaviour is part of the fingerprint, so two different defects with the same target do not collide. RANKED BY REACH BEFORE COUNT: a correction in two projects outranks one appearing nine times in one, because the first is a standing complaint and the second may be one bad week on one piece of work. Already-fixed issues are dropped SILENTLY - 'a weekly report re-raising last week's fixed problems is a report that gets skipped, and then the real items go unread with it'. A week with nothing left produces one short sentence, because 'a cycle that always finds problems is a cycle that invents them'. The report and each merged finding take S38's strictestOf. routeForPass has NO FALLBACK PARAMETER: 'a fallback that silently picks another provider is the whole defect wearing a retry'. And a finding nobody can act on is dropped rather than printed. scripts/s48-selfreview-test.ts, 26 assertions, green first run. Sabotaged ten ways, all red first pass. NOT BUILT: nothing runs the weekly cycle. No scheduler invokes the passes, nothing reads real conversations into a Transcript, no analyser produces the normalised corrections (they are an input here), the report is not written as an artifact or classified on disk, and no approved finding has become a task or a preference change end to end. This is the shape of the exception, held by tests; the exception itself has never been exercised against real data."
     }
   ],
   "gates": {
@@ -396,5 +397,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S47's mechanism built - never-list before allowlist so a declared path cannot grant a credential store, a constructed environment with no way to pass his shell in, default deny with a distinct refusal code, window-not-screen capture, and reachability asked at execution. NOT built: the connector itself - no SSH, no GUI agent, no heartbeat, no audit-by-machine - which needs a workstation I do not have and has no B-item. FOR THE BLOCKERS SESSION: S47 needs Enrique's workstation access to go further than the decision layer. Next: S48."
+  "working_on": "S48 built as a shape: findings cross between passes and bodies never do, asserted on what crossed rather than on the report's self-description. NOT built: nothing runs the cycle - no scheduler, no real transcripts, no analyser producing the normalised corrections, no report artifact, no approved finding turned into work. Stage 10's remaining steps (S49+) are next; several need surfaces I cannot reach from the dev stack, so I will read forward and build the decision layers that do not."
 }
