@@ -459,6 +459,25 @@ unblocked, finish it before starting anything new.
 - **The fix:** `tar --no-same-owner` on extraction, or `chown -R` after, and a
   one-off `chown` of the two trees.
 - **Raised:** 2026-09-02 17:00Z
+- **Resolved:** 2026-09-03 08:10Z. The source was `deploy-control-center.sh`:
+  the export tarball is built on Windows, so every entry carries uid 197609,
+  and `rsync -a` running as root is permitted to recreate that ownership - so
+  every console deploy quietly minted more of it. It now syncs with
+  `--no-owner --no-group`, chowns the target to root, and FAILS if any stray
+  remains, because a phantom uid is invisible until something needs to write as
+  that user and cannot. The 144 existing files are chowned.
+  `tests/s13-console-owner-live.sh` proves it against a scratch target with a
+  genuinely Windows-built archive (the check prints the archive owner field,
+  `Enrique/197609`, so the test cannot pass vacuously); sabotaged back to
+  `rsync -a` and watched three files land owned by UNKNOWN.
+- **Also fixed, because it was the same shape:** the core deploy was a command
+  retyped each time rather than a script, which is how this got in and how the
+  build bar went stale. `scripts/deploy-core.sh` now carries the sequence, with
+  `--no-runner` for when the heavy lane is mid-run. Worth stating plainly: its
+  `--owner=0` flags are defence in depth and NOT load-bearing - the script
+  chowns the tree afterwards, so removing them changes nothing, and I checked
+  rather than assumed.
+
 
 ## Every auth profile is eligible for `normal` only, so a confidential project can use nothing
 
