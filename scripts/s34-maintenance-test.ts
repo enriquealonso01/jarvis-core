@@ -75,9 +75,27 @@ async function main(): Promise<void> {
       { kind: "memory_items", bytes: 1 * GB, detail: "things he told Jarvis" },
     ];
     const deletedKinds: string[] = [];
+    /*
+     * `perform` REALLY DELETES. My first version only recorded the kind, which
+     * made the end-to-end assertion below unfailable: the deny-list sabotage
+     * approved `knowledge_chunks`, and the document survived anyway because
+     * nothing had actually removed it. A test whose destructive step is a
+     * no-op cannot tell a working gate from a missing one - it was passing on
+     * the approval list, not on the corpus.
+     */
     const result = await runMaintenance(pool, {
       disk: FULL, candidates: offered,
-      perform: async (c) => { deletedKinds.push(c.kind); return c.bytes; },
+      perform: async (c) => {
+        deletedKinds.push(c.kind);
+        if (c.kind === "knowledge_chunks") {
+          await pool.query(`DELETE FROM knowledge_chunks WHERE project_id = $1`, [pid]);
+        }
+        if (c.kind === "artifacts") {
+          await pool.query(`DELETE FROM knowledge_chunks WHERE source_artifact_id = $1`, [art]);
+          await pool.query(`DELETE FROM artifacts WHERE id = $1`, [art]);
+        }
+        return c.bytes;
+      },
     });
     deletedKinds.join(",") === "docker_images,expired_audio,reaped_worktrees"
       ? ok(`it reclaimed only what is rebuildable or expired: ${deletedKinds.join(", ")}`)
