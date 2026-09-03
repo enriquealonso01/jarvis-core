@@ -4463,9 +4463,40 @@ operator. There is nobody to catch a bad deploy.
 - Test backend changes in an isolated Compose stack before promoting.
 - Control-plane updates that touch isolation, auth, backups, or spend need an approval or a clearly scoped grant — never a bare autonomous deploy.
 
+### Rolling back the image does not roll back the migration
+
+Two bullets above cannot both be honoured as written. *"Back up the database
+before any migration"* and *"if the health check fails, roll back"* meet at the
+case that actually happens: **a deploy that shipped a schema change and then
+failed its check.**
+
+Reverting to the previous image leaves the old code running against the new
+schema, which is usually worse than the bad deploy. And restoring the database
+backup throws away everything written since — conversations, inbox events, the
+one category this system promises never to lose. **Under pressure, at two in the
+morning, the reflex will be the restore.** It is the wrong trade and it should
+not be reachable.
+
+- **Migrations are backward compatible with the previous image.** Expand, then contract: the deploy that adds a column is the deploy whose code reads it; the old column is dropped a deploy later. That single discipline is what makes *"roll back the image"* a real option rather than a sentence in a runbook.
+- **A migration that genuinely cannot be made backward compatible is its own deploy**, performed deliberately, with its rollback written down **before** it runs. Its rollback is never "revert the image".
+- **Rolling back never restores the database.** The inbox is append-only and is the thing the whole design is built to protect. A rollback that rewinds it trades a bad deploy for lost input, which is the one loss the plan does not accept anywhere else.
+
+### What the health check has to check
+
+*"Health-check after deploy"* decides whether an automatic rollback fires, so
+leaving it undefined means the trigger is whatever someone wired first — usually
+that the API returned 200, which a deploy that broke the queue passes easily.
+
+- **The API answers, and the queue dispatches.** A worker that cannot claim looks perfectly healthy from a status endpoint.
+- **The runner unit is running and can claim** — it is a separate unit and the piece most likely to be forgotten, in exactly the same way it is in the deploy commands below.
+- **One real read and one real write** against the database.
+- **The broker decrypts a canary credential.** An envelope-key mistake after a deploy is silent, total, and invisible to every other check.
+- **Migrations recorded and matching what the image expects.**
+- **A check that cannot run reports `unknown` and counts as a failure.** VII.1's rule that absence of data must never render as absence of problems matters most here, because here the response is automatic and nobody is reading it.
+
 **Deploying core** is `git pull` in `/opt/jarvis/core`, `docker compose build`,
 `up -d`, plus `systemctl restart jarvis-runner` — the runner is a separate unit
-and is the piece most likely to be forgotten. **Deploying the console** is
+and is the piece most likely to be forgotten. **Check whether a heavy task is running first**: restarting the runner mid-run is recoverable (S11 proves it) and still throws away everything since the last checkpoint. Drain, or accept the cost knowingly — but a runbook that is only a list of commands makes that choice by accident every time. **Deploying the console** is
 `scripts/deploy-control-center.sh`, which syncs contents rather than replacing
 the directory, because replacing it swaps the inode under Caddy's bind mount.
 
@@ -4827,7 +4858,7 @@ its own runtime is a different kind of thing:
 - **Onboarded as a normal project, at professional care.** Not a system project — the system layer (II.5) exists to change *configuration*, and this is code. Same PR flow, same review, same tests.
 - **It may never merge or deploy to itself autonomously.** Always-confirm, every time, regardless of any grant. The usual argument for a grant is that the reviewer caught anything serious — but here the reviewer is running on the thing being changed.
 - **The runner cannot be updated by a task it is running.** Replacing the binary underneath a live run is the one deploy that cannot be rolled back by the thing doing the rolling back. Updates to the runner are applied by the *system* worker between runs, or by Enrique.
-- **A failed health check after a self-deploy rolls back automatically** (VII.5), and the rollback path must not depend on anything the deploy just changed.
+- **A failed health check after a self-deploy rolls back automatically** (VII.5), and the rollback path must not depend on anything the deploy just changed. **This is also where the expand-then-contract rule stops being hygiene and becomes load-bearing** — an automatic rollback over a non-reversible migration is an automated way to make things worse.
 - **Maintenance watches the deploy it just performed** for longer than it watches anyone else's.
 
 None of that is in scope for this plan. It is written here so the ending is a
