@@ -24,6 +24,7 @@ is two or three entries, and it is where the time is actually saved.
 - [Jarvis rejected its own outbound calls, and the calls worked anyway](#jarvis-rejected-its-own-outbound-calls-and-the-calls-worked-anyway)
 
 **Phone**
+- [s37-untrusted-test fails inside the sweep, and the row is not where the test looks](#s37-untrusted-test-fails-inside-the-sweep-and-the-row-is-not-where-the-test-looks)
 - [The sweep certified images, not the tree](#the-sweep-certified-images-not-the-tree)
 - [An average over two clusters describes neither](#an-average-over-two-clusters-describes-neither)
 - [The fetch that decided the worktree base had no credential](#the-fetch-that-decided-the-worktree-base-had-no-credential)
@@ -239,6 +240,35 @@ subject did not choose. Ours scored obedience to our own instructions, our own
 directory layout, and our own guess about where tests live. And when successive
 corrections all move the same contestant up, stop and say so out loud - the
 next tempting fix is the one to leave alone.
+
+### s37-untrusted-test fails inside the sweep, and the row is not where the test looks
+
+**Status: open.** Diagnosed this far, root cause not yet found. Recorded so the
+next attempt starts here rather than at the beginning.
+
+**Symptom:** three assertions in the "covered forward" block fail - "this one
+WAS routed", "his words are recorded as his", "and the evidence is still kept
+beside them". All three read `ev.rows[0]`, and the query returns zero rows.
+**Not caused by the S30 changes.** Bisected across six commits touching
+`routing.ts`, `inbox.ts` and `knowledge.ts`, including one where the suite had
+passed 25/25 earlier the same day. It fails at every one of them.
+**What is actually happening:** the inbox row IS created - the count of rows
+with that body goes 14 to 15 across a run - but it is attached to a conversation
+titled after the message body, not to the `covered forward <stamp>` thread the
+test created and queries. Every recent run lands in the SAME body-titled
+conversation.
+**Why it looked green before:** it was one of thirteen suites that were neither
+in the sweep nor in its exclusion list. Adding it to the sweep is what surfaced
+this; it had been failing wherever it ran, unwatched.
+**Two adjacent assertions pass vacuously** and should be tightened whatever the
+cause: "and NOT the bare-forward reply" passes because the fallback string
+`(fake model: no scripted turn matched)` does not contain the bare-forward
+phrase, so it would pass for a run that produced no real answer at all.
+**Next step:** find what re-homes the inbox event. Candidates are the
+conversation-creation sites in `supervisor.ts` and `index.ts`, both of which
+title a conversation from text. Decide whether a message being moved out of the
+caller's conversation is a product defect or intended threading - the answer
+changes whether the test or the code is wrong.
 
 ### The sweep certified images, not the tree
 
