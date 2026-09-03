@@ -2,8 +2,8 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 51,
-  "updated_at": "2026-09-03T21:30:46Z",
-  "current_step": "S41",
+  "updated_at": "2026-09-03T21:36:09Z",
+  "current_step": "S42",
   "steps": [
     {
       "id": "S1",
@@ -342,7 +342,8 @@
       "id": "S42",
       "title": "Approval by external impact",
       "stage": 9,
-      "state": "not_started"
+      "state": "built",
+      "evidence": "THE GOVERNING QUESTION IS NOW WHO ELSE IS AFFECTED, NOT WHAT THE TOOL IS. IV.6 grades authority by what the action is; S42 replaces that with 'can anyone other than Enrique see, receive, rely on, or be affected by this'. Private work proceeds with no prompt AND NO GRANT - the friction disappears by doing LESS rather than by adding a mechanism, and issuing a grant for a private action would be a record of an authorisation nobody needed. The Debug note names the failure this is built against - 'the usual error is treating the tool as external rather than the action' - so impactOf takes no tool parameter and there is deliberately no table keyed on one; the suite's central pair is the SAME push on a solo repo (proceeds) and on one with collaborators (asks), which any tool-keyed implementation answers identically and therefore wrongly for one of them. JARVIS DOES NOT ASK TWICE: an instructed external action proceeds with no second confirmation, and still records a grant, because the instruction authorises while the grant records WHAT it authorised, for which task, against which commit, until when. `origin` is REQUIRED rather than defaulted, because the lenient value is 'instructed' and a caller that forgot would get the answer that skips the prompt; proposed, inferred and expanded all ask, since an action he did not ask for does not inherit the authority of one he did - S10's condition 2 and this are one rule from two ends. THE FLOOR IS UNTOUCHED and checked BEFORE visibility, so no reasoning about audience can conclude that a production action on a solo project is private. THE SUITE CAUGHT A REAL BUG HERE, and it is the interesting one: AN ALWAYS-CONFIRM ACTION CAN BE ENTIRELY PRIVATE - exporting secrets on a solo project has no audience at all - so applyLearning's `external` check did not cover it and a learned preference suppressed a Level 3 prompt. The floor now travels ON the decision rather than being re-derived by whoever wants to narrow it, and the suite asserts the reason directly so the fix cannot regress back into the external check. LEARNING NARROWS AND NEVER WIDENS, enforced by type: LearnedPreference.scope has one value, so a preference about an external action cannot be written down. The plan says to assert the second half because it can go wrong quietly, so the suite hands an external decision ninety-nine approvals and checks it is returned untouched - and also checks the narrowing half really works, or only the safe half was built. scripts/s42-impact-test.ts, 27 assertions, green; s10-grants-test (40) re-run green. Sabotaged eleven ways, all red: key visibility on the tool (9), make nothing external (4), grant private work (5), ask twice (1), let a proposal inherit an instruction's authority (7), check the floor after visibility (5), proceed externally with nothing recording it (1), let learning move the boundary (1), let it suppress the floor (1), ignore the threshold (1), never narrow anything (11 -> 1). NOT BUILT: the OBJECTION half of S42 - 'a good engineer says something once' - is a separate change set and is not started. And nothing CALLS approvalFor yet: the decision exists and is held by tests, but the task path still gates on IV.6 levels alone, so no prompt has actually disappeared in practice."
     },
     {
       "id": "S43",
@@ -390,5 +391,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S41's two remaining halves built: the recall query over S30's index, and transcript stamping. What remains for S41 is WIRING - the voice agent calling recallForVoice, and the call-end path calling stampTranscript - which touches live call handling and wants the Tester watching. Next: S42 (approval by external impact)."
+  "working_on": "S42's approval half built: visibility replaces action-type as the governing question, private work needs no prompt and no grant, the always-confirm floor is checked first and learning can never reach it. NOT built: the objection half ('say it once, then do it'), and nothing calls approvalFor from the task path yet. Next: the objections change set."
 }
