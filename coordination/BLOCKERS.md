@@ -16,16 +16,15 @@ to unattended merges to `main`, the Tester deploying to the live box, and
 migrations applied to the live DB. No guardrail requested.
 - **CHECK:** this line reads `CLEARED`. Agents may build, test, open PRs, and deploy to the box as designed.
 
-## B2 — WhatsApp channel is down  ·  Status: OPEN
-Enrique's part is DONE: QR scanned and the channel paired 2026-09-03 (gateway is
-`Up (healthy)`, re-paired with no QR). Still OPEN for a **code** reason, not
-Enrique: inbound WhatsApp is delivered to the phone but never persisted to
-`inbox_events` (verified live 2026-09-03 — 0 rows after a real message). Root-caused
-by the Tester (see `VERIFIED.md`): the bridge listens on hooks that never fire for
-inbound (needs `before_dispatch`), and the gateway runs a stale copy of the bridge
-from its extensions dir that the normal deploy never updates. **No further Enrique
-action** until the Tester deploys the fix — then Enrique sends ONE real inbound
-message to verify.
+## B2 — WhatsApp channel is down  ·  Status: CLEARED 2026-09-03
+Paired 2026-09-03 (QR scanned), then the inbound bug was fixed — the bridge now
+claims inbound with `before_dispatch` (PR #267) and the extensions-dir deploy gap
+was closed. VERIFIED end-to-end on the box 2026-09-03 16:29Z: a real inbound
+WhatsApp ("Hi! How are you?" from +13055052646) landed as an `inbox_events` row
+with `channel='whatsapp'`, with the gateway `Up (healthy)`. Both halves of CHECK
+pass. (History: earlier the message was delivered to the phone but never persisted
+— 0 rows — because the bridge listened on hooks that never fire for inbound and
+the gateway ran a stale copy of the bridge.)
 - **CHECK:** on the box, `docker ps --format '{{.Names}} {{.Status}}' | grep openclaw` shows it `Up`, AND a test WhatsApp message to the number appears as a new `inbox_events` row with `channel='whatsapp'`.
 
 ## B3 — (add as they arise)
