@@ -775,3 +775,54 @@ space. `recordingPolicy` refuses the other party's audio.
 run on the box** in the API container against deployed source. The Builder's own
 `s50-outbound-test` is **28/0**, unchanged. No production callers yet, so the
 fix landed before anything depended on the old behaviour.
+
+## S51 — Home's map — ✓ verified against the LIVE database (2026-09-03)
+
+The first module this loop verified against real rows rather than a fixture, and
+it was the right choice: the one thing worth knowing about this file could not
+have come from a fixture.
+
+**Checked:** `scripts/s51-homemap-live.ts` — **142/0, run on the box**, drawing
+the map from the real database and checking every point back against the table
+it names. 32 nodes, 32 edges, from 29 portfolio projects, 71 knowledge chunks,
+0 running tasks and 7 issues owned by him.
+
+Every node carried a label, an href and a source, and every state was one of
+`NODE_STATES`. Every edge joined two nodes that exist, and every non-supervisor
+node was reachable from the hub. The counts were the database's: one project
+node per portfolio project, the memory node appearing exactly once for 71 chunks
+rather than once per chunk, the needs-you node appearing because 7 issues are
+open against him, the running node correctly **absent** because nothing is
+running, and the map's overall state reading `needs_you` — which agrees with the
+rows. `motionFor` takes a state and nothing else, so a pulse for atmosphere
+stays unwritable. `unknownNode` renders `unknown` with a label rather than a
+fabricated point. I also confirmed against the live CHECK constraint that
+`preparing`, `running` and `recovering` are real `tasks.state` values, so the
+running node is not silently keyed on names the database never stores.
+
+### The finding, which is about the system rather than the module
+
+**Home currently overflows a phone screen by 14 points.** 32 nodes against
+`MAX_NODES_SMALL = 18`. `fitsWithoutScrolling` reports this correctly and says
+what to do about it — "the list equivalent is the right answer here, not smaller
+type" — but **it has no caller anywhere in `src/`**. So the check is right and
+nothing asks it.
+
+This is not a bug in `homemap.ts`. The module reports; the console decides what
+to draw, and that split is deliberate. It is a wiring gap on the console side,
+and it is recorded here rather than fixed because the console is not mine to
+build. The headline test for S51 is "the whole system is legible **without
+scrolling**" on a 375px phone, and on the box today it is not — with 29
+projects, it cannot be, which is exactly the case `fitsWithoutScrolling` was
+written to catch.
+
+### A correction to my own instrument
+
+My first run reported this as `FAIL 32 nodes is within MAX_NODES_SMALL (18)`.
+That assertion was wrong: it asserted a promise the module never made.
+`homeMap` does not cap its output and was never supposed to. The probe now
+checks that `fitsWithoutScrolling` tells the **truth** about the live map — at
+both viewports — and prints the number either way, because the number is the
+finding. Worth writing down because the failing assertion looked like a product
+bug and was not one, which is the same mistake I pushed back on when a monitor
+made it about S28.
