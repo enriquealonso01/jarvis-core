@@ -34,8 +34,14 @@ newtask() {
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
 }
 
+# First argument is the task this run is for, second the workflow, third an
+# optional resume point. RUNNER_ONCE claims the OLDEST queued heavy task, so
+# without naming one a leftover from an earlier case took the slot and the case
+# under test never ran at all.
 runit() {
+  local task="$1"; shift
   $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+    -e RUNNER_TASK_ID="$task" \
     -e JARVIS_HARNESS=fake:workflow -e JARVIS_FAKE_WORKFLOW="$1" \
     -e JARVIS_HEARTBEAT_MS=1200 -e JARVIS_SILENCE_LIMIT_MS=120000 \
     ${2:+-e JARVIS_FAKE_RESUME_AT=$2} runner >/tmp/s6-runner.log 2>&1
@@ -44,7 +50,7 @@ runit() {
 # ------------------------------------------------------------------ happy path
 echo "=== a complete run announces every phase ==="
 T=$(newtask "S6 full loop" "There is a bug in the login flow. Find it, fix it, add a test.")
-runit full
+runit "$T" full
 state=$(q "SELECT state FROM tasks WHERE id='$T';")
 phases=$(q "SELECT string_agg(name,'>' ORDER BY at,id) FROM task_events WHERE task_id='$T' AND type='phase';")
 echo "  state=$state"
@@ -65,7 +71,7 @@ check "the verdict was recorded" "completed|true|high" \
 echo
 echo "=== a report it cannot reproduce is said, not faked ==="
 T2=$(newtask "S6 unreproducible" "Sometimes the page is blank. Fix it.")
-runit norepro
+runit "$T2" norepro
 state2=$(q "SELECT state FROM tasks WHERE id='$T2';")
 echo "  state=$state2  waiting_reason=$(q "SELECT COALESCE(waiting_reason,'-') FROM tasks WHERE id='$T2';" | head -c 90)"
 check "it does NOT claim success" "false" "$([ "$state2" = "succeeded" ] && echo true || echo false)"
@@ -81,7 +87,7 @@ contains "an issue records what it tried" "the exact input" \
 echo
 echo "=== a guess is never recorded as a fix ==="
 T3=$(newtask "S6 guess" "Something is slow. Make it fast.")
-runit guess
+runit "$T3" guess
 state3=$(q "SELECT state FROM tasks WHERE id='$T3';")
 echo "  state=$state3"
 check "it does NOT claim success" "false" "$([ "$state3" = "succeeded" ] && echo true || echo false)"
@@ -93,7 +99,7 @@ contains "and it is labelled a guess" "GUESS" \
 echo
 echo "=== a request outside the repo is declined, not sprawled into ==="
 T4=$(newtask "S6 scope" "Also change the billing system in the other product.")
-runit scope
+runit "$T4" scope
 check "it does not claim success" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T4';")"
 check "verdict out_of_scope" "out_of_scope" \
   "$(q "SELECT COALESCE(verdict,'-') FROM task_attempts WHERE task_id='$T4' AND n=1;")"
@@ -109,7 +115,7 @@ check "and the worktree was left clean" "false" \
 echo
 echo "=== a repo that was already red is reported, not claimed or blamed ==="
 T5=$(newtask "S6 pre-existing" "The suite is failing. Fix the feature.")
-runit prefail
+runit "$T5" prefail
 check "it does not claim success" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T5';")"
 check "verdict pre_existing_failure" "pre_existing_failure" \
   "$(q "SELECT COALESCE(verdict,'-') FROM task_attempts WHERE task_id='$T5' AND n=1;")"
@@ -120,7 +126,7 @@ contains "and it says the suite was already red" "already red" \
 echo
 echo "=== a run that reports nothing is incomplete, not successful ==="
 T6=$(newtask "S6 silent" "Do the thing.")
-runit silent
+runit "$T6" silent
 check "it does not claim success" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T6';")"
 contains "and says what is unknown" "without writing .jarvis/outcome.json" \
   "$(q "SELECT COALESCE(waiting_reason,'') FROM tasks WHERE id='$T6';")"
@@ -129,7 +135,7 @@ contains "and says what is unknown" "without writing .jarvis/outcome.json" \
 echo
 echo "=== a run that stops early AND exits non-zero is still a report ==="
 T8=$(newtask "S6 norepro crash" "Sometimes it breaks. Fix it.")
-runit noreprocrash
+runit "$T8" noreprocrash
 echo "  state=$(q "SELECT state FROM tasks WHERE id='$T8';") reason=$(q "SELECT COALESCE(waiting_reason,'-') FROM tasks WHERE id='$T8';" | head -c 60)"
 check "it is NOT recorded as a harness crash" "false"   "$([ "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T8' ORDER BY n DESC LIMIT 1;")" = "harness.crash" ] && echo true || echo false)"
 check "it asks rather than failing" "waiting_for_user" "$(q "SELECT state FROM tasks WHERE id='$T8';")"
@@ -139,7 +145,7 @@ check "and the verdict survives the non-zero exit" "not_reproducible"   "$(q "SE
 echo
 echo "=== a killed run resumes at the phase it reached, not from the start ==="
 T7=$(newtask "S6 resume" "Fix the thing, in stages.")
-runit halt
+runit "$T7" halt
 mid=$(q "SELECT COALESCE(phase,'-') FROM tasks WHERE id='$T7';")
 midcount=$(q "SELECT count(*) FROM task_events WHERE task_id='$T7' AND type='phase';")
 echo "  halted at=$mid after $midcount phases"
@@ -147,7 +153,7 @@ check "it got partway" "inspect" "$mid"
 check "and recorded only the phases it reached" "4" "$midcount"
 # Requeue and let it finish; the runner should tell the harness where to resume.
 q "UPDATE tasks SET state='queued', lease_owner=NULL, lease_until=NULL, waiting_reason=NULL WHERE id='$T7';" >/dev/null
-runit full root_cause
+runit "$T7" full root_cause
 check "the resumed run finished" "succeeded" "$(q "SELECT state FROM tasks WHERE id='$T7';")"
 check "on a second attempt" "2" "$(q "SELECT count(*) FROM task_attempts WHERE task_id='$T7';")"
 check "the early phases were not repeated" "1" \

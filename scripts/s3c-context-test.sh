@@ -101,7 +101,11 @@ echo "  overlay bytes in container: $($COMPOSE run --rm --no-deps -T runner sh -
 # ------------------------------------------------------------------ the run
 echo
 echo "=== a run is started, and feedback is sent while it is in flight ==="
+# Pointed at THIS task. RUNNER_ONCE claims the OLDEST queued heavy task, so a
+# leftover from another suite took the slot and the fixture below sat in `queued`
+# while the assertions described a run that never started.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$TASK" \
   -e JARVIS_HARNESS=fake:context -e JARVIS_HEARTBEAT_MS=1500 \
   -e JARVIS_FAKE_CONTEXT_WAIT_MS=45000 -e JARVIS_SILENCE_LIMIT_MS=120000 \
   runner >/tmp/s3c-runner.log 2>&1 &
