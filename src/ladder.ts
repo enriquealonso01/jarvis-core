@@ -295,16 +295,30 @@ async function apply(
 }
 
 async function requeue(pool: pg.Pool, taskId: string, cause: string, rung: Rung): Promise<void> {
-  // The backoff is a lease held into the future, which the claim query already
-  // respects — so a rung's cooling-off period needs no scheduler of its own.
-  await pool.query(
-    `UPDATE tasks SET waiting_reason = NULL,
-            lease_owner = NULL,
-            lease_until = CASE WHEN $2 > 0 THEN now() + make_interval(secs => $2) ELSE NULL END
-     WHERE id = $1`,
-    [taskId, rung.backoffSeconds],
+  await pool.query(`UPDATE tasks SET waiting_reason = NULL WHERE id = $1`, [taskId]);
+  /*
+   * The backoff travels WITH the state change rather than in a statement before
+   * it.
+   *
+   * `transitionTask` now releases the lease on the way out of the running
+   * family — including `lease_until` — so a cooling-off period written first was
+   * wiped a moment later. Every rung's backoff silently became zero and the task
+   * went straight back into the queue, which is the busy-loop the ladder exists
+   * to prevent.
+   *
+   * The backoff is a lease EXPIRY held into the future, which the claim query
+   * already respects, so a rung's cooling-off period needs no scheduler of its
+   * own. It sets the expiry only: the owner is released by leaving, which is not
+   * this function's to describe.
+   *
+   * Coerced through Number and rendered inline because extraSet carries no
+   * parameters; the value comes from the rung table, never from input.
+   */
+  const backoff = Number(rung.backoffSeconds) || 0;
+  await transitionTask(
+    pool, taskId, "queued", `recovery rung ${rung.n} (${rung.name}): ${cause}`, "watchdog",
+    backoff > 0 ? `lease_until = now() + make_interval(secs => ${backoff})` : "",
   );
-  await transitionTask(pool, taskId, "queued", `recovery rung ${rung.n} (${rung.name}): ${cause}`, "watchdog");
 }
 
 async function askEnrique(pool: pg.Pool, taskId: string, cause: string): Promise<void> {
@@ -319,7 +333,6 @@ async function askEnrique(pool: pg.Pool, taskId: string, cause: string): Promise
     "waiting_for_user",
     "the recovery ladder ran out of rungs",
     "watchdog",
-    "lease_until = NULL, lease_owner = NULL",
   );
   const attempted = await pool.query<{ name: string; summary: string }>(
     `SELECT name, summary FROM task_events

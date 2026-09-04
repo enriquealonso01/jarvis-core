@@ -249,7 +249,7 @@ export async function resumeFromAuth(
    * hands out seats.
    */
   const r = await pool.query<{ id: string }>(
-    `UPDATE tasks SET state = 'queued', updated_at = $2
+    `UPDATE tasks SET state = 'queued', lease_owner = NULL, lease_until = NULL, updated_at = $2
       WHERE id = $1 AND state = 'waiting_for_user'
       RETURNING id`,
     [args.taskId, now],

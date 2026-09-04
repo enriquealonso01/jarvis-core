@@ -74,7 +74,8 @@ async function fireDueSchedules(pool: ReturnType<typeof createPool>) {
 
     if (decision.replaces) {
       await pool.query(
-        `UPDATE tasks SET state = 'cancelled' WHERE id = $1 AND state IN ('queued','preparing','running','recovering')`,
+        `UPDATE tasks SET state = 'cancelled', lease_owner = NULL, lease_until = NULL
+          WHERE id = $1 AND state IN ('queued','preparing','running','recovering')`,
         [decision.replaces]);
     }
     const task = await pool.query<{ id: string }>(
