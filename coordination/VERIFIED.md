@@ -1686,3 +1686,53 @@ Recorded for whoever holds that source.
 
 8/10 through the fixed `suite.sh`, and 12/6 with the worker stopped. Still the
 only suite whose failures I have neither fixed nor explained.
+
+## ✓ s4-recovery-test 6/12 → 12/6, and a correction to my whole reading of the suite set (2026-09-03)
+
+The last unexplained suite. `RUNNER_ONCE=1` claims the **oldest** queued heavy
+task, so a leftover from another suite took the slot, this suite's fixture sat
+in `queued` for the full 40-second wait, and twelve assertions described a
+recovery that never had anything to recover. They read like a broken watchdog.
+
+**I diagnosed that correctly and then nearly shipped the wrong remedy.** I wrote
+the `clearqueue` from s12's wrapper — cancel every queued heavy task first —
+tested it at 12/6, and threw it away when the Builder's `queue-stomping-test`
+landed and named it. `deploy/compose.dev.yaml` pins `name: jarvis-dev`, so every
+git worktree on this machine shares one database: cancelling "everything queued"
+reaches into other sessions' runs. `RUNNER_TASK_ID` gets the same determinism
+without destroying anything, and `s4-recovery-test.sh` is now off their `PENDING`
+list with `queue-stomping-test` at 6/0.
+
+### This corrects something I have been recording all loop
+
+I have written "cross-suite interference" and "shared state" into this file
+repeatedly as if it were an ambient property of the suite set:
+
+- `s1-harness-test` giving 23/0, then 21/2, then 9/14 with nothing changed
+- `s2-task-create-test` 24/0 alone and 20/4 in a batch
+- `s4-drain-test` green alone and red in a sweep
+- the standing advice that "a red line in a sweep cannot be read as a broken
+  feature without re-running it alone"
+
+**That was a description, not a diagnosis, and the cause was specific:** twelve
+suites cancelled every queued, preparing and running task on the heavy lane
+before starting, and one did it for every lane. Suites were cancelling each
+other's work. The Builder's note says it directly — it "is what cancelled
+`s4-drain`'s finished task and made a green run read red, and it is why suite
+results here have been a coin flip whenever two sessions worked at once."
+
+I had the evidence for this and stopped at the symptom. The tell was there in my
+own record: a suite whose result changes with nothing changed is not flaky, it
+is being interfered with, and I never asked by what.
+
+**And I would have added a thirteenth place doing it.** The ratchet caught my
+fix before I merged it, which is the whole reason it exists — "a name still
+listed after it has been fixed FAILS, so the list cannot quietly rot into a
+permanent exemption".
+
+### What remains
+
+Six failures at the ladder's `recovering → queued` step. That is in code the
+Builder changed hours ago (`4b21f87`, "Finish the lease release: the ladder's
+backoff, five raw UPDATEs, a repair") — a follow-up to my own lease fix. Not
+mine to chase while it is moving.
