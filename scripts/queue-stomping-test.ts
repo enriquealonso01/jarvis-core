@@ -67,7 +67,12 @@ const PENDING = [
   "sweep.sh",
 ];
 
-type Suite = { file: string; stomps: boolean; startsRunner: boolean; targets: boolean };
+type Suite = { file: string; stomps: boolean; launches: number; targets: number };
+
+/** How many times a string occurs — launches, and launches that name a task. */
+function count(hay: string, needle: string): number {
+  return hay.split(needle).length - 1;
+}
 
 async function main(): Promise<void> {
   const files = (await fs.readdir(DIR))
@@ -88,20 +93,33 @@ async function main(): Promise<void> {
     suites.push({
       file,
       stomps: STOMPS.test(code),
-      startsRunner: code.includes(STARTS_RUNNER),
-      targets: code.includes(TARGETS),
+      /*
+       * COUNTED, not merely present. Asking whether the file mentions
+       * RUNNER_TASK_ID at all lets a suite with three launches and two targets
+       * read as converted — and the sabotage that removed one of s25's three
+       * came back GREEN. This has now been written twice: the first version was
+       * written, proven, and then destroyed by the `git checkout -- .` at the
+       * end of the next sabotage, because it had not been committed first. The
+       * repo's own rule is to commit the fix BEFORE sabotaging, and this is what
+       * skipping it costs - the commit that claimed to add it touched only
+       * PROGRESS.json.
+       */
+      launches: count(code, STARTS_RUNNER),
+      targets: count(code, TARGETS),
     });
   }
 
   console.log("1. the suites that start a runner point it at their own task");
-  const runners = suites.filter((s) => s.startsRunner);
+  const runners = suites.filter((s) => s.launches > 0);
   runners.length > 0
     ? ok(`${runners.length} suites start a runner of their own`)
     : bad("nothing starts a runner, so this suite is asserting nothing");
-  const untargeted = runners.filter((s) => !s.targets && !PENDING.includes(s.file));
+  const untargeted = runners.filter((s) => s.targets < s.launches && !PENDING.includes(s.file));
   untargeted.length === 0
-    ? ok("and every one outside the pending list names the task it wants")
-    : bad(`starts a runner and takes whatever is oldest: ${untargeted.map((s) => s.file).join(", ")}`);
+    ? ok(`and every launch outside the pending list names the task it wants `
+      + `(${runners.reduce((n, s) => n + s.launches, 0)} launches in all)`)
+    : bad(`launches that take whatever is oldest: ${untargeted
+      .map((s) => `${s.file} (${s.targets}/${s.launches})`).join(", ")}`);
 
   console.log("");
   console.log("2. and none of them cancels work it did not create");
@@ -120,7 +138,7 @@ async function main(): Promise<void> {
   const stale = PENDING.filter((name) => {
     const s = suites.find((x) => x.file === name);
     if (s === undefined) return false;
-    const untargetedRunner = s.startsRunner && !s.targets;
+    const untargetedRunner = s.launches > 0 && s.targets < s.launches;
     return !s.stomps && !untargetedRunner;
   });
   stale.length === 0
@@ -137,7 +155,7 @@ async function main(): Promise<void> {
    * Reported rather than asserted. The count is the work remaining, and printing
    * it is what keeps it visible in a sweep nobody reads line by line.
    */
-  const converted = runners.filter((s) => s.targets).length;
+  const converted = runners.filter((s) => s.targets >= s.launches).length;
   console.log(`  ${converted} of ${runners.length} runner-starting suites converted; `
     + `${PENDING.length} pending: ${PENDING.join(", ")}`);
   converted > 0
