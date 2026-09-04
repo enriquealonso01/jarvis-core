@@ -54,6 +54,48 @@ async function referencesTo(pool: pg.Pool, table: string): Promise<Ref[]> {
  * than hoped about — a silent no-op is how a teardown stops working without
  * anybody noticing.
  */
+/**
+ * Clear one nullable pointer that a delete tripped over.
+ *
+ * Takes the constraint name from the error rather than a guess about which
+ * columns are pointers, and refuses to touch a NOT NULL column — there the
+ * reference is structural and nulling it would be a different kind of damage.
+ */
+async function clearPointer(
+  pool: pg.Pool, constraint: string, parentTable: string, parentFilterColumn: string,
+  values: unknown[],
+): Promise<number> {
+  const r = await pool.query<{ childTable: string; childColumn: string; parentColumn: string;
+    nullable: string }>(
+    `SELECT c.conrelid::regclass::text AS "childTable",
+            a.attname AS "childColumn", af.attname AS "parentColumn", col.is_nullable AS nullable
+       FROM pg_constraint c
+       JOIN LATERAL unnest(c.conkey)  WITH ORDINALITY AS k(attnum, ord)  ON true
+       JOIN LATERAL unnest(c.confkey) WITH ORDINALITY AS fk(attnum, ord) ON fk.ord = k.ord
+       JOIN pg_attribute a  ON a.attrelid  = c.conrelid  AND a.attnum = k.attnum
+       JOIN pg_attribute af ON af.attrelid = c.confrelid AND af.attnum = fk.attnum
+       JOIN information_schema.columns col
+         ON col.table_name = c.conrelid::regclass::text AND col.column_name = a.attname
+      WHERE c.conname = $1`,
+    [constraint],
+  );
+  const ref = r.rows[0];
+  if (!ref || ref.nullable !== "YES") return 0;
+  const matchOn = await pool.query(
+    `SELECT DISTINCT ${quote(ref.parentColumn)} AS v FROM ${quote(parentTable)}
+      WHERE ${quote(parentFilterColumn)} = ANY($1)`,
+    [values],
+  );
+  const ids = matchOn.rows.map((x) => x.v).filter((v) => v !== null);
+  if (!ids.length) return 0;
+  const upd = await pool.query(
+    `UPDATE ${quote(ref.childTable)} SET ${quote(ref.childColumn)} = NULL
+      WHERE ${quote(ref.childColumn)} = ANY($1)`,
+    [ids],
+  );
+  return upd.rowCount ?? 0;
+}
+
 export async function deleteCascade(
   pool: pg.Pool,
   table: string,
@@ -102,9 +144,37 @@ export async function deleteCascade(
     for (const [t, n] of Object.entries(nested)) removed[t] = (removed[t] ?? 0) + n;
   }
 
-  const del = await pool.query(
-    `DELETE FROM ${quote(table)} WHERE ${quote(column)} = ANY($1)`, [values]);
-  removed[table] = (removed[table] ?? 0) + (del.rowCount ?? 0);
+  /*
+   * Some references are pointers, not components, and Postgres is the one that
+   * knows which.
+   *
+   * `tasks.blocked_by_issue_id` points at an issue belonging to the project
+   * being removed, from a task belonging to a DIFFERENT project. Cascading into
+   * it would delete somebody else's task; refusing to handle it aborts the whole
+   * reap and leaves the fixture standing, which is what happened.
+   *
+   * Nulling every nullable foreign key would be the obvious general rule and is
+   * wrong: `conversations.project_id` is nullable too, and nulling it leaves the
+   * conversation behind — which is exactly the leftover thread that started this
+   * investigation. So the rule is not applied by guessing which columns are
+   * pointers. The delete is attempted, and only the column Postgres NAMES in the
+   * violation is cleared, and only if it is nullable. The database decides,
+   * once, about the one reference that actually blocked.
+   */
+  const removeRows = async (): Promise<number> => {
+    const del = await pool.query(
+      `DELETE FROM ${quote(table)} WHERE ${quote(column)} = ANY($1)`, [values]);
+    return del.rowCount ?? 0;
+  };
+  try {
+    removed[table] = (removed[table] ?? 0) + await removeRows();
+  } catch (err) {
+    const constraint = (err as { constraint?: string }).constraint;
+    const cleared = constraint ? await clearPointer(pool, constraint, table, column, values) : 0;
+    if (!cleared) throw err;
+    removed[`${constraint} (nulled)`] = cleared;
+    removed[table] = (removed[table] ?? 0) + await removeRows();
+  }
   return removed;
 }
 
