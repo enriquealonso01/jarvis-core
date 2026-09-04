@@ -19,9 +19,6 @@ ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
 bad()  { echo "  FAIL - $1"; echo "        expected: $2"; echo "        actual:   $3"; fail=$((fail+1)); }
 q()    { $PSQL -c "$1" | tr -d '\r'; }
 
-q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-   WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
-
 # The project must be allowed an engine, or the task parks at the ladder and the
 # harness never runs - which reads as "no events were recorded" and is really
 # "nothing ever executed". S12b made the per-project allowlist fail closed and
@@ -35,7 +32,11 @@ T=$(q "INSERT INTO tasks (project_id, lane, title, objective, state, priority)
        FROM projects WHERE slug='alpha-web' RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1)
 if [ -z "$T" ]; then echo "  FAIL  could not create the task"; echo "==== 0 passed, 1 failed ===="; exit 1; fi
 
+# Pointed at this task. This used to cancel every queued, preparing and running
+# heavy task first, which made the suite deterministic by destroying whatever
+# else was in flight on a box several sessions share.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$T" \
   -e JARVIS_HARNESS=fake:errortool -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s29err.log 2>&1
 
