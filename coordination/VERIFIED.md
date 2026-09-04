@@ -1176,3 +1176,66 @@ prose called dangerous.
 The design work in this codebase is genuinely careful. The gap is uniform: these
 modules are rigorous about what they *do* and trusting about what they are
 *given*, and the input side is where the prose stops.
+
+## S52 — asking before the wall — ✓ verified (2026-09-03)
+
+The last unprobed module from this loop's backlog. Its own failure mode is the
+opposite of its feature: "something that reaches out constantly is something he
+mutes."
+
+**One hole, fixed in PR #442, and it is a different shape from the twelve
+before it.** Not an input the guard trusted — **two of the file's own four rules
+disagreeing with each other.**
+
+Rule FOUR says "approval to connect X is not approval to spend on X, **nor to
+use X in another project**", and `scopeOfConnectApproval` returns
+`otherProjects: false` to say so. Rule THREE — it asks once — was held by a
+register keyed on `kind:what`, with no project in it:
+
+```
+key(alpha) = credential:a maps api key
+key(beta)  = credential:a maps api key      identical
+```
+
+So a credential acquired for alpha made `alreadyHave` answer true for beta, beta
+was never asked, and **beta's work sat blocked with no message** — the precise
+failure this step exists to prevent, arriving through its own ask-once
+mechanism. The file states the rule correctly in one function and contradicts it
+in another.
+
+`capabilityKey` now includes the project for `credential`, `sign_in` and
+`connection`. **`capability` is deliberately excluded**: a tool Jarvis built is
+genuinely reusable across projects, and whether a project may *call* it is S44's
+`mayCall`, which checks `builtForProject` against `callingFromProject`. Asking
+again for a capability that already exists would be the nagging this file is
+written against. The two rules point in opposite directions here and each is
+right about its own kind — which is why this needed a distinction rather than a
+blanket fix.
+
+`Need.projectId` is required and explicitly nullable rather than optional.
+`null` means system work; a *missing* field would mean nobody thought about it,
+and the register must not treat those the same — the same distinction that let
+`mayCall`'s `level === null` be walked past by `undefined`.
+
+**What held.** `isRealNeed` fails closed on `constructor`, `__proto__`, `""`,
+`"TASK_REQUIREMENT"` and a trailing space — content is not a need, and neither
+is anything unrecognised. Batching groups by task rather than by kind. One paid
+provider anywhere in a group makes the whole message a recommendation, because
+he is opening an account either way. A fully satisfied task produces **no
+message at all** rather than an empty one. A scheduled call with no prepared
+subject still says why it is happening and ends on a question, and an
+empty-string subject is correctly treated as no subject.
+
+**Checked:** `scripts/s52-forthcoming-probe.ts` — 30/2 before, **33/0 after, run
+on the box** in the API container against deployed source. The Builder's own
+`s52-forthcoming-test` is **28/0** after adding the now-required field to its
+six `Need` literals. No production callers yet.
+
+### The backlog is clear
+
+Every module the Builder marked built in this stretch — S45 through S54 — has
+now been probed adversarially and verified on the box: S45, S46, S47, S48, S49,
+S50, S51, S52, S53, S54, plus S44's `mayCall` via the gate sweep. Thirteen
+findings across seven modules, all fixed, all re-verified, and the two modules
+that held under attack (S49, S45) recorded as carefully as the ones that did
+not.
