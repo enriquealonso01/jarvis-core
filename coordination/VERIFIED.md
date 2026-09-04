@@ -1239,3 +1239,72 @@ S50, S51, S52, S53, S54, plus S44's `mayCall` via the gate sweep. Thirteen
 findings across seven modules, all fixed, all re-verified, and the two modules
 that held under attack (S49, S45) recorded as carefully as the ones that did
 not.
+
+## The "pre-existing" live-stack failures, diagnosed (2026-09-03)
+
+Last tick I recorded 14 failing suites as pre-existing and not mine. That was
+right about the cause but wrong about the number, and the diagnosis matters more
+than the count.
+
+### The teardown fix cleared six of them
+
+Removing 24 leftover fixture projects — the litter test's own note was that they
+were "each a routing target" — turned six suites green with no code change:
+
+```
+s3c-context-test    4/18 -> 22/0        s18-search-test      (no summary) -> 52/0
+s4-drain-test       2/9  -> 11/0        s6-workflow-test     29/4 -> 33/0
+s17-artifacts-test  74/1 -> 75/0        progress-endpoint    12/1 -> 13/0
+```
+
+Accumulated fixtures were not inert. They were routing targets, and suites that
+route were picking them.
+
+### ✗ Correcting myself again: I caused some of what I measured
+
+I ran the chunked sweeps with `SWEEP_SKIP_BUILD=1`. That flag skips
+`dev-rebuild.sh`, which does not only build — it **brings the stack up**. So
+several of those runs were measured against a stack with no worker, and
+`s4-recovery`'s "the task is running before we kill anything" failed because
+nothing was there to run it. Some of the 14 was my own instrumentation, again.
+
+### ✗ The suites are not isolated from one another
+
+`s2-task-create-test` is 24/0 alone and 20/4 in a batch. `s1-harness-test` gave
+23/0, then 21/2, then 23/0 on repeat runs with nothing changed. `s4-drain-test`
+is 11/0 with the worker down and 2/9 with it sweeping, because it simulates the
+lease owner itself and a live worker competes for the claim. These are real
+properties of the suite set, not of the product, and they mean a red line in a
+sweep cannot be read as a broken feature without re-running it alone.
+
+### ✓ One real product bug came out of it: a cancelled task did not stay cancelled
+
+`s18b-conformance-test` reported "transitions nobody has explained", and it was
+right. `STATE_MACHINES.md` draws no arrow out of `cancelled`, `succeeded` or
+`failed_terminal`, and `transitionTask` moved tasks out of all three:
+
+```
+cancelled -> succeeded        (x5)   actor = runner
+cancelled -> running          (x2)   actor = runner
+cancelled -> stalled          (x2)   actor = runner
+cancelled -> waiting_for_user (x2)   actor = runner
+```
+
+**A run that was cancelled kept going and reported success.** The runner does
+observe cancels — `runner.ts` sets `stopReason = "cancelled"` — but a transition
+already in flight lands afterwards and overwrites the cancel, because the
+`UPDATE` had no opinion about what it was overwriting. S53 says it for
+orchestrations and it is the same rule: "a powerful thing he cannot stop in one
+move is not one he will turn on." A stop button a late write can undo is not a
+stop button.
+
+Fixed in PR #445: `transitionTask` refuses to leave a terminal state, refusing
+rather than throwing (the caller is finishing work nobody wants, and an
+exception would turn a stale write into a crash in the run loop) and logging
+rather than swallowing, because silence is how this lasted.
+
+**Checked on the box: production carries none of these rows**, so the fix is
+preventive there and corrective in dev, where the suites exercise cancellation
+constantly. `s18b-conformance-test` drops from 7 unexplained transition types to
+2 (`preparing->waiting_for_user` and `preparing->stalled`, one row each) — a
+different and smaller question, still open.
