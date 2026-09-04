@@ -42,6 +42,17 @@ const KNOWN_DIVERGENCES: { from: string; to: string; why: string }[] = [
   { from: "queued", to: "succeeded", why: "a task that finished without a running row; needs explaining before it is blessed" },
   { from: "queued", to: "waiting_for_user", why: "parked from the queue before a worker claimed it - a projectless heavy task, for one" },
   { from: "queued", to: "running", why: "claimed without a preparing row; the document draws queued to preparing to running" },
+  /*
+   * Both observed on the box with their causes, which is what makes them look
+   * like behaviour rather than accident:
+   *   preparing -> stalled          watchdog, "heartbeat missed for 90s"
+   *   preparing -> waiting_for_user runner,   "a heavy task has no project, so it has nowhere to run"
+   * The document draws preparing to queued or failed_terminal only. Neither of
+   * these is a task going wrong: one is the watchdog doing exactly its job, the
+   * other is parking for a decision only a person can make.
+   */
+  { from: "preparing", to: "stalled", why: "the watchdog marks a preparing task stalled when its heartbeat stops; the document draws preparing to queued or failed_terminal only" },
+  { from: "preparing", to: "waiting_for_user", why: "a heavy task with no project parks during preparation rather than running unscoped; same gap in the document" },
 ];
 
 async function main(): Promise<void> {
