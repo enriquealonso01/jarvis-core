@@ -66,7 +66,6 @@ const PENDING = [
   "s18b-retrofit-test.sh",
   "s25-routing-test.sh",
   "s3c-context-test.sh",
-  "s4-recovery-test.sh",
   "s6-workflow-test.sh",
   "s13-home-test.mjs",
   "s15-journeys-test.mjs",

@@ -68,6 +68,20 @@ trap cleanup EXIT
 
 BEFORE_STALL_ISSUES=$(q "SELECT count(*) FROM issues WHERE dedupe_key = 'worker.crash:heavy';")
 
+# The victim runner is pointed at THIS task and no other.
+#
+# RUNNER_ONCE=1 claims the oldest queued heavy task, so a leftover from another
+# suite took the slot and the fixture below sat in `queued` for the full 40
+# second wait - twelve assertions then described a recovery that never had
+# anything to recover.
+#
+# The obvious remedy is to cancel everything queued first, and it is the wrong
+# one: compose pins `name: jarvis-dev`, so every worktree on this machine shares
+# one database, and cancelling "everything queued" reaches into other sessions'
+# runs. I nearly shipped exactly that before queue-stomping-test landed and
+# named it - it is the reason results here have been a coin flip. RUNNER_TASK_ID
+# removes the reason to destroy anything.
+
 TASK=$(q "INSERT INTO tasks (project_id, title, objective, state, lane, priority)
           SELECT id, 'A run that gets killed', 'Run long enough to be interrupted, then finish.',
                  'queued', 'heavy', 'normal' FROM projects WHERE slug = 'dev-sandbox'
@@ -80,7 +94,7 @@ echo "=== a runner claims it and starts working ==="
 RUNNER_CT=jarvis-dev-victim-runner
 docker rm -f "$RUNNER_CT" >/dev/null 2>&1
 $COMPOSE run --rm --no-deps -d --name "$RUNNER_CT" \
-  -e RUNNER_ID=victim-1 -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_ID=victim-1 -e RUNNER_ONCE=1 -e RUNNER_TASK_ID="$TASK" -e RUNNER_IDLE_EXIT_MS=8000 \
   -e JARVIS_HARNESS=fake:context -e JARVIS_HEARTBEAT_MS=1500 \
   -e JARVIS_FAKE_CONTEXT_WAIT_MS=120000 -e JARVIS_FAKE_CONTEXT_HOLD_MS=120000 \
   -e JARVIS_SILENCE_LIMIT_MS=180000 -e JARVIS_RUN_LIMIT_MS=600000 \
@@ -159,7 +173,7 @@ echo
 echo "=== a fresh runner picks it up and finishes the work ==="
 $COMPOSE stop worker >/dev/null 2>&1
 $COMPOSE run --rm --no-deps -T \
-  -e RUNNER_ID=survivor-1 -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=40000 \
+  -e RUNNER_ID=survivor-1 -e RUNNER_ONCE=1 -e RUNNER_TASK_ID="$TASK" -e RUNNER_IDLE_EXIT_MS=40000 \
   -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s4-runner2.log 2>&1
 
