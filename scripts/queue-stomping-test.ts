@@ -61,8 +61,6 @@ const TARGETS = "RUNNER_TASK_ID";
  */
 const PENDING = [
   "s14-live-detail-test.mjs",
-  "s3c-context-test.sh",
-  "s6-workflow-test.sh",
   "s13-home-test.mjs",
   "s15-journeys-test.mjs",
   "s18-palette-test.mjs",
