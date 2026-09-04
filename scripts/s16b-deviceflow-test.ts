@@ -30,6 +30,18 @@ const check = (m: string, e: unknown, a: unknown) => (e === a ? ok(m) : bad(m, e
 const truthy = (m: string, a: unknown) => (a ? ok(m) : bad(m, "truthy", a));
 
 async function reset(): Promise<void> {
+  /*
+   * The queued sign-in links go too. Starting a flow now hands the link over to
+   * WhatsApp (S46), so this suite's five fake flows leave ten outbox rows that
+   * the worker would try to DELIVER - a real message to his phone about a
+   * connection nobody asked for. Scoped to the flows this profile owns, and run
+   * before they are deleted, so the join still resolves.
+   */
+  await pool.query(
+    `DELETE FROM notifications_outbox
+      WHERE idempotency_key LIKE 'device-flow:%'
+        AND object_id IN (SELECT id FROM oauth_device_flows
+                           WHERE auth_profile_id = 'netcup_scp')`);
   await pool.query("DELETE FROM oauth_device_flows WHERE auth_profile_id = 'netcup_scp'");
   await pool.query("UPDATE auth_profiles SET credential_id = NULL WHERE id = 'netcup_scp'");
 }

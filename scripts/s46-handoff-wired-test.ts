@@ -180,6 +180,22 @@ async function main(): Promise<void> {
     /mintAuthLink\(\{/.test(code)
       ? ok("the link is minted from the flow rather than assembled from a string")
       : bad("the link does not come from mintAuthLink");
+    /*
+     * THE LIFETIME IS THE PROVIDER'S, and this is checked at source because
+     * sabotage found it checked nowhere: replacing `expiresIn * 1000` with a
+     * flat twenty-four hours left every other assertion green. A link claimed
+     * fresh for a day that the provider kills in ten minutes is the same class
+     * of fault as a spoken promise nobody keeps — `linkIsFresh` would say yes
+     * about a dead code.
+     *
+     * Source-level rather than runtime ON PURPOSE: `expiresAt` is inert until
+     * `resumeFromAuth` is wired, and asserting a value nothing reads through a
+     * path nothing takes would be theatre. When resume is wired this becomes an
+     * assertion about what he is told.
+     */
+    /lifetimeMs:\s*expiresIn \* 1000/.test(code)
+      ? ok("and its lifetime is the provider's own, not a number we picked")
+      : bad("the link's lifetime does not come from the provider's expires_in");
   } finally {
     for (const id of flows) {
       await pool.query(`DELETE FROM notifications_outbox WHERE idempotency_key LIKE $1`,
