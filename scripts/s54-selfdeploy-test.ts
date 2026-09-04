@@ -113,9 +113,15 @@ function main(): void {
   prepared.shape === "its_own_deploy" && prepared.ready
     ? ok("while one with its rollback written and a verified restore point may ship alone")
     : bad("a properly prepared migration was still refused");
-  !deployShapeFor({ backwardCompatible: false, rollbackWritten: true }).ready
+  /*
+   * `.ready` off an un-narrowed union is `undefined`, and `!undefined` is true —
+   * so this assertion passed no matter what deployShapeFor did. The typechecker
+   * found it the moment scripts came under it. Narrowed, it is an assertion.
+   */
+  const noRestorePoint = deployShapeFor({ backwardCompatible: false, rollbackWritten: true });
+  noRestorePoint.shape === "its_own_deploy" && !noRestorePoint.ready
     ? ok("and a written rollback without a verified restore point is not enough")
-    : bad("a restore point was optional");
+    : bad(`a restore point was optional: ${JSON.stringify(noRestorePoint)}`);
 
   console.log("");
   console.log("5. the pair that is the test");
@@ -147,7 +153,8 @@ function main(): void {
   !needsResidualApproval(["prompt_wording", "log_format", "queue_batch_size"]).needsApproval
     ? ok("and ordinary changes do not, so the carve-out is not stuck on")
     : bad("everything stops, which is the carve-out stuck in the other position");
-  auth.stage === "approval" && needsResidualApproval(["auth"]).why.includes("removing what would have caught")
+  !auth.promote && auth.stage === "approval"
+    && needsResidualApproval(["auth"]).why.includes("removing what would have caught")
     ? ok("with the reason being the controls, not the importance")
     : bad("the reason given is 'this is important'");
 

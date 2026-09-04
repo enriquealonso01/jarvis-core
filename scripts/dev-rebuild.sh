@@ -19,7 +19,16 @@ COMPOSE="docker compose -f deploy/compose.dev.yaml"
 SERVICES="${*:-api runner seed}"
 
 echo "--- typecheck ---"
-if ! npx tsc -p tsconfig.json --noEmit; then
+# scripts/ AND src/, via tsconfig.scripts.json. They were outside the
+# typechecker entirely until now — `tsconfig.json` includes only `src/**/*.ts`,
+# because it is also the build config and `dist` must not grow a scripts/
+# directory. The first run of the wider config found eight errors in six suites,
+# three of them assertions that could not fail: a security check reading
+# `uid !== 0` against a STRING, a deploy check reading `.ready` off an
+# un-narrowed union so `!undefined` was always true, and a map check filtering a
+# literal the test had written two lines above for kinds that are not in the
+# union. All three suites were reporting green.
+if ! npx tsc -p tsconfig.scripts.json --noEmit; then
   echo "REFUSING TO BUILD: the tree does not typecheck. The running image is unchanged." >&2
   exit 1
 fi
@@ -98,7 +107,8 @@ JARVIS_MODEL=fake $COMPOSE up -d --no-build worker >/dev/null 2>&1
 worker_up=0
 for _ in $(seq 1 100); do
   fresh=$($COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX -c     "SELECT 1 FROM component_sweeps
-      WHERE component='watchdog' AND last_completed_at > now() - interval '3 minutes';"     2>/dev/null | tr -d '')
+      WHERE component='watchdog' AND last_completed_at > now() - interval '3 minutes';"     2>/dev/null | tr -d '
+')
   if [ "$fresh" = "1" ]; then worker_up=1; break; fi
   sleep 2
 done

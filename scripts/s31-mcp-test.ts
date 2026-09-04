@@ -167,9 +167,15 @@ async function main(): Promise<void> {
     String(report.master_key).startsWith("unreadable")
       ? ok(`the master key is not reachable: ${report.master_key}`)
       : bad(`THE MASTER KEY WAS READABLE: ${report.master_key}`);
-    report.uid !== 0
+    /*
+     * `report.uid` arrives as a STRING, so `!== 0` was true for every possible
+     * value including "0". "It is not root inside the container" could not fail
+     * — a security assertion that asserted nothing, and one of three the
+     * typechecker found the moment scripts came under it.
+     */
+    Number(report.uid) !== 0
       ? ok(`and it is not root inside the container (uid ${report.uid})`)
-      : bad("the server runs as root");
+      : bad(`THE SERVER RUNS AS ROOT (uid ${report.uid})`);
     /*
      * The one it CAN read, and the one I nearly shipped unasserted.
      * /proc/1/environ inside the container is the server's own environment, so

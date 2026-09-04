@@ -88,7 +88,9 @@ async function main(): Promise<void> {
 
   const replies: string[] = [];
   for (const text of said) {
-    const r = await ingestUserMessage(pool, { conversationId: cid, body: text, channel: "phone" });
+    // `channel` is not a parameter of ingestUserMessage and was being dropped
+    // on the floor. The conversation carries the channel; the message does not.
+    const r = await ingestUserMessage(pool, { conversationId: cid, body: text });
     replies.push(r.assistant ?? "");
     console.log(`  > ${text}`);
     console.log(`  < ${(r.assistant ?? "(nothing)").slice(0, 140)}`);

@@ -115,9 +115,22 @@ async function main(): Promise<void> {
       { id: "memory", kind: "memory" as const, label: "Memory", state: "ok" as const,
         href: "/search", source: "knowledge_chunks", weight: 1 },
     ], edges: [], state: "calm" as const };
-    calm.nodes.filter((n) => n.kind === "running" || n.kind === "needs_you").length === 0
-      ? ok("with nothing running and nothing needing him, those points are not drawn at all")
-      : bad("empty points were drawn anyway");
+    /*
+     * This used to filter the hand-written `calm` fixture for nodes of kind
+     * "running" or "needs_you" — kinds that are not in the union at all, on a
+     * literal the test had just written two lines above. It could not fail, and
+     * the typechecker said so the moment scripts came under it.
+     *
+     * The rule it was reaching for is `shouldDraw`, which S51 extracted for
+     * exactly this: a point with nothing behind it is not drawn. Asserted on the
+     * function, in both directions, so it fails when the omission stops working.
+     */
+    !shouldDraw(0)
+      ? ok("with nothing running and nothing needing him, that point is not drawn at all")
+      : bad("an empty point would be drawn anyway");
+    calm.nodes.every((n) => shouldDraw(n.weight))
+      ? ok("while every point that is on the map has something behind it")
+      : bad("a point with nothing behind it reached the map");
     calm.nodes.every((n) => motionFor(n.state) === 0)
       ? ok("and nothing on the map moves")
       : bad("something animates on a calm map");
