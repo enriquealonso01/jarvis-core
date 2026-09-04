@@ -23,6 +23,7 @@ import { ensureActionRequests, ensureBlockedIssues, resolveSatisfiedBlockers } f
 import { ceilings, readQuota } from "./quota.js";
 import type { RawRequest } from "./hmac.js";
 import { scopeFrom, whereForScope } from "./systemscope.js";
+import { fitsWithoutScrolling, homeMap } from "./homemap.js";
 
 const pool = createPool();
 
@@ -298,6 +299,29 @@ async function main() {
        ORDER BY p.name`,
     );
     return { projects: r.rows, scope };
+  });
+
+  /**
+   * S51: the map Home is drawn from.
+   *
+   * Every point here is a row with the table it came from and a route into a
+   * page that already exists - the console draws it, but nothing it draws can be
+   * a point that is not real, because there is no field on the wire through which
+   * an invented one could arrive.
+   *
+   * `fits` is included rather than left to the client: whether the map has been
+   * handed more points than a screen can hold is a question about the DATA, and
+   * the plan's answer when it does not fit is the legible list equivalent rather
+   * than smaller type.
+   */
+  app.get("/api/home", async (req, reply) => {
+    const user = await requireUser(pool, req, reply);
+    if (!user) return;
+    const viewport = (req.query as { viewport?: unknown } | undefined)?.viewport === "small"
+      ? "small" as const
+      : "desktop" as const;
+    const map = await homeMap(pool);
+    return { ...map, viewport, fits: fitsWithoutScrolling(map, viewport) };
   });
 
   app.get("/api/conversations", async (req, reply) => {
