@@ -29,9 +29,9 @@ const TASK = "task-1";
 const OTHER_TASK = "task-2";
 
 const mapsKey: Need = {
-  taskId: TASK, kind: "credential", what: "a Google Maps key", where: "Connections › Google Maps",
+  taskId: TASK, projectId: null, kind: "credential", what: "a Google Maps key", where: "Connections › Google Maps",
 };
-const signIn: Need = { taskId: TASK, kind: "sign_in", what: "a sign-in to the supplier portal" };
+const signIn: Need = { taskId: TASK, projectId: null, kind: "sign_in", what: "a sign-in to the supplier portal" };
 
 function main(): void {
   console.log("1. the ask precedes the block");
@@ -111,7 +111,7 @@ function main(): void {
   console.log("");
   console.log("5. a new paid provider is a recommendation, not a signup");
   const paid = asksFor([{
-    taskId: TASK, kind: "connection", what: "a Brazilian SMS connection",
+    taskId: TASK, projectId: null, kind: "connection", what: "a Brazilian SMS connection",
     newProvider: "a Brazilian SMS provider",
   }]);
   paid[0].kind === "recommendation"
@@ -129,7 +129,7 @@ function main(): void {
    * "request" is the misleading half.
    */
   asksFor([mapsKey, {
-    taskId: TASK, kind: "connection", what: "an SMS connection", newProvider: "someone",
+    taskId: TASK, projectId: null, kind: "connection", what: "an SMS connection", newProvider: "someone",
   }])[0].kind === "recommendation"
     ? ok("and a batch containing one is a recommendation as a whole")
     : bad("a provider was buried inside a request");
