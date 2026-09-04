@@ -60,7 +60,6 @@ const TARGETS = "RUNNER_TASK_ID";
  * that is reasonable; on this one it is the single biggest stomp there is.
  */
 const PENDING = [
-  "s11-recovery-test.sh",
   "s12-isolation-test.sh",
   "s14-live-detail-test.mjs",
   "s18b-retrofit-test.sh",

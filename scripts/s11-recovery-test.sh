@@ -33,8 +33,9 @@ q() { $PSQL -c "$1" | tr -d '\r'; }
 # the previous case's task and the new one never runs at all — which reads as
 # "0 attempts" rather than as interference.
 clearqueue() {
-  q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
+  # The lane is no longer cleared. Cancelling every queued heavy task reached
+  # into other sessions - compose pins name: jarvis-dev, so every worktree on
+  # this machine shares one database. RUNNER_TASK_ID removes the reason to.
   # And the engine's quota. S25 made a subscription limit mark the profile spent
   # for five hours, which is right in production and fatal here: case 2 provokes
   # exactly that limit, so without this every case after it parks with "every
@@ -49,8 +50,10 @@ newtask() {
      SELECT id,'$1','x','queued','heavy','normal' FROM projects WHERE slug='dev-sandbox'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
 }
+# Pointed at one task, so nothing has to be cancelled to make it claimable.
+# Takes the id as its second argument; every caller already has one.
 runfail() {
-  $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_TASK_ID="$2" -e RUNNER_IDLE_EXIT_MS=8000 \
     -e JARVIS_HARNESS=fake:fail -e JARVIS_FAKE_FAILURE="$1" -e JARVIS_HEARTBEAT_MS=1500 \
     runner >/tmp/s11.log 2>&1
 }
@@ -70,7 +73,7 @@ one_failure() {
   echo "=== $label ==="
   local t; t=$(newtask "S11 $kind")
   LAST_TASK="$t"
-  runfail "$kind"
+  runfail "$kind" "$t"
   local got_cls got_state phases
   got_cls=$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$t' ORDER BY n DESC LIMIT 1;")
   got_state=$(q "SELECT state FROM tasks WHERE id='$t';")
@@ -104,7 +107,7 @@ check "not retried into a fuller disk" "1" \
 echo
 echo "=== the network is severed (retryable) ==="
 T4=$(newtask "S11 network")
-runfail network
+runfail network "$T4"
 check "classified as network.timeout" "network.timeout" \
   "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T4' ORDER BY n DESC LIMIT 1;")"
 check "requeued rather than failed" "queued" "$(q "SELECT state FROM tasks WHERE id='$T4';")"
@@ -118,7 +121,7 @@ check "its phases survived the requeue" "3" \
 echo
 echo "=== an unrecognised dirty exit stays harness.crash ==="
 T5=$(newtask "S11 crash")
-runfail crash
+runfail crash "$T5"
 check "classified as harness.crash" "harness.crash" \
   "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T5' ORDER BY n DESC LIMIT 1;")"
 check "and is retryable" "queued" "$(q "SELECT state FROM tasks WHERE id='$T5';")"
@@ -129,7 +132,7 @@ echo "=== retries are bounded by the class, not unlimited ==="
 T6=$(newtask "S11 exhaust")
 for i in 1 2 3 4; do
   q "UPDATE tasks SET state='queued', lease_owner=NULL, lease_until=NULL WHERE id='$T6';" >/dev/null
-  runfail crash
+  runfail crash "$T6"
 done
 echo "  attempts=$(q "SELECT count(*) FROM task_attempts WHERE task_id='$T6';") state=$(q "SELECT state FROM tasks WHERE id='$T6';")"
 check "it stops retrying at the taxonomy's limit" "failed_terminal" "$(q "SELECT state FROM tasks WHERE id='$T6';")"
@@ -151,7 +154,12 @@ C=$(mk "L2 third");  sleep 1
 D=$(mk "L2 running")
 q "UPDATE tasks SET state='running', lease_owner='gone', lease_until=now()-interval '5 minutes',
    heartbeat_at=now()-interval '10 minutes' WHERE id='$D';" >/dev/null
-before=$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")
+# Counted by ID, not by title prefix.
+#
+# This counted every row ever titled "L2 %" - hundreds of them, from every past
+# run of this suite - and was stable only because the lane was being cleared
+# first. Once it was not, the number moved and the assertion failed while
+# nothing had actually been lost. A suite should count what IT created.
 $COMPOSE restart api >/dev/null 2>&1
 JARVIS_STALL_SECONDS=5 $COMPOSE up -d --no-build worker >/dev/null 2>&1
 # The recovery ladder waits before it requeues (rung 1 is `wait`, 30s, twice),
@@ -167,7 +175,7 @@ done
 # suite that runs after this one in sweep.sh, which is the same fault
 # s4-recovery and s4-drain carried.
 $COMPOSE stop worker >/dev/null 2>&1
-check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")"
+check "nothing was lost across the restart" "4"   "$(q "SELECT count(*) FROM tasks WHERE id IN ('$A','$B','$C','$D');")"
 check "the orphaned running task was recovered to the queue" "queued" "$st"
 # Scoped to THIS run's four ids. Matching on the title counted every earlier
 # run's L2 rows too — the DELETE above cannot remove them (issues hold a foreign
