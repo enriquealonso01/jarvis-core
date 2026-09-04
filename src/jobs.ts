@@ -200,7 +200,33 @@ export async function writeCheckpoint(
   ]);
 }
 
-export async function claimTask(pool: pg.Pool, lane: string, workerId: string): Promise<string | null> {
+/**
+ * Claim the next task on a lane — or, when `only` is given, that task or none.
+ *
+ * WHY A TARGET EXISTS. `RUNNER_ONCE=1` claims ONE task and exits, and the suites
+ * that use it create a fixture and then assume the runner they started will take
+ * it. It takes the OLDEST queued task on the lane, which is a different thing the
+ * moment anything else is queued. s4-drain failed exactly that way: its runner
+ * claimed another suite's leftover, s4-drain's own task never left `queued`, and
+ * every assertion after "the task is running" fell over — a red suite that had
+ * found nothing.
+ *
+ * The alternative already in the tree is s1-harness's `clearqueue()`, which
+ * cancels every queued, preparing and running heavy task before it starts. That
+ * makes ONE suite deterministic by destroying whatever else was in flight, which
+ * on a box several sessions share is worse than the problem.
+ *
+ * A target never falls back. If the named task is not claimable — wrong lane,
+ * not queued, someone else holds it — this returns null rather than taking
+ * something else, because a runner that quietly ran a different task than the
+ * one a test named would make the test lie rather than fail.
+ */
+export async function claimTask(
+  pool: pg.Pool,
+  lane: string,
+  workerId: string,
+  only: string | null = null,
+): Promise<string | null> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -212,6 +238,7 @@ export async function claimTask(pool: pg.Pool, lane: string, workerId: string): 
        LEFT JOIN projects p ON p.id = t.project_id
        WHERE t.state = 'queued' AND t.lane = $1
          AND (t.lease_until IS NULL OR t.lease_until < now())
+         AND ($2::uuid IS NULL OR t.id = $2::uuid)
        ORDER BY
          CASE WHEN t.priority = 'critical' THEN 0 ELSE 1 END,
          CASE
@@ -230,7 +257,7 @@ export async function claimTask(pool: pg.Pool, lane: string, workerId: string): 
        -- starvation-cap join was added.
        FOR UPDATE OF t SKIP LOCKED
        LIMIT 1`,
-      [lane],
+      [lane, only],
     );
     if (!row.rows[0]) {
       await client.query("COMMIT");

@@ -61,7 +61,18 @@ echo "task: $TASK"
 echo
 echo "=== a run is in flight ==="
 docker rm -f "$CT" >/dev/null 2>&1
+# Pointed at THIS task. RUNNER_ONCE claims one task and exits, and it claims
+# the OLDEST queued heavy one - so any leftover from another suite took the
+# slot and this suite's own task never left the queue. Every assertion after
+# "the task is running" then failed, which is a red suite that has found
+# nothing.
+#
+# The alternative already in the tree is s1-harness's clearqueue(), which
+# cancels every queued, preparing and running heavy task first. That buys
+# determinism by destroying whatever else is in flight, which on a box several
+# sessions share is worse than the problem.
 $COMPOSE run --rm --no-deps -d --name "$CT" \
+  -e RUNNER_TASK_ID="$TASK" \
   -e RUNNER_ID=drain-1 -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
   -e JARVIS_HARNESS=fake:context -e JARVIS_HEARTBEAT_MS=1500 \
   -e JARVIS_FAKE_CONTEXT_WAIT_MS=120000 -e JARVIS_SILENCE_LIMIT_MS=180000 \
@@ -131,6 +142,7 @@ $COMPOSE stop worker >/dev/null 2>&1
 # cool off without a scheduler of its own — so a runner that gave up after eight
 # seconds went home before the task it came for was claimable.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ID=after-drain -e RUNNER_ONCE=1 \
+  -e RUNNER_TASK_ID="$TASK" \
   -e RUNNER_IDLE_EXIT_MS=40000 -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s4-drain-runner2.log 2>&1
 branch=$(q "SELECT COALESCE(branch,'') FROM tasks WHERE id='$TASK';")

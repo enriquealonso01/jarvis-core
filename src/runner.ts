@@ -2163,10 +2163,19 @@ async function main(): Promise<void> {
   // uses it: a daemon that never returns cannot be asserted on, and S1's whole
   // purpose is that each variant produces one observable outcome.
   const once = process.env.RUNNER_ONCE === "1";
+  /*
+   * `RUNNER_TASK_ID` points this runner at one task and no other. Same audience
+   * as RUNNER_ONCE: a suite that creates a fixture and starts a runner for it
+   * was getting whatever was oldest on the lane, which is another suite's
+   * leftover as soon as one exists. Unset in production, where taking the next
+   * task is the whole job.
+   */
+  const only = process.env.RUNNER_TASK_ID ?? null;
+  if (only) console.log(`runner ${RUNNER_ID} is claiming only task ${only}`);
   const idleDeadline = Date.now() + envMs("RUNNER_IDLE_EXIT_MS", 30_000);
   while (!stopping) {
     try {
-      const id = await claimTask(pool, "heavy", RUNNER_ID);
+      const id = await claimTask(pool, "heavy", RUNNER_ID, only);
       if (!id) {
         if (once && Date.now() > idleDeadline) {
           console.log(`runner ${RUNNER_ID} idle, exiting (RUNNER_ONCE)`);
