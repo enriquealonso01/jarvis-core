@@ -1353,3 +1353,67 @@ evidence is the *last* error under that key, not the current one — pointed at 
 leftover `s12-model-*` connections that no longer exist. Both were mine, and the
 second is worth remembering: **a deduped issue's evidence is not a current
 reading.**
+
+## ✓ s37-untrusted-test — solved, and it was never about forwards (2026-09-03)
+
+22/3 → **25/0**. The previous entry left the cause open; this closes it.
+
+The authorship logic was correct throughout. Replicating the ingest showed the
+row written exactly as S37 requires — his words in `raw_text`, the forward in
+`forwarded_text`, a `route_category` set. The test could not FIND that row: its
+`WHERE conversation_id = $1` matched nothing, because Stage B had bound the
+event to a different conversation.
+
+**The mechanism is correct product behaviour meeting stale data.** `applyRouteB`
+sets `conversation_id = COALESCE($3, conversation_id)`, and rule 4 of ADR 005's
+ladder is the correlation window: *same channel, same sender, inside ten
+minutes*. `s18-search-test` left `s18-alpha`/`s18-beta` and their threads behind
+on every run. Once one message correlated into a leftover s18 thread, every
+later message joined it — **self-sustaining**, because the suites run
+back-to-back so the ten-minute window never closes. Two probe runs seconds apart
+both landed in the same old thread rather than in each other's.
+
+Fixed by giving `s18-search-test` a teardown (PR #449). The correlation window
+is right; leaving a thread lying around for it to correlate into was not.
+
+### The reap was blocked, and the obvious fix would have been wrong
+
+`tasks.blocked_by_issue_id` — a task belonging to ANOTHER project pointing at an
+issue of the project being reaped. Cascading into it would delete somebody
+else's task; failing aborted the reap and left the fixture standing.
+
+Nulling every nullable foreign key is the obvious general rule and is **wrong**:
+`conversations.project_id` is nullable too, and nulling it leaves the
+conversation behind — which is precisely the leftover thread that started this.
+So nothing guesses which columns are pointers. The delete is attempted, and only
+the column **Postgres names in the violation** is cleared, and only when it is
+nullable. The database decides, once, about the one reference that actually
+blocked.
+
+## The fixture-litter audit (2026-09-03)
+
+Having found litter cause two separate failures, I audited every suite that
+creates projects. The dominant leak was **not** in a `.ts` file: the shell
+wrapper `s12-isolation-test.sh` creates two projects with `psql` directly and
+never removed them — 25 of each, the largest family in the database. Fixed in
+PR #450; 50 projects, 75 tasks and 90 transitions reaped.
+
+Remaining small families, none currently causing a failure: `s18-quiet` (3),
+`s10`, `s17`, `s46l` (2 each). Several one-off live scripts also lack teardown
+(`s7-live-pr`, `s6-console-to-pr`, `s22-live-call-to-pr`, `s29-benchmark-run`)
+but are run by hand rather than by the sweep.
+
+## ✗ s12-isolation-test — 38/9, regression, cause open (2026-09-03)
+
+It was 47/0 earlier today. **I ruled out both of my own changes by removing each
+and re-running**: the wrapper cleanup (stashed — still 38/9) and the
+cancel-is-final guard in `jobs.ts` (reverted in-tree — still 38/9). It survives
+a clean `dev-rebuild.sh`.
+
+The nine failures are the filesystem probes, which is the failure mode this
+file's own comment describes for when the engine ladder refuses every route and
+the task parks at `waiting_for_provider` — "eleven assertions then failed for a
+reason that had nothing to do with isolation". The suite reaps its own probe
+tasks now, so the state is gone before it can be read; the next diagnosis should
+capture the task state BEFORE teardown. Cause open, and I am not claiming
+otherwise.
