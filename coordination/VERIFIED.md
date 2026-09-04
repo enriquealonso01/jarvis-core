@@ -1527,3 +1527,54 @@ The deployed code now prevents new ones (verified: `LEASE_STATES` present in
 thousand-row UPDATE against production is a separate decision from a bug fix,
 nothing is currently harmed by them, and the honest sequence is to fix the
 source first and let the backfill be chosen deliberately.
+
+## Sweep baseline after the litter and lease work (2026-09-03)
+
+All 128 suites, stack brought up properly (`dev-rebuild.sh`, worker sweeping),
+run in three chunks. **121 pass. Seven fail, down from fourteen.**
+
+`no-test-litter-test` passes for the first time: **18 projects, 0 fixtures left
+behind.** A green sweep is now reachable, which it was not this morning.
+
+### Of the seven, two are not suite failures
+
+- **`s1-harness-test`** — 16/7 in a chunk, **23/0 alone**.
+- **`s13-home-test`** — 0/1 in a chunk, **24/0 alone** (the console build again).
+
+Both pass in isolation. This is the cross-suite interference already recorded:
+a red line in a sweep cannot be read as a broken feature without re-running it
+alone, and these two are the standing example.
+
+### Five are real, and small
+
+- **`s4-recovery-test`** — the outlier. 5/13 with the worker sweeping, **12/6
+  with the worker stopped**. The suite simulates the lease owner itself
+  (`victim-1`), so a live worker competes for the claim. So the worker explains
+  most of the gap and **not all of it** — six failures survive an idle worker,
+  and I am not claiming otherwise.
+- **`s11-recovery-test`** — 24/2 alone.
+- **`s18b-conformance-test`** — 13/1: the two remaining unexplained transitions
+  (`preparing->waiting_for_user`, `preparing->stalled`, one row each).
+- **`s15-console-test`** — 169/1.
+- **`progress-endpoint-test`** — 12/1 alone.
+
+### ✓ Also fixed this tick: the search suite tracks its own fixtures
+
+The teardown I added last tick named `alpha` and `beta` and missed `s18-quiet`,
+which is declared inside a block and is not in scope where the cleanup runs —
+three were still accumulating. `project()` now records what it creates, so a
+fixture added later is cleaned up by a teardown that never knew about it. That
+is the same correction as the table list: **a list maintained by hand beside the
+code that creates the thing is right about the ones somebody remembered.**
+
+`s18-search-test` went 51/1 → **52/0**; the "resume brings it back" failure was
+state from the earlier leftovers and went with them.
+
+### Where the fourteen went
+
+Six were the fixture litter (routing targets). One was the orphan-migration
+lease constraint (`s12-isolation-test`, 38/9 → 47/0). One was the correlation
+attractor (`s37-untrusted-test`, 22/3 → 25/0). Two pass alone. Five remain, all
+small. None of the fourteen turned out to be a feature that does not work — they
+were shared state, an unmerged migration, and two genuine product bugs found
+along the way (cancel not being final; parking not releasing the lane).
