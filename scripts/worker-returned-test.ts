@@ -36,7 +36,7 @@ const NEWLINE = String.fromCharCode(10);
 const TAKES = ["stop worker", "rm -f worker", "rm worker", "stop -t 0 worker"];
 const GIVES = "up -d --no-build worker";
 
-type Borrower = { file: string; lastTake: number; give: number; trapped: boolean };
+type Borrower = { file: string; lastTake: number; give: number; trapped: boolean; anyGive: boolean };
 
 /**
  * Where the give-back is allowed to sit.
@@ -83,11 +83,13 @@ async function main(): Promise<void> {
     const trap = exitTrapBody(code);
     let give = -1;
     let trapped = false;
+    let anyGive = false;
     for (let at = code.indexOf(GIVES); at >= 0; at = code.indexOf(GIVES, at + 1)) {
+      anyGive = true;
       const inTrap = trap !== null && at > trap[0] && at < trap[1];
       if (at > lastTake || inTrap) { give = at; trapped = inTrap; }
     }
-    borrowers.push({ file, lastTake, give, trapped });
+    borrowers.push({ file, lastTake, give, trapped, anyGive });
   }
 
   console.log("1. the suites that borrow the worker");
@@ -97,7 +99,7 @@ async function main(): Promise<void> {
 
   console.log("");
   console.log("2. and every one of them gives it back");
-  const kept = borrowers.filter((b) => b.give < 0);
+  const kept = borrowers.filter((b) => !b.anyGive);
   kept.length === 0
     ? ok("no suite leaves the worker stopped for the ninety that follow it")
     : bad(`SUITES THAT TAKE THE WORKER AND KEEP IT: ${kept.map((b) => b.file).join(", ")}`);
@@ -108,7 +110,15 @@ async function main(): Promise<void> {
    * An EXIT trap satisfies it wherever it is written, which is how all three of
    * these are actually built.
    */
-  const backwards = borrowers.filter((b) => b.give >= 0 && !b.trapped && b.give < b.lastTake);
+  /*
+   * Separated from "keeps it" on purpose. The first version folded the two
+   * together — a start written before the last stop simply did not count as a
+   * start — so this assertion could not fail on its own and the sabotage that
+   * moved a restart earlier came back reporting the OTHER failure. An assertion
+   * that cannot fail by itself is not one; that is the S52 lesson, arriving here
+   * through a different door.
+   */
+  const backwards = borrowers.filter((b) => b.anyGive && b.give < 0);
   backwards.length === 0
     ? ok(`it runs after the last stop (${borrowers.filter((b) => b.trapped).length} of them from an EXIT trap, so a failing suite returns it too)`)
     : bad(`restarted too early, so it still ends stopped: ${backwards.map((b) => b.file).join(", ")}`);
