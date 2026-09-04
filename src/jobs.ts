@@ -58,10 +58,41 @@ export async function transitionTask(
     return;
   }
 
-  await pool.query(
-    `UPDATE tasks SET state = $2, updated_at = now()${extraSet ? `, ${extraSet}` : ""} WHERE id = $1`,
-    [taskId, toState],
-  );
+  /*
+   * Leaving a working state releases the lease, here rather than at each caller.
+   *
+   * The schema states the rule as a CHECK: `lease_owner IS NULL OR state IN
+   * (preparing, running, waiting_for_tool, recovering)`. `park()` and S46's
+   * `parkForAuth` honour it and clear both columns; eleven other call sites pass
+   * only `lease_until = NULL`, so a parked task kept naming an owner and the
+   * UPDATE violated the constraint — the runner then died with `worker.crash`
+   * where it should have parked.
+   *
+   * Centralised because the alternative is eleven call sites each remembering a
+   * rule, which is the list-that-rots this repo keeps being bitten by. ADR 007
+   * gives the reason it matters: "parking releases the lane. A parked task is
+   * not running, and holding a worker slot while waiting on a human turns a
+   * handful of unauthenticated connections into a starved queue."
+   *
+   * Columns already named by `extraSet` are left alone: Postgres rejects two
+   * assignments to one column in a single UPDATE, so adding them unconditionally
+   * would trade a constraint violation for a syntax error.
+   */
+  const LEASE_STATES = ["preparing", "running", "waiting_for_tool", "recovering"];
+  const clauses: string[] = [];
+  if (extraSet) clauses.push(extraSet);
+  if (!LEASE_STATES.includes(toState)) {
+    if (!extraSet.includes("lease_owner")) clauses.push("lease_owner = NULL");
+    if (!extraSet.includes("lease_until")) clauses.push("lease_until = NULL");
+  }
+  const sql = `UPDATE tasks SET state = $2, updated_at = now()`
+    + `${clauses.length ? `, ${clauses.join(", ")}` : ""} WHERE id = $1`;
+  try {
+    await pool.query(sql, [taskId, toState]);
+  } catch (err) {
+    console.error(`[jobs] transition ${from}->${toState} failed: ${sql}`);
+    throw err;
+  }
   await pool.query(
     `INSERT INTO task_transitions (task_id, from_state, to_state, cause, actor)
      VALUES ($1, $2, $3, $4, $5)`,
