@@ -458,7 +458,8 @@ export function registerActionRoutes(app: FastifyInstance, pool: pg.Pool) {
        */
       const requeue = await pool.query<{ id: string; state: string }>(
         `UPDATE tasks SET state = 'queued', waiting_reason = NULL,
-                blocked_by_issue_id = NULL, updated_at = now()
+                blocked_by_issue_id = NULL, lease_owner = NULL, lease_until = NULL,
+                updated_at = now()
          WHERE blocked_by_issue_id = $1
            AND state IN ('waiting_for_user', 'waiting_for_provider')
          RETURNING id, 'queued' AS state`,

@@ -6,6 +6,20 @@ import { raiseIssue } from "./notify.js";
 import { reprobeDegradedRoutes } from "./catalog.js";
 
 /**
+ * The states in which owning a lease means something: a process is attached to
+ * this task and nobody else may claim it. Everything else - queued, parked,
+ * finished, cancelled - is a state in which a lease is a claim about a worker
+ * that is not there.
+ *
+ * Module scope and exported so the rule can be asserted as a CLOSED SET. Inside
+ * the function it was unreachable, and a test that restates the list proves only
+ * that somebody typed it twice.
+ */
+export const LEASE_STATES = [
+  "preparing", "running", "waiting_for_tool", "recovering",
+] as const;
+
+/**
  * Every task state change writes a transition row (STATE_MACHINES.md). Without
  * this the Work view has no activity to show and a recovery leaves no trace of
  * what actually happened.
@@ -78,10 +92,9 @@ export async function transitionTask(
    * assignments to one column in a single UPDATE, so adding them unconditionally
    * would trade a constraint violation for a syntax error.
    */
-  const LEASE_STATES = ["preparing", "running", "waiting_for_tool", "recovering"];
   const clauses: string[] = [];
   if (extraSet) clauses.push(extraSet);
-  if (!LEASE_STATES.includes(toState)) {
+  if (!(LEASE_STATES as readonly string[]).includes(toState)) {
     if (!extraSet.includes("lease_owner")) clauses.push("lease_owner = NULL");
     if (!extraSet.includes("lease_until")) clauses.push("lease_until = NULL");
   }
@@ -275,7 +288,7 @@ export async function runSystemTask(pool: pg.Pool, taskId: string): Promise<void
       `UPDATE task_attempts SET ended_at = now(), summary = 'cancelled before start' WHERE task_id = $1 AND n = $2`,
       [taskId, attemptN],
     );
-    await transitionTask(pool, taskId, "cancelled", "cancel observed by worker", "worker", "lease_until = NULL");
+    await transitionTask(pool, taskId, "cancelled", "cancel observed by worker", "worker");
     return;
   }
 
@@ -302,7 +315,7 @@ export async function runSystemTask(pool: pg.Pool, taskId: string): Promise<void
       `UPDATE task_attempts SET ended_at = now(), summary = 'completed' WHERE task_id = $1 AND n = $2`,
       [taskId, attemptN],
     );
-    await transitionTask(pool, taskId, "succeeded", "system job completed", "worker", "lease_until = NULL");
+    await transitionTask(pool, taskId, "succeeded", "system job completed", "worker");
   } catch (err) {
     await writeCheckpoint(pool, taskId, {
       job: title,

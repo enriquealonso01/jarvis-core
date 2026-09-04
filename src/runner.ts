@@ -1023,7 +1023,7 @@ async function park(
   issue: { category: string; title: string; dedupeKey: string; requiredAction: string },
   projectId: string | null,
 ): Promise<void> {
-  await transitionTask(pool, taskId, state, reason, "runner", "lease_until = NULL, lease_owner = NULL");
+  await transitionTask(pool, taskId, state, reason, "runner");
   await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, reason]);
   await raiseIssue(pool, {
     category: issue.category,
@@ -1691,7 +1691,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         `UPDATE task_attempts SET ended_at = now(), error_class = 'security.isolation', summary = $3 WHERE task_id = $1 AND n = $2`,
         [taskId, n, summary.slice(0, 300)],
       );
-      await transitionTask(pool, taskId, "failed_terminal", summary.slice(0, 300), "runner", "lease_until = NULL");
+      await transitionTask(pool, taskId, "failed_terminal", summary.slice(0, 300), "runner");
       await raiseIssue(pool, {
         category: "security.isolation",
         service: "harness",
@@ -1735,7 +1735,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         `UPDATE task_attempts SET ended_at = now(), summary = 'cancelled by operator' WHERE task_id = $1 AND n = $2`,
         [taskId, n],
       );
-      await transitionTask(pool, taskId, "cancelled", "cancel observed by runner", "runner", "lease_until = NULL");
+      await transitionTask(pool, taskId, "cancelled", "cancel observed by runner", "runner");
       return;
     }
 
@@ -1758,7 +1758,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       ).catch(() => undefined);
       await pool.query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`,
         [taskId, reason.slice(0, 500)]).catch(() => undefined);
-      await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner", "lease_until = NULL");
+      await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner");
       await raiseIssue(pool, {
         category: "supervisor",
         service: "harness",
@@ -1857,7 +1857,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
           next.reason.slice(0, 500),
         ]).catch(() => undefined);
         await transitionTask(
-          pool, taskId, "waiting_for_provider", next.reason.slice(0, 300), "runner", "lease_until = NULL",
+          pool, taskId, "waiting_for_provider", next.reason.slice(0, 300), "runner"
         );
         await raiseIssue(pool, {
           category: "provider.cred_expired",
@@ -1900,7 +1900,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         taskId,
         summary.slice(0, 500),
       ]).catch(() => undefined);
-      await transitionTask(pool, taskId, finalState, summary.slice(0, 300), "runner", "lease_until = NULL");
+      await transitionTask(pool, taskId, finalState, summary.slice(0, 300), "runner");
       const raised = await raiseIssue(pool, {
         category: verdict.errorClass,
         service: "harness",
@@ -1996,7 +1996,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       await pool
         .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, honestStop.slice(0, 500)])
         .catch(() => undefined);
-      await transitionTask(pool, taskId, "waiting_for_user", honestStop.slice(0, 300), "runner", "lease_until = NULL");
+      await transitionTask(pool, taskId, "waiting_for_user", honestStop.slice(0, 300), "runner");
       await raiseIssue(pool, {
         category: "supervisor",
         service: "harness",
@@ -2051,7 +2051,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         await pool
           .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, reason.slice(0, 500)])
           .catch(() => undefined);
-        await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner", "lease_until = NULL");
+        await transitionTask(pool, taskId, "waiting_for_user", reason.slice(0, 300), "runner");
         await raiseIssue(pool, {
           category: "supervisor",
           service: "reviewer",
@@ -2075,7 +2075,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         await pool
           .query(`UPDATE tasks SET waiting_reason = $2 WHERE id = $1`, [taskId, back.reason.slice(0, 500)])
           .catch(() => undefined);
-        await transitionTask(pool, taskId, "waiting_for_user", back.reason.slice(0, 300), "runner", "lease_until = NULL");
+        await transitionTask(pool, taskId, "waiting_for_user", back.reason.slice(0, 300), "runner");
         return;
       }
     }
@@ -2105,7 +2105,6 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
       "succeeded",
       changed ? "harness run completed" : "harness run completed with an empty diff",
       "runner",
-      "lease_until = NULL",
     );
   } catch (err) {
     if (heartbeat) clearInterval(heartbeat);
@@ -2118,7 +2117,7 @@ export async function runHeavyTask(pool: pg.Pool, taskId: string): Promise<void>
         message.slice(0, 300),
       ])
       .catch(() => undefined);
-    await transitionTask(pool, taskId, "failed_terminal", message.slice(0, 300), "runner", "lease_until = NULL").catch(
+    await transitionTask(pool, taskId, "failed_terminal", message.slice(0, 300), "runner").catch(
       () => undefined,
     );
     await raiseIssue(pool, {

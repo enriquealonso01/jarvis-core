@@ -597,7 +597,7 @@ export function registerProductRoutes(app: FastifyInstance, pool: pg.Pool) {
     // Issues page and the project list into a record of test runs, which hides
     // the things that actually need Enrique.
     const tasks = await pool.query(
-      `UPDATE tasks SET state = 'cancelled', updated_at = now()
+      `UPDATE tasks SET state = 'cancelled', lease_owner = NULL, lease_until = NULL, updated_at = now()
        WHERE title LIKE 'acceptance %'
          AND state NOT IN ('succeeded', 'failed_terminal', 'cancelled')
        RETURNING id`,

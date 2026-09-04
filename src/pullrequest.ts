@@ -122,10 +122,12 @@ async function projectApiToken(
 
 async function park(pool: pg.Pool, task: TaskRow, reason: string): Promise<void> {
   await pool
-    .query(`UPDATE tasks SET state = 'waiting_for_provider', waiting_reason = $2 WHERE id = $1`, [
-      task.id,
-      reason.slice(0, 500),
-    ])
+    .query(
+      `UPDATE tasks SET state = 'waiting_for_provider', waiting_reason = $2,
+              lease_owner = NULL, lease_until = NULL
+        WHERE id = $1`,
+      [task.id, reason.slice(0, 500)],
+    )
     .catch(() => undefined);
   // One issue, not one per attempt: a missing credential is a single thing to
   // fix, and a ticket per retry trains you to ignore the queue.
