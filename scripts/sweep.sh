@@ -57,7 +57,7 @@ SUITES="s1-harness-test s2-task-create-test s3-routing-test s3b-split-test s3c-c
         s5-isolation-test s7-pullrequest-test s26-onboarding-test s27-config-test
         s37-untrusted-test voice-create-test progress-endpoint-test
         debug-notes-index-test s30-chunk-test s30-retrieval-test s30-dump-test s30-extract-test s30-index-artifact-test s30-which-tier-test s30-every-type-test s30-preference-test s30-harness-memory-test s30-restore-test s30-supersede-index-test s30-replacement-test s30-citation-test s31-connector-test s31-classify-test s31-timeout-test s31-api-test s31-connections-test s32-browser-gate-test s32-mode2-test s32-session-test s32-tiers-test s32-origin-test s33-unprompted-test s33-staleness-test s34-maintenance-test s34-schedule-test s34-improvement-test s35-export-test s18b-reissue-test s38-brevity-test s39-channel-test s39-continuity-test s40-brief-test taxonomy-notify-test s32-tier2-test s31-composio-test s41-voicerecall-test s41-query-test s42-impact-test s42-objection-test s43-prefs-test s44-capability-test s45-system-scope-test s46-handoff-test s47-desktop-test s48-selfreview-test s49-browservoice-test s50-outbound-test s51-homemap-test s52-forthcoming-test s53-orchestration-test s54-selfdeploy-test s41-transcript-wired-test s39-spoken-link-wired-test s51-home-endpoint-test s46-lease-wired-test
-        migration-hygiene-test worker-returned-test claim-target-test
+        migration-hygiene-test worker-returned-test claim-target-test s46-handoff-wired-test
         gate-input-sweep s49-browservoice-probe s53-orchestration-probe s52-forthcoming-probe
         s46-handoff-probe s47-desktop-boundary-probe s48-selfreview-probe
         s50-outboundtask-probe s54-selfdeploy-probe

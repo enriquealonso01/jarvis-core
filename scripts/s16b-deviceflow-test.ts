@@ -45,7 +45,7 @@ async function main(): Promise<void> {
       "https://www.servercontrolpanel.de/realms/scp/protocol/openid-connect/token", p.tokenUrl);
     check("with the client id netcup expects", "scp", p.clientId);
 
-    const nope = await startDeviceFlow(pool, "groq");
+    const nope = await startDeviceFlow(pool, "groq", "enrique");
     check("a profile that has a key to paste is refused a device flow", false, nope.ok);
   }
 
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   await reset();
   let flowId = "";
   {
-    const started = await startDeviceFlow(pool, "netcup_scp");
+    const started = await startDeviceFlow(pool, "netcup_scp", "enrique");
     truthy("a flow starts", started.ok);
     if (!started.ok) throw new Error(started.error);
     flowId = started.flowId;
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     check("the flow is pending", "pending", row.rows[0].state);
 
     // Starting again supersedes the first: two live codes is a confusing screen.
-    const second = await startDeviceFlow(pool, "netcup_scp");
+    const second = await startDeviceFlow(pool, "netcup_scp", "enrique");
     truthy("a second attempt starts", second.ok);
     const first = await pool.query<{ state: string }>(
       "SELECT state FROM oauth_device_flows WHERE id = $1", [flowId]);
@@ -133,7 +133,7 @@ async function main(): Promise<void> {
   {
     await reset();
     process.env.JARVIS_DEVICEFLOW_RESULT = "denied";
-    const started = await startDeviceFlow(pool, "netcup_scp");
+    const started = await startDeviceFlow(pool, "netcup_scp", "enrique");
     if (!started.ok) throw new Error(started.error);
     const verdict = await pollDeviceFlow(pool, started.flowId);
     check("a refusal ends the flow", "denied", verdict.state);
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
   console.log("\n########## and when the code times out ##########\n");
   {
     await reset();
-    const started = await startDeviceFlow(pool, "netcup_scp");
+    const started = await startDeviceFlow(pool, "netcup_scp", "enrique");
     if (!started.ok) throw new Error(started.error);
     await pool.query(
       "UPDATE oauth_device_flows SET expires_at = now() - interval '1 second' WHERE id = $1",
