@@ -14,6 +14,7 @@
  *
  * The palette half is a browser test; this is everything the API owes it.
  */
+import { deleteProjects } from "./_teardown.js";
 import { createPool } from "../src/db.js";
 
 const pool = createPool();
@@ -267,6 +268,26 @@ async function main(): Promise<void> {
     truthy("it can say which way disk is going", trend.json.slope_per_day > 1.4);
     check("and by how much over the window", 10.5, trend.json.change_over_window);
     ok(`  disk climbed ${trend.json.change_over_window} points in a week — the sentence the plan asks for`);
+  }
+
+  /*
+   * Take the two projects back out, and everything that came to point at them.
+   *
+   * This suite left `s18-alpha-<stamp>` and `s18-beta-<stamp>` behind on every
+   * run, and the consequence was not the litter itself. Stage B's rule 4 is the
+   * correlation window - same channel, same sender, inside ten minutes - so once
+   * one message correlated into a leftover s18 thread, every later message
+   * joined it too, and the window never closed because the suites run
+   * back-to-back. s37-untrusted-test failed against that attractor for three
+   * assertions that were about something else entirely.
+   *
+   * The correlation window is correct product behaviour. What was wrong was
+   * leaving a thread lying around for it to correlate into.
+   */
+  const removed = await deleteProjects(pool, [alpha, beta]);
+  if ((removed.projects ?? 0) !== 2) {
+    console.error("teardown: fixtures not fully removed:", JSON.stringify(removed));
+    fail += 1;
   }
 
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
