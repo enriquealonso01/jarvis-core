@@ -1736,3 +1736,38 @@ Six failures at the ladder's `recovering → queued` step. That is in code the
 Builder changed hours ago (`4b21f87`, "Finish the lease release: the ladder's
 backoff, five raw UPDATEs, a repair") — a follow-up to my own lease fix. Not
 mine to chase while it is moving.
+
+## Duplicated the Builder's work on the stomping ratchet (2026-09-04)
+
+I converted `s11-recovery-test.sh` off the queue-stomping PENDING list —
+threaded `RUNNER_TASK_ID` through `runfail()`, dropped the lane-wide cancel, and
+then found the assertion that had been resting on it: "nothing was lost across
+the restart" counted every row ever titled `L2 %`, hundreds of them from every
+past run, and was stable only because everything was being cancelled first. I
+rescoped it to the four ids the run actually creates.
+
+**The Builder had already done all of it**, in `#470 build/target-remaining-runners`
+and `69cdbe3 "Scope s11's restart count to its own four tasks"` — the same
+conversion and the same count fix, independently. My PR #471 hit a merge
+conflict against their version. I closed it rather than force a merge.
+
+**The lesson is mine and it is about coordination, not code.** `PENDING` is a
+list the Builder maintains, in a file the Builder wrote, describing work the
+Builder scoped — and they had committed against it 12 minutes before I started.
+I checked `git log` at the top of the tick, saw their last commit was 23:27,
+and read that as "not currently converting" rather than "actively converting".
+The correct check was not how recent their last commit was, but whether the item
+I was about to pick up was theirs.
+
+Verified on main after their merge: `s11-recovery-test` **26/0**,
+`queue-stomping-test` **6/0**, 11 of 12 runner-starting suites converted, 5
+pending (`s14-live-detail`, `s13-home`, `s15-journeys`, `s18-palette`,
+`sweep.sh` — the "clears the lane for a VIEW" kind, which their note says needs
+a different change).
+
+### One more stale-image reading, for the count
+
+Immediately after pulling their main I ran the ratchet and read **5 passed, 1
+failed**, then re-ran it and got 6/0. The first read was against an image built
+before the pull. That is the fifth time this loop, and the second where I nearly
+reported a red that did not exist.
