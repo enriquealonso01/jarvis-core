@@ -57,6 +57,17 @@ const STAMP = Date.now().toString(36);
 const SECRET_B = `zarquon${STAMP}`;
 const SHARED = `quibble${STAMP}`;
 
+/**
+ * Every project this suite makes, so the teardown does not have to be told.
+ *
+ * The first version of the teardown named `alpha` and `beta`, and missed
+ * `s18-quiet` — which is declared inside a block and is not even in scope where
+ * the cleanup runs. Three of them were still accumulating afterwards. A list of
+ * fixtures maintained by hand beside the code that creates them is the same
+ * shape of mistake as a list of tables maintained beside a schema.
+ */
+const created: string[] = [];
+
 async function project(slug: string): Promise<string> {
   const r = await pool.query<{ id: string }>(
     `INSERT INTO projects (slug,name,project_type,confidentiality,production_status)
@@ -64,6 +75,7 @@ async function project(slug: string): Promise<string> {
      ON CONFLICT (slug) DO UPDATE SET archived_at = NULL RETURNING id`,
     [slug],
   );
+  created.push(r.rows[0].id);
   return r.rows[0].id;
 }
 
@@ -284,8 +296,8 @@ async function main(): Promise<void> {
    * The correlation window is correct product behaviour. What was wrong was
    * leaving a thread lying around for it to correlate into.
    */
-  const removed = await deleteProjects(pool, [alpha, beta]);
-  if ((removed.projects ?? 0) !== 2) {
+  const removed = await deleteProjects(pool, created);
+  if ((removed.projects ?? 0) !== created.length) {
     console.error("teardown: fixtures not fully removed:", JSON.stringify(removed));
     fail += 1;
   }
