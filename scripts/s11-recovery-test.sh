@@ -164,7 +164,14 @@ C=$(mk "L2 third");  sleep 1
 D=$(mk "L2 running")
 q "UPDATE tasks SET state='running', lease_owner='gone', lease_until=now()-interval '5 minutes',
    heartbeat_at=now()-interval '10 minutes' WHERE id='$D';" >/dev/null
-before=$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")
+# Scoped to THIS run's four ids, not to the title. The DELETE above cannot
+# remove earlier runs' L2 rows - issues hold a foreign key to tasks - so 156 of
+# them had accumulated, and the count also moved when another session ran this
+# same suite between the two reads: 156 before, 160 after, reported as "four
+# tasks were lost across the restart". The ordering assertion below was already
+# scoped this way for the same reason; this one had been left on the title.
+LIST="'$A','$B','$C','$D'"
+before=$(q "SELECT count(*) FROM tasks WHERE id IN ($LIST);")
 $COMPOSE restart api >/dev/null 2>&1
 JARVIS_STALL_SECONDS=5 $COMPOSE up -d --no-build worker >/dev/null 2>&1
 # The recovery ladder waits before it requeues (rung 1 is `wait`, 30s, twice),
@@ -180,7 +187,7 @@ done
 # suite that runs after this one in sweep.sh, which is the same fault
 # s4-recovery and s4-drain carried.
 $COMPOSE stop worker >/dev/null 2>&1
-check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")"
+check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE id IN ($LIST);")"
 check "the orphaned running task was recovered to the queue" "queued" "$st"
 # Scoped to THIS run's four ids. Matching on the title counted every earlier
 # run's L2 rows too — the DELETE above cannot remove them (issues hold a foreign
