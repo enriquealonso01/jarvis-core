@@ -41,6 +41,16 @@ export type Need = {
    * means by "bind every request to a task id or it drifts into nagging".
    */
   taskId: string;
+  /**
+   * Required, and explicitly nullable rather than optional.
+   *
+   * `null` means genuinely unbound — system work. A MISSING field would mean
+   * somebody did not think about it, and the two must not look the same here:
+   * the register below uses this to decide whether the next task asks, so an
+   * absent project silently makes one project's credential satisfy another's
+   * need. Stating `null` is a decision; omitting it is an oversight.
+   */
+  projectId: string | null;
   kind: "credential" | "sign_in" | "connection" | "capability";
   /** The thing, in his terms. */
   what: string;
@@ -71,8 +81,29 @@ export const ASK_AT: Timing = "before_start";
  */
 export type Register = Set<string>;
 
+/**
+ * Kinds that belong to one project and cannot be borrowed by another.
+ *
+ * Rule FOUR of this file says "approval to connect X is not approval to spend on
+ * X, **nor to use X in another project**", and `scopeOfConnectApproval` returns
+ * `otherProjects: false` to say so. The register did not know that: the key was
+ * `kind:what` with no project in it, so a credential acquired for alpha made
+ * `alreadyHave` answer true for beta, beta was never asked, and beta's work sat
+ * blocked with no message — which is the precise failure this whole step exists
+ * to prevent, arriving through its own ask-once mechanism.
+ *
+ * `capability` is deliberately NOT in this set. A tool Jarvis built is reusable
+ * across projects, and whether a given project may CALL it is S44's
+ * `mayCall`, which checks `builtForProject` against `callingFromProject`. Asking
+ * him again for a capability that already exists would be the nagging this file
+ * is written against — the two rules point in opposite directions here, and each
+ * one is right about its own kind.
+ */
+const PROJECT_BOUND: ReadonlySet<Need["kind"]> = new Set(["credential", "sign_in", "connection"]);
+
 export function capabilityKey(need: Need): string {
-  return `${need.kind}:${need.what.trim().toLowerCase()}`;
+  const thing = `${need.kind}:${need.what.trim().toLowerCase()}`;
+  return PROJECT_BOUND.has(need.kind) ? `${thing}@${need.projectId ?? "unbound"}` : thing;
 }
 
 export function alreadyHave(register: Register, need: Need): boolean {
