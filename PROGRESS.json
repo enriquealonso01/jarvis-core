@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-09-04T00:03:05Z",
+  "updated_at": "2026-09-04T00:27:19Z",
   "current_step": "S54",
   "steps": [
     {
@@ -439,5 +439,5 @@
     "6": "pending",
     "7": "pending"
   },
-  "working_on": "S51's map is now served at GET /api/home, so the console has something to fetch. THE BIG FIND THIS TICK IS ENVIRONMENTAL AND WAS COSTING EVERY SWEEP: dev-rebuild.sh brings up the API and nothing else, so the WORKER was absent after any rebuild and every suite needing a task to progress failed for an unrelated reason - s1-harness 16/7->23/0, s2-task-create 21/3->24/0, s3-routing 28/2->30/0, s4-drain 6/5->11/0, s11-recovery 14/12->26/0 once it was running. About twenty-nine false failures from a missing container. dev-rebuild now brings the worker up and gates on its watchdog sweep being RECENT rather than the container merely existing. STILL FAILING AND NOT YET EXPLAINED: s4-recovery-test, 11 passed / 7 failed even with the worker sweeping - it improved from 9 failures but something else is wrong there. That is the next thing to look at, and it is the last suite in the first sweep segment that is not green."
+  "working_on": "FOUND WHY THE WORKER KEPT VANISHING, which has been distorting results all session: s4-recovery-test.sh stopped AND REMOVED the worker on EXIT and never put it back. It runs seventh of about a hundred suites, so roughly ninety-three ran afterwards with no worker, and anything needing a task to progress failed for an unrelated reason. It now restores it, and the suites that follow it in sweep order are green: s6-workflow 33/0, s9-review 24/0, s10-grants 40/0, s2-task-create 24/0. Together with last tick's dev-rebuild gate, the environment is now sound for a full sweep. TWO SUITES STILL NOT GREEN, both flaky rather than regressed, and neither made worse: (1) s4-recovery-test itself, 11/7 - unchanged by this commit, and I left a note in the file instead of papering over it. It has a real race: the watchdog that requeues a stalled task lives in the worker, so its middle section needs one running, but with one running the requeue can beat the suite to the intermediate state it asserts on first. Across four runs with no code change it gave 11/7, 10/8, 6/12 and 4/14 - stopping the worker at the start fixes the first assertion and breaks the requeue cascade; forcing it up does the reverse. Somebody needs to decide what the suite is really asserting. (2) s11-recovery-test, seen at both 26/0 and 24/2. NEXT: with the environment sound, finish the full sweep in segments and get a real answer about main, which I have not had once this session."
 }
