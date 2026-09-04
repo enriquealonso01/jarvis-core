@@ -1120,3 +1120,59 @@ a stale image both times — once against a script that was not yet committed an
 therefore not in the build context at all. That is the third time this loop I
 have hit the staleness `suite.sh` exists to prevent, while working on tooling
 meant to prevent it.
+
+## S53 — many-agent orchestration — ✓ verified (2026-09-03)
+
+The plan calls this "the most powerful step in the engineering half, and the
+easiest to turn into a runaway... an unbounded fan-out of leases and spend that
+starves every other project and **bills without limit**."
+
+**Four holes, one shape, fixed in PR #439.** Four numbers stand between that
+sentence and the bill, and every one of them was a `>=` against a value a number
+column can hold. `NaN >= n` is false for every `n`:
+
+```
+shouldContinue(cond, NaN)    ->  { continue: true, iteration: NaN }   and again, forever
+admitAgent({ ...NaN })       ->  { admit: true }                      unbounded fan-out
+watchdogVerdict({ ...NaN })  ->  { stop: false }                      left running unwatched
+spendCheck(NaN, 1000)        ->  { proceed: true }
+spendCheck(100, null)        ->  { proceed: true, remaining: NaN }    no ceiling at all
+```
+
+The last one is the file's whole failure in a single value: **spending continues
+and the number that would have stopped it is not a number.**
+
+`isCount()` now requires a finite, non-negative number. Strings are rejected
+rather than coerced, because `"3" >= 4` happens to work and `""` happens to mean
+zero — coercion is right often enough that the one time it is not looks like
+something else. Negative is rejected because the safe response to "I cannot tell
+how many" is not "fewer than the limit". `admitAgent` **queues** on an
+unreadable count rather than refusing, following its own doc: a refused agent is
+work he asked for that silently never happens.
+
+**What held.** `isDone` is three facts rather than a score — no threshold to
+turn down when the loop will not stop — and `openGaps: "0"` as a string is
+correctly *not* zero gaps. `isRealProgress` rejects `constructor`, `__proto__`
+and a fabricated `"thinking"` marker, so an idle loop that claims progress still
+gets stopped. `mayShipCore` is typed `allowed: false`, so an agent cannot ship
+core by any argument. `mayReadProject` refuses another project *and* the system
+scope. `killOrchestration` takes the agent list rather than assembling one, and
+is coherent when given none. `shouldContinue` has no clock in scope.
+
+**Checked:** `scripts/s53-orchestration-probe.ts` — 49/30 before, **79/0 after,
+run on the box** in the API container against deployed source. The Builder's own
+`s53-orchestration-test` is **26/0**, unchanged. No production callers yet.
+
+### The gate-input class, counted
+
+This is the fifth module where the guard trusted its input, and the tally is now
+worth stating plainly: `mayDial` (S50), `correctedTo` (S48), `mayPromote` /
+`deployShapeFor` / `runnerUpdate` (S54), `mayCall` ×3 (S44), and now four in
+S53 — **twelve instances across six modules**. Every one guarded something the
+file's own prose treats as obvious, and every module that held — S49's
+`clamp()`, S45's `scopeFrom`, S47's four mechanisms — guarded something the
+prose called dangerous.
+
+The design work in this codebase is genuinely careful. The gap is uniform: these
+modules are rigorous about what they *do* and trusting about what they are
+*given*, and the input side is where the prose stops.
