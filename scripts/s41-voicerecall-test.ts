@@ -190,7 +190,13 @@ function main(): void {
   miss.found === false && miss.say.includes("not going to guess")
     ? ok("and says it will not improvise one, which is the failure mode")
     : bad("nothing prevents a plausible summary being invented");
-  miss.say.includes("the tax filing")
+  /*
+   * Narrowed rather than reached into. `RecallResult` has no `say` on its found
+   * branch, so this line only typechecked because scripts were outside the
+   * typechecker — and a rename on the miss branch would have left it reading
+   * `undefined.includes` at runtime, which is a crash in a suite, not a failure.
+   */
+  !miss.found && miss.say.includes("the tax filing")
     ? ok("naming what it looked for, so he can correct it")
     : bad("the miss does not say what was searched for");
 

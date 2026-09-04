@@ -1,0 +1,10 @@
+{
+  "//": "The suites, under the typechecker. `tsconfig.json` includes only src/ because it is ALSO the build config and dist/ must not grow a scripts/ directory - so about 150 suites sat outside type checking entirely. The first run of this config found eight errors in six files, three of them assertions that could not fail. noEmit: this config exists to check, never to build.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts", "src/**/*.ts"]
+}

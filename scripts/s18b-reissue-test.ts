@@ -34,7 +34,9 @@ async function main(): Promise<void> {
   try {
     const { ensureActionRequest } = await import("../src/actions.js");
     const first = await ensureActionRequest(pool, {
-      issueId, kind: "api_key", title: `${TAG} supplier key`,
+      // "api_key" is not an ActionKind; the real one is "provide_api_key". The
+      // fixture was exercising a value no caller can pass.
+      issueId, kind: "provide_api_key", title: `${TAG} supplier key`,
       message: "The supplier portal needs a key.", ttlHours: 2,
     });
     first.token ? ok("a link was issued") : bad("no token was issued");

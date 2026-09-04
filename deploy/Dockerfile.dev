@@ -11,7 +11,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.15.1 --activate
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json tsconfig.scripts.json ./
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 COPY src ./src
