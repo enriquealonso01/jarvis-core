@@ -34,11 +34,37 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
 cleanup() {
-  $COMPOSE stop worker >/dev/null 2>&1
-  $COMPOSE rm -f worker >/dev/null 2>&1
   docker rm -f "$RUNNER_CT" >/dev/null 2>&1
+  # PUT THE WORKER BACK.
+  #
+  # This suite stops the worker on purpose - it needs to watch a stalled task
+  # recover without one interfering - and the old cleanup left it stopped and
+  # removed. It runs seventh of about a hundred in the sweep, so every suite
+  # after it ran with no worker at all, and anything needing a task to progress
+  # failed for a reason that had nothing to do with what it was testing.
+  #
+  # Measured, by starting the worker and changing no code: s1-harness 16/7 ->
+  # 23/0, s2-task-create 21/3 -> 24/0, s3-routing 28/2 -> 30/0, s4-drain 6/5 ->
+  # 11/0, s11-recovery 14/12 -> 26/0. A suite that borrows a shared service owes
+  # it back, and this one was borrowing it for the rest of the run.
+  $COMPOSE up -d --no-build worker >/dev/null 2>&1
 }
 trap cleanup EXIT
+
+# NOTE FOR WHOEVER FIXES THIS SUITE.
+#
+# It has a real race and its result depends on what the worker was doing when it
+# started: across four runs it gave 11/7, 10/8, 6/12 and 4/14 with no code change
+# between them. The watchdog that requeues a stalled task lives in the worker, so
+# the middle section needs one running - but with one running the requeue can
+# happen before the suite observes the "running, with nobody running it" state it
+# asserts on first. Stopping the worker at the start fixes that assertion and
+# breaks the whole requeue cascade instead.
+#
+# Deliberately NOT papered over here. This change makes exactly one fix - the
+# suite now returns the worker it borrows, in cleanup - because that was costing
+# every suite after it in the sweep. The race is its own problem and wants
+# somebody to decide what the suite is really asserting.
 
 BEFORE_STALL_ISSUES=$(q "SELECT count(*) FROM issues WHERE dedupe_key = 'worker.crash:heavy';")
 
