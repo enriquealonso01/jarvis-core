@@ -24,6 +24,40 @@ export async function transitionTask(
   );
   const from = r.rows[0]?.state ?? null;
   if (from === null) return;
+
+  /*
+   * A terminal state is terminal, and cancel most of all.
+   *
+   * STATE_MACHINES.md draws no arrow OUT of `cancelled`, `succeeded` or
+   * `failed_terminal`, and this function was moving tasks out of all three: the
+   * dev database carried `cancelled->succeeded` (x5), `cancelled->running` (x2),
+   * `cancelled->stalled` and `cancelled->waiting_for_user`, every one of them
+   * written by `actor = 'runner'`. s18b-conformance-test had been reporting them
+   * as "transitions nobody has explained" and it was right.
+   *
+   * What that means in practice is worse than a bad row: a run that was
+   * cancelled kept going and reported success. The runner does observe cancels
+   * (runner.ts stopReason === "cancelled"), but a transition already in flight
+   * lands afterwards and overwrites the cancel, because the UPDATE below had no
+   * opinion about what it was overwriting.
+   *
+   * S53 puts the principle plainly for orchestrations, and it is the same one
+   * here: "a powerful thing he cannot stop in one move is not one he will turn
+   * on." A stop button that a late write can undo is not a stop button.
+   *
+   * Refused rather than thrown: the caller is finishing work that is no longer
+   * wanted, and an exception would turn a stale write into a crash in the run
+   * loop. Logged rather than swallowed, because silence is how this lasted.
+   */
+  const TERMINAL = ["cancelled", "succeeded", "failed_terminal"];
+  if (TERMINAL.includes(from) && from !== toState) {
+    console.warn(
+      `[jobs] refusing ${from}->${toState} for task ${taskId} (${actor}: ${cause}) — `
+      + `${from} is terminal`,
+    );
+    return;
+  }
+
   await pool.query(
     `UPDATE tasks SET state = $2, updated_at = now()${extraSet ? `, ${extraSet}` : ""} WHERE id = $1`,
     [taskId, toState],
