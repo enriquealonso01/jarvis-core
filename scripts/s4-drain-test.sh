@@ -31,7 +31,25 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
 CT=jarvis-dev-drain-runner
-cleanup() { docker rm -f "$CT" >/dev/null 2>&1; $COMPOSE stop worker >/dev/null 2>&1; $COMPOSE rm -f worker >/dev/null 2>&1; }
+# A suite that borrows a shared service owes it back.
+#
+# This one stopped the worker and removed it, and never brought it back - the
+# same fault s4-recovery-test.sh carried, found the same way: every suite that
+# runs after it in sweep.sh then runs with no worker at all, and reports failures
+# that have nothing to do with what it is testing.
+#
+# Measured earlier by starting the worker and changing no code: s1-harness
+# 16/7 -> 23/0, s2-task-create 21/3 -> 24/0, s3-routing 28/2 -> 30/0, s4-drain
+# 6/5 -> 11/0, s11-recovery 14/12 -> 26/0.
+#
+# Restored with the default stall seconds rather than this suite's five, because
+# what the next suite needs is an ordinary worker, not this one's fixture.
+cleanup() {
+  docker rm -f "$CT" >/dev/null 2>&1
+  $COMPOSE stop worker >/dev/null 2>&1
+  $COMPOSE rm -f worker >/dev/null 2>&1
+  $COMPOSE up -d --no-build worker >/dev/null 2>&1
+}
 trap cleanup EXIT
 
 TASK=$(q "INSERT INTO tasks (project_id, title, objective, state, lane, priority)

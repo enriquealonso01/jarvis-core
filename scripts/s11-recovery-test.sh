@@ -162,6 +162,10 @@ for _ in $(seq 1 150); do
   [ "$st" = "queued" ] && break
   sleep 1
 done
+# Stopped so the assertions below read a state nothing is still changing - and
+# then GIVEN BACK, at the end. Left stopped, it took the worker away from every
+# suite that runs after this one in sweep.sh, which is the same fault
+# s4-recovery and s4-drain carried.
 $COMPOSE stop worker >/dev/null 2>&1
 check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")"
 check "the orphaned running task was recovered to the queue" "queued" "$st"
@@ -174,6 +178,10 @@ check "and the three queued tasks are still queued" "3" \
 check "order preserved: oldest first" "L2 first" \
   "$(q "SELECT title FROM tasks WHERE id IN ('$A','$B','$C','$D') AND state='queued'
         ORDER BY created_at LIMIT 1;")"
+
+# The worker goes back the way it was found, with default stall seconds. After
+# the checks, so restarting it cannot race what they read.
+$COMPOSE up -d --no-build worker >/dev/null 2>&1
 
 echo
 echo "==== $pass passed, $fail failed ===="
