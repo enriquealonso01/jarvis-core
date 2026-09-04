@@ -163,7 +163,14 @@ fail=$((fail + ${hf:-1}))
 # Through the reaper rather than a DELETE here, because a project has 29 tables
 # pointing at it and one of those references has to be nulled rather than
 # followed. That logic lives in _teardown.ts and should not be written twice.
-$COMPOSE run --rm --no-deps -T runner   node --import tsx scripts/reap-fixture-projects.ts "s12fs-alpha-%" "s12fs-beta-%"   >/dev/null 2>&1 || echo "warning: could not reap the s12fs fixtures" >&2
+# KEEP_FIXTURES=1 leaves them in place. A suite that reaps its own evidence is
+# a suite you cannot diagnose: this one dropped from 47/0 to 38/9 and the probe
+# tasks were already gone by the time the failures were read.
+if [ "${KEEP_FIXTURES:-0}" = "1" ]; then
+  echo "KEEP_FIXTURES=1 - leaving $ALPHA and $BETA in place" >&2
+else
+  $COMPOSE run --rm --no-deps -T runner   node --import tsx scripts/reap-fixture-projects.ts "s12fs-alpha-%" "s12fs-beta-%"   >/dev/null 2>&1 || echo "warning: could not reap the s12fs fixtures" >&2
+fi
 
 
 echo
