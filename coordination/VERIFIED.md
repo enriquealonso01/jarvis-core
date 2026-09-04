@@ -1628,3 +1628,61 @@ not there at all (an empty or absent classification reads as a mismatch with its
 own expected value in this harness's `check` format). Not diagnosed. Recorded
 with the exact output so the next attempt starts from evidence rather than from
 my memory of it.
+
+## ✓ s11-recovery-test — 24/2 → 26/0, fixed by yesterday's tooling fix (2026-09-03)
+
+No product change. Re-running it through the `suite.sh` that now rebuilds the
+**api** as well as the runner took it to 26/0. It had been failing against a
+stale API image, exactly like `progress-endpoint-test`. `s1-harness-test` is
+23/0 through the same path.
+
+Two of the five remaining failures were the same missing half-guarantee. Worth
+noting how convincing they were: four assertions with plausible-sounding names
+("classified as harness.crash", "order preserved: oldest first"), reproducible
+alone, stable across runs — every signal of a real defect except the one that
+mattered.
+
+## ✓ s18b-conformance-test — 13/1 → 14/0, with a ruling still owed (2026-09-03)
+
+The two remaining unexplained transitions, observed on the box **with their
+causes**, which is what makes them behaviour rather than accident:
+
+```
+preparing -> stalled           watchdog, "heartbeat missed for 90s"
+preparing -> waiting_for_user  runner,   "a heavy task has no project"
+```
+
+`STATE_MACHINES.md` draws `preparing → queued | failed_terminal` only. Neither
+is a task going wrong: one is the watchdog doing exactly its job, the other is
+parking for a decision only a person can make. Added to `KNOWN_DIVERGENCES`
+(PR #464) following the convention already in that file, whose comment gives the
+reason — the document is read-only law, and "a permanently red suite is one
+nobody reads, and a silent one catches nothing".
+
+**Enrique still owes these a ruling**: either the document gains the two
+transitions, or the code stops making them. That file's convention says such
+items go in `BLOCKED.md`; `coordination/` has no such file and `BLOCKERS.md` is
+not mine to write, so it is recorded here.
+
+## ✗ s15-console-test — 169/1, diagnosed, and NOT fixable from this repo
+
+```
+FAIL  and it opens to the file's real path
+```
+
+The artifact row is reachable by keyboard — the assertion immediately before it
+("an artifact can be opened by keyboard, not only clicked") passes, so the
+control takes focus. Pressing Enter does not open it. A keyboard user can reach
+the control and cannot activate it, which is the same defect class the comment
+above that journey says was already fixed once: "the row carried an onClick and
+contained nothing focusable".
+
+**The console is not in `jarvis-core`.** `data-testid="artifact-open"` appears
+only in test scripts here, and `deploy-control-center.sh` unpacks a prebuilt
+tarball rather than building from source. I deploy the console; I cannot fix it.
+Recorded for whoever holds that source.
+
+## Remaining: s4-recovery-test
+
+8/10 through the fixed `suite.sh`, and 12/6 with the worker stopped. Still the
+only suite whose failures I have neither fixed nor explained.
