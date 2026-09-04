@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { requireUser } from "./auth.js";
 import { readJsonCredential, storeJsonCredential } from "./credentials.js";
+import { handoffFor, mintAuthLink, type RequestOrigin } from "./handoff.js";
+import { enqueueNotification } from "./notify.js";
 
 /**
  * The OAuth device code grant, for providers that have no key to paste.
@@ -74,7 +76,18 @@ async function form(url: string, body: Record<string, string>): Promise<{ status
 }
 
 /** Ask the provider for a code the human can type in. */
-export async function startDeviceFlow(pool: pg.Pool, profileId: string): Promise<StartResult> {
+/**
+ * @param origin Where the request to connect came from. Required and closed
+ *   (S46): the sign-in link Jarvis is about to vouch for is the highest-trust
+ *   message in the system, and whether it may be sent is decided by WHO asked,
+ *   before anything is rendered. No default — a default would make the
+ *   permissive case the one a new caller gets for free.
+ */
+export async function startDeviceFlow(
+  pool: pg.Pool,
+  profileId: string,
+  origin: RequestOrigin,
+): Promise<StartResult> {
   const provider = DEVICE_PROVIDERS[profileId];
   if (!provider) return { ok: false, error: `${profileId} does not use the device flow` };
 
@@ -127,15 +140,95 @@ export async function startDeviceFlow(pool: pg.Pool, profileId: string): Promise
     ],
   );
 
+  const flowId = row.rows[0].id;
+  await handOverTheLink(pool, {
+    flowId,
+    provider: profileId,
+    origin,
+    /*
+     * The complete URL when the provider offers one: it carries the user code,
+     * so he taps instead of transcribing eight characters from a phone screen
+     * into a browser. Falling back to the plain one is the same link minus that
+     * convenience, never a different destination.
+     */
+    url: j.verification_uri_complete
+      ? String(j.verification_uri_complete)
+      : String(j.verification_uri ?? ""),
+    lifetimeMs: expiresIn * 1000,
+  });
+
   return {
     ok: true,
-    flowId: row.rows[0].id,
+    flowId,
     userCode: String(j.user_code),
     verificationUri: String(j.verification_uri ?? ""),
     verificationUriComplete: j.verification_uri_complete ? String(j.verification_uri_complete) : null,
     expiresIn,
     interval,
   };
+}
+
+/**
+ * S46, wired: the sign-in link reaches his phone, not only the browser.
+ *
+ * The device flow already produced exactly what S46 describes — a real
+ * provider-issued sign-in URL with the provider's own short lifetime — and it
+ * went to whoever happened to be looking at the Control Center. S46 is explicit
+ * about the moment: "trigger a connection needing external auth -> **link on
+ * WhatsApp within seconds**, task parked, nothing spinning." A code that only
+ * exists in a browser tab is a connection that can only be made while sitting at
+ * the console, which is the opposite of the step.
+ *
+ * Routed through `handoffFor` rather than `handoffMessage`, so the origin gate is
+ * not something this function could skip: the decision about whether Jarvis
+ * vouches for a link belongs to the one function that has the closed set.
+ *
+ * Never fatal. A message that could not be queued must not stop the connection
+ * being made from the console — but it is logged rather than swallowed, because
+ * a handoff that silently did not happen looks exactly like one that was never
+ * meant to.
+ */
+async function handOverTheLink(
+  pool: pg.Pool,
+  args: { flowId: string; provider: string; origin: RequestOrigin; url: string; lifetimeMs: number },
+): Promise<void> {
+  try {
+    if (!args.url) return;
+    /*
+     * `mintAuthLink` refuses http and refuses credentials in the URL, by
+     * throwing. That refusal is the point and it must not be softened here: a
+     * link Jarvis cannot vouch for is one he does not get sent, and the console
+     * still has it.
+     */
+    const link = mintAuthLink({
+      provider: args.provider,
+      authorizeUrl: args.url,
+      lifetimeMs: args.lifetimeMs,
+    });
+    const decision = handoffFor({ origin: args.origin, link, consolePath: "Control Center › Connections" });
+    if (!decision.send) {
+      console.log(`[deviceflow] not handing over the ${args.provider} link: ${decision.why}`);
+      return;
+    }
+    await enqueueNotification(pool, {
+      level: "whatsapp_blocker",
+      messageType: "blocker",
+      body: decision.message,
+      objectType: "oauth_device_flow",
+      objectId: args.flowId,
+      /*
+       * Keyed on the flow, not the provider. A second Connect click supersedes
+       * the first flow and issues a NEW code, so it is a new message and must
+       * not collide with the dead one — while a retry of the same start does.
+       */
+      idempotencyKey: `device-flow:${args.flowId}`,
+    });
+  } catch (err) {
+    console.error(
+      `[deviceflow] the ${args.provider} sign-in link was not handed over:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 export type PollResult =
@@ -418,7 +511,8 @@ export function registerDeviceFlowRoutes(app: FastifyInstance, pool: pg.Pool): v
     if (!user) return;
     if (!originOk(req)) return reply.code(403).send({ error: "bad origin" });
     const id = (req.params as { id: string }).id;
-    const started = await startDeviceFlow(pool, id);
+    // Behind requireUser and an origin check: this is Enrique, at the console.
+    const started = await startDeviceFlow(pool, id, "enrique");
     if (!started.ok) return reply.code(400).send({ error: started.error });
     // Deliberately no device_code in this response.
     return {
