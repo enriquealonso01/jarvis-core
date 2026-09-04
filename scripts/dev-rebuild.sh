@@ -74,4 +74,39 @@ case " $SERVICES " in
     fi
     ;;
 esac
-echo "rebuilt and running: $SERVICES"
+
+# The worker, and the same argument the API block above makes.
+#
+# dev-rebuild brought up the API and nothing else, so the worker was simply
+# absent after any rebuild - and every suite that needs a task to progress
+# (harness, drain, recovery) then failed for a reason that had nothing to do with
+# what it was testing. Measured: s1-harness-test went 16 passed / 7 FAILED to
+# 23 passed / 0 the moment the worker was started, with no code change at all.
+#
+# That is the same lie this file exists to prevent, one layer along: a suite red
+# because a service is missing is worse than one red for a real reason, because
+# it trains everyone to read failures as noise.
+#
+# Liveness is its watchdog sweep advancing, not the container existing. A worker
+# that is up and wedged produces exactly the confusing failures above, and
+# `docker ps` cannot tell the difference.
+JARVIS_MODEL=fake $COMPOSE up -d --no-build worker >/dev/null 2>&1
+# A RECENT sweep, not a fresh one. The watchdog sweeps about every 80 seconds, so
+# demanding the counter advance means waiting most of a cycle even when the worker
+# is perfectly healthy - the first version of this gate did exactly that and
+# reported a working worker as broken.
+worker_up=0
+for _ in $(seq 1 100); do
+  fresh=$($COMPOSE exec -T postgres psql -U jarvis -d jarvis -tAX -c     "SELECT 1 FROM component_sweeps
+      WHERE component='watchdog' AND last_completed_at > now() - interval '3 minutes';"     2>/dev/null | tr -d '')
+  if [ "$fresh" = "1" ]; then worker_up=1; break; fi
+  sleep 2
+done
+if [ "$worker_up" -ne 1 ]; then
+  echo "THE WORKER IS NOT SWEEPING. Suites that need a task to progress will fail" >&2
+  echo "for a reason that has nothing to do with what they are testing." >&2
+  $COMPOSE logs worker --tail 20 2>&1 | tail -20 >&2
+  exit 1
+fi
+
+echo "rebuilt and running: $SERVICES (+ worker sweeping)"
