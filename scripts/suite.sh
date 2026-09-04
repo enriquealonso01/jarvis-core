@@ -54,8 +54,23 @@ esac
 #
 # An unchanged rebuild is a few seconds of cache checks, which is cheap against
 # the cost of testing code you did not write.
-echo "==> rebuilding the runner image so the suite reads current source"
-$COMPOSE --profile tools build runner >/dev/null 2>&1 || {
+# The API too, not only the runner.
+#
+# This script's guarantee was half a guarantee. Suites run inside the `runner`
+# image, so that is what it rebuilt - but a good number of them reach the API
+# over HTTP, and the API is a different image. progress-endpoint-test compares
+# what `/PROGRESS.json` serves against the file on disk; the API serves the copy
+# baked into ITS image, so the suite failed 12/1 against an API built before the
+# file changed. Rebuilding the runner and re-running changed nothing, which is
+# what made it look like a product bug rather than a stale image - the fourth
+# time in this loop that staleness has been mistaken for a failure, and the
+# first where this script was the thing giving false assurance.
+#
+# `dev-rebuild.sh` is used rather than a bare `build` because the API has to be
+# RESTARTED to serve the new image; building it and leaving the old container up
+# would be a more convincing version of the same lie.
+echo "==> rebuilding the api and runner images so the suite reads current source"
+bash scripts/dev-rebuild.sh api runner >/dev/null 2>&1 || {
   echo "the rebuild failed; refusing to run a suite against stale code" >&2; exit 1; }
 
 status=0
