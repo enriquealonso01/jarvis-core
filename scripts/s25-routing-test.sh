@@ -105,9 +105,10 @@ q "INSERT INTO model_registry (provider, model_id, role_assignments, health, app
    VALUES ('s25run','one-$STAMP',ARRAY['senior_engineer'],'healthy','approved',1,'$P1','claude_code'),
           ('s25run','two-$STAMP',ARRAY['senior_engineer'],'healthy','approved',2,'$P2','claude_code');" >/dev/null
 
-# Nothing else may claim this task, or the run under test never happens.
-q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-   WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
+# Nothing else may claim this task, or the run under test never happens. That
+# used to be arranged by cancelling every queued, preparing and running heavy
+# task - deterministic for this suite, destructive for every other session on
+# the shared box. Each run below names the task it is for instead.
 
 # The seeded anthropic route would otherwise sort ahead of these two.
 q "UPDATE model_registry SET route_order = 500
@@ -122,6 +123,7 @@ ISSUES_BEFORE=$(q "SELECT count(*) FROM issues WHERE created_at > now() - interv
 
 # Run 1: the primary reports its subscription limit.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$TASK" \
   -e JARVIS_HARNESS=fake:fail -e JARVIS_FAKE_FAILURE=limit -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s25-run1.log 2>&1
 
@@ -141,6 +143,7 @@ check "Enrique was told nothing" "$ISSUES_BEFORE" "$ISSUES_AFTER"
 
 # Run 2: nothing wrong with the second engine.
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$TASK" \
   -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s25-run2.log 2>&1
 
@@ -166,6 +169,7 @@ PIN=$(q "INSERT INTO tasks (project_id,title,objective,state,lane,priority,auth_
          VALUES ('$PROJ','S25 pinned','stay put','queued','heavy','normal','$P1')
          RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1)
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$PIN" \
   -e JARVIS_HARNESS=fake:fail -e JARVIS_FAKE_FAILURE=limit -e JARVIS_HEARTBEAT_MS=1500 \
   runner >/tmp/s25-run3.log 2>&1
 check "a pinned task stays on its own profile" "$P1" \

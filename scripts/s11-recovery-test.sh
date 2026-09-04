@@ -28,29 +28,38 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
-# Each case must be the ONLY thing the one-shot runner can claim. A retryable
-# failure leaves its task queued, so without this the next case's runner picks up
-# the previous case's task and the new one never runs at all — which reads as
+# Each case must be the ONLY thing its one-shot runner can claim. A retryable
+# failure leaves its task queued, so the next case's runner used to pick up the
+# previous case's task and the new one never ran at all - which read as
 # "0 attempts" rather than as interference.
-clearqueue() {
-  q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
-  # And the engine's quota. S25 made a subscription limit mark the profile spent
-  # for five hours, which is right in production and fatal here: case 2 provokes
-  # exactly that limit, so without this every case after it parks with "every
-  # engineering route is spent" and reports zero attempts — a suite failing on
-  # the consequence of its own second case.
+#
+# That was solved by cancelling every queued, preparing and running heavy task
+# before each case, which made this suite deterministic by destroying whatever
+# else was in flight on a box several sessions share. RUNNER_TASK_ID points each
+# case's runner at its own task, so the leftovers are simply not eligible.
+#
+# The quota reset stays, and it is a different thing: S25 makes a subscription
+# limit mark the profile spent for five hours, which is right in production and
+# fatal here, because case 2 provokes exactly that limit. Without it every case
+# after the second parks with "every engineering route is spent" and reports zero
+# attempts - a suite failing on the consequence of its own second case. It is
+# still shared state, and it is still the smallest reset that makes the suite
+# mean anything.
+resetquota() {
   q "UPDATE auth_profiles SET quota_json = NULL WHERE auth_type='subscription_login';" >/dev/null
 }
 
 newtask() {
-  clearqueue
+  resetquota
   q "INSERT INTO tasks (project_id,title,objective,state,lane,priority)
      SELECT id,'$1','x','queued','heavy','normal' FROM projects WHERE slug='dev-sandbox'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
 }
+# The task id is the second argument, and it is not optional: a runner that took
+# whatever was oldest is what the cancelling above existed to prevent.
 runfail() {
   $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+    -e RUNNER_TASK_ID="$2" \
     -e JARVIS_HARNESS=fake:fail -e JARVIS_FAKE_FAILURE="$1" -e JARVIS_HEARTBEAT_MS=1500 \
     runner >/tmp/s11.log 2>&1
 }
@@ -70,7 +79,7 @@ one_failure() {
   echo "=== $label ==="
   local t; t=$(newtask "S11 $kind")
   LAST_TASK="$t"
-  runfail "$kind"
+  runfail "$kind" "$t"
   local got_cls got_state phases
   got_cls=$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$t' ORDER BY n DESC LIMIT 1;")
   got_state=$(q "SELECT state FROM tasks WHERE id='$t';")
@@ -104,7 +113,7 @@ check "not retried into a fuller disk" "1" \
 echo
 echo "=== the network is severed (retryable) ==="
 T4=$(newtask "S11 network")
-runfail network
+runfail network "$T4"
 check "classified as network.timeout" "network.timeout" \
   "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T4' ORDER BY n DESC LIMIT 1;")"
 check "requeued rather than failed" "queued" "$(q "SELECT state FROM tasks WHERE id='$T4';")"
@@ -118,7 +127,7 @@ check "its phases survived the requeue" "3" \
 echo
 echo "=== an unrecognised dirty exit stays harness.crash ==="
 T5=$(newtask "S11 crash")
-runfail crash
+runfail crash "$T5"
 check "classified as harness.crash" "harness.crash" \
   "$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T5' ORDER BY n DESC LIMIT 1;")"
 check "and is retryable" "queued" "$(q "SELECT state FROM tasks WHERE id='$T5';")"
@@ -129,7 +138,7 @@ echo "=== retries are bounded by the class, not unlimited ==="
 T6=$(newtask "S11 exhaust")
 for i in 1 2 3 4; do
   q "UPDATE tasks SET state='queued', lease_owner=NULL, lease_until=NULL WHERE id='$T6';" >/dev/null
-  runfail crash
+  runfail crash "$T6"
 done
 echo "  attempts=$(q "SELECT count(*) FROM task_attempts WHERE task_id='$T6';") state=$(q "SELECT state FROM tasks WHERE id='$T6';")"
 check "it stops retrying at the taxonomy's limit" "failed_terminal" "$(q "SELECT state FROM tasks WHERE id='$T6';")"
@@ -141,7 +150,11 @@ echo
 echo "=== L2: restart with three queued and one running ==="
 q "DELETE FROM task_context; DELETE FROM task_events; DELETE FROM task_transitions;
    DELETE FROM task_attempts; DELETE FROM tasks WHERE title LIKE 'L2 %';" >/dev/null
-clearqueue
+# No lane-wide cancel here either. It was reaching for "nothing else can be
+# claimed instead of D", but D is set running by hand two lines below and
+# recovered by the watchdog, so the cancel never protected anything this section
+# asserts - and the four tasks it does assert on are created AFTERWARDS, so they
+# were never covered by it.
 mk() { q "INSERT INTO tasks (project_id,title,objective,state,lane,priority)
           SELECT id,'$1','x','queued','heavy','normal' FROM projects WHERE slug='dev-sandbox'
           RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1; }
@@ -151,7 +164,14 @@ C=$(mk "L2 third");  sleep 1
 D=$(mk "L2 running")
 q "UPDATE tasks SET state='running', lease_owner='gone', lease_until=now()-interval '5 minutes',
    heartbeat_at=now()-interval '10 minutes' WHERE id='$D';" >/dev/null
-before=$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")
+# Scoped to THIS run's four ids, not to the title. The DELETE above cannot
+# remove earlier runs' L2 rows - issues hold a foreign key to tasks - so 156 of
+# them had accumulated, and the count also moved when another session ran this
+# same suite between the two reads: 156 before, 160 after, reported as "four
+# tasks were lost across the restart". The ordering assertion below was already
+# scoped this way for the same reason; this one had been left on the title.
+LIST="'$A','$B','$C','$D'"
+before=$(q "SELECT count(*) FROM tasks WHERE id IN ($LIST);")
 $COMPOSE restart api >/dev/null 2>&1
 JARVIS_STALL_SECONDS=5 $COMPOSE up -d --no-build worker >/dev/null 2>&1
 # The recovery ladder waits before it requeues (rung 1 is `wait`, 30s, twice),
@@ -167,7 +187,7 @@ done
 # suite that runs after this one in sweep.sh, which is the same fault
 # s4-recovery and s4-drain carried.
 $COMPOSE stop worker >/dev/null 2>&1
-check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE title LIKE 'L2 %';")"
+check "nothing was lost across the restart" "$before" "$(q "SELECT count(*) FROM tasks WHERE id IN ($LIST);")"
 check "the orphaned running task was recovered to the queue" "queued" "$st"
 # Scoped to THIS run's four ids. Matching on the title counted every earlier
 # run's L2 rows too — the DELETE above cannot remove them (issues hold a foreign

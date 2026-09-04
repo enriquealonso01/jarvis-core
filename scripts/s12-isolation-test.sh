@@ -44,11 +44,10 @@ STAMP=$(date +%s)
 ALPHA="s12fs-alpha-$STAMP"
 BETA="s12fs-beta-$STAMP"
 
-# Each probe must be the only thing the one-shot runner can claim.
-clearqueue() {
-  q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
-}
+# Each probe must be the only thing its one-shot runner can claim. That used to
+# be arranged by cancelling every queued, preparing and running heavy task -
+# which made this suite deterministic by destroying whatever else was in flight
+# on a box several sessions share. RUNNER_TASK_ID says which task instead.
 
 echo "########## L9 — the two filesystem probes ##########"
 echo
@@ -79,7 +78,6 @@ $COMPOSE run --rm --no-deps -T runner sh -c "
   printf 'session=beta-logged-in-$STAMP\n' > $BETA_COOKIES" >/dev/null 2>&1
 
 newtask() {
-  clearqueue
   q "INSERT INTO tasks (project_id,title,objective,state,lane,priority)
      SELECT id,'$1','x','queued','heavy','normal' FROM projects WHERE slug='$ALPHA'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
@@ -94,6 +92,7 @@ probe() {
   local title; title=$(printf '%s' "$label" | tr -d "'")
   local t; t=$(newtask "S12 probe $title")
   $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+    -e RUNNER_TASK_ID="$t" \
     -e JARVIS_HARNESS=fake:probe -e JARVIS_PROBE_PATH="$target" \
     -e JARVIS_HEARTBEAT_MS=1500 runner >/tmp/s12probe.log 2>&1
 
@@ -131,6 +130,7 @@ echo "=== a task reading its own workspace is not an escape ==="
 T=$(newtask "S12 control")
 SHORT=$(echo "$T" | cut -c1-8)
 $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$T" \
   -e JARVIS_HARNESS=fake:probe \
   -e JARVIS_PROBE_PATH="/var/lib/jarvis/worktrees/$ALPHA/$SHORT/README.md" \
   -e JARVIS_HEARTBEAT_MS=1500 runner >/tmp/s12control.log 2>&1

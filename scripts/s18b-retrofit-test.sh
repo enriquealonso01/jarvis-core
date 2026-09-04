@@ -28,20 +28,21 @@ bash scripts/console-rebuild.sh >/dev/null || {
   echo "  FAIL  the console did not build — see /tmp/console-build.log"
   echo "==== 0 passed, 1 failed ===="; exit 1; }
 
-clearqueue() {
-  q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
-}
-
+# This used to cancel every queued, preparing and running heavy task before each
+# fixture, so the one-shot runner could only claim the one under test. That made
+# the suite deterministic by destroying whatever else was in flight on a box
+# several sessions share; RUNNER_TASK_ID says which task instead.
 newtask() {
-  clearqueue
   q "INSERT INTO tasks (project_id,title,objective,state,lane,priority)
      SELECT id,'$1','$2','queued','heavy','normal' FROM projects WHERE slug='dev-sandbox'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
 }
 
+# First argument is the task this run is for; the rest are the env it needs.
 runner() {
+  local task="$1"; shift
   $COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+    -e RUNNER_TASK_ID="$task" \
     -e JARVIS_HEARTBEAT_MS=1500 "$@" runner >/tmp/s18b.log 2>&1
 }
 
@@ -49,7 +50,7 @@ runner() {
 echo "########## a checkpoint that records WHY, not just where ##########"
 echo
 T=$(newtask "S18b investigate this" "Find out why the cart total is wrong.")
-runner -e JARVIS_HARNESS=fake:workflow -e JARVIS_FAKE_WORKFLOW=halt_late
+runner "$T" -e JARVIS_HARNESS=fake:workflow -e JARVIS_FAKE_WORKFLOW=halt_late
 
 CP=$(q "SELECT payload::text FROM task_checkpoints WHERE task_id='$T'
         AND payload ? 'current_hypothesis' ORDER BY at DESC LIMIT 1;")
@@ -77,7 +78,7 @@ echo "=== the replacement worker continues the same hypothesis ==="
 # The halted run left phases up to `inspect`; resume and capture the prompt the
 # harness is actually given.
 q "UPDATE tasks SET state='queued', lease_owner=NULL, lease_until=NULL WHERE id='$T';" >/dev/null
-runner -e JARVIS_HARNESS=fake:echoprompt
+runner "$T" -e JARVIS_HARNESS=fake:echoprompt
 # Only the resume preamble, not the whole prompt: a failure that prints four
 # thousand characters of transcript is a failure nobody reads.
 PROMPT=$($COMPOSE run --rm --no-deps -T runner sh -c \
@@ -99,14 +100,14 @@ for kind in cpu dependency repeat; do
   esac
   T2=$(newtask "S18b $kind" "x")
   # shellcheck disable=SC2086
-  runner $harness
+  runner "$T2" $harness
   got=$(q "SELECT COALESCE(error_class,'-') FROM task_attempts WHERE task_id='$T2' ORDER BY n DESC LIMIT 1;")
   check "$want is classified" "$want" "$got"
 done
 
 # agent.repeat has an extra requirement: quote what was repeated.
 T3=$(newtask "S18b repeat evidence" "x")
-runner -e JARVIS_HARNESS=fake:repeat -e JARVIS_REPEAT_LIMIT=4
+runner "$T3" -e JARVIS_HARNESS=fake:repeat -e JARVIS_REPEAT_LIMIT=4
 contains "the repeated action is quoted in the issue" "npm test -- cart" \
   "$(q "SELECT COALESCE(evidence->>'repeated_action','') FROM issues
         WHERE task_id='$T3' ORDER BY created_at DESC LIMIT 1;")"
