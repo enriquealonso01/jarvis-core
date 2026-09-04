@@ -1417,3 +1417,63 @@ reason that had nothing to do with isolation". The suite reaps its own probe
 tasks now, so the state is gone before it can be read; the next diagnosis should
 capture the task state BEFORE teardown. Cause open, and I am not claiming
 otherwise.
+
+## ✗ s12-isolation-test 38/9 — root cause found, fix NOT landed (2026-09-03)
+
+Last tick I recorded this as open after ruling out both of my own changes. With
+`KEEP_FIXTURES=1` (PR #452) the evidence survived the run and the cause was one
+query away.
+
+**The probe tasks are not failing isolation. They are crashing:**
+
+```
+state = cancelled   error_class = worker.crash
+summary = new row for relation "tasks" violates check constraint
+          "tasks_lease_only_while_working"
+```
+
+The constraint: `lease_owner IS NULL OR state IN (preparing, running,
+waiting_for_tool, recovering)` — a lease may only be held while a task is
+actually being worked.
+
+### It comes from a migration that is in the database and not in the repo
+
+```
+schema_migrations: 063_lease_only_while_working.sql   applied
+migrations/:       does not exist
+```
+
+This is the **"a branch becomes production" class** I closed earlier in this
+loop with the orphan migrations 041/042/044/045, recurring. A migration applied
+from an unmerged branch left the dev database ahead of `main`, and `main`'s code
+does not satisfy the constraint — so the runner dies where it should park, and
+nine assertions about isolation report a failure that has nothing to do with
+isolation. The suite's own comment warns about exactly this shape.
+
+### The constraint is right, and it has caught a real inconsistency
+
+ADR 007: "parking releases the lane. A parked task is not running, and holding a
+worker slot while waiting on a human turns a handful of unauthenticated
+connections into a starved queue." `park()` (runner.ts:1026) and S46's
+`parkForAuth` both clear `lease_owner` and `lease_until`. Most other transition
+sites clear only `lease_until` — `jobs.ts:247`, `jobs.ts:274`,
+`runner.ts:1694`, `runner.ts:1738`, and the `waiting_for_provider` park at
+`runner.ts:1860`. So a parked task keeps naming an owner.
+
+### What I tried, and why it is not in main
+
+I fixed the `waiting_for_provider` site: still 38/9, so that is not the path
+being hit. I then centralised the rule in `transitionTask` — release the lease
+whenever the target state is not a working state — which is the right shape,
+because a dozen call sites each remembering a rule is the list-that-rots this
+repo keeps being bitten by. It introduced a **new** failure, `multiple
+assignments to same column "lease_until"`, that I could not account for by
+reading the code. **I reverted it rather than ship a half-fix**, and the tree is
+back to the original error.
+
+**Open, and it is not mine to close alone.** The migration belongs to whoever
+wrote it, and dropping the constraint from the dev database would erase
+work-in-progress I cannot see. The two honest resolutions are: the migration
+lands in `main` together with the code that satisfies it, or it is removed from
+the dev database. Until then this suite reports nine failures that are not about
+isolation, and no sweep including it can be green.
