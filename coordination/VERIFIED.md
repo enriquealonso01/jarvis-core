@@ -1477,3 +1477,53 @@ work-in-progress I cannot see. The two honest resolutions are: the migration
 lands in `main` together with the code that satisfies it, or it is removed from
 the dev database. Until then this suite reports nine failures that are not about
 isolation, and no sweep including it can be green.
+
+## ✓ Parking releases the lane — s12-isolation-test 38/9 → 47/0 (2026-09-03)
+
+Closes the item left open last tick. The fix is PR #454.
+
+`park()` and S46's `parkForAuth` clear both `lease_owner` and `lease_until`.
+**Eleven other call sites passed only `lease_until = NULL`**, so a parked task
+kept naming an owner. Against the orphan migration's CHECK — `lease_owner IS
+NULL OR state IN (preparing, running, waiting_for_tool, recovering)` — that
+UPDATE failed, the runner died with `worker.crash` where it should have parked,
+and nine isolation assertions reported a failure that was not about isolation.
+
+Fixed centrally in `transitionTask`, which is the one place that knows the
+target state; eleven callers each remembering a rule is the list-that-rots this
+repo keeps being bitten by. Columns already named by `extraSet` are left alone,
+because Postgres rejects two assignments to one column — that is what turned my
+first attempt into a different error last tick. **A failed transition now logs
+the statement it tried**, which is what finally pinned this down after a tick of
+reading code instead of instrumenting it.
+
+**Results, revert-tested rather than assumed:** `s12-isolation-test` 38/9 →
+**47/0**, with the probe tasks now correctly reaching `failed_terminal /
+security.isolation` — the guard doing its job rather than the runner crashing
+before it. `s1-harness-test` is 9/14 *without* this change and 15/8 *with* it, on
+a suite whose absolute numbers swing with shared state. `s28-park-test` 11/0
+unchanged.
+
+### What this looks like on the box
+
+Production does not carry the orphan migration, so the constraint was never
+there to fail — the leases were simply held in silence:
+
+```
+996 tasks hold a lease_owner while in a non-working state
+  succeeded        982
+  failed_terminal   10
+  waiting_for_user   4
+```
+
+**Stated carefully: this is not a starved queue.** The claim query filters on
+`lease_until` (`jobs.ts:170`: `lease_until IS NULL OR lease_until < now()`), not
+on `lease_owner`, so nothing was blocked from being claimed. What it is, is 996
+finished tasks still naming a runner that is not working on them — a data
+integrity and readability problem, and the reason the constraint was written.
+
+The deployed code now prevents new ones (verified: `LEASE_STATES` present in
+`src/jobs.ts` on the box). **I have not cleared the 996 historical rows.** A
+thousand-row UPDATE against production is a separate decision from a bug fix,
+nothing is currently harmed by them, and the honest sequence is to fix the
+source first and let the backfill be chosen deliberately.
