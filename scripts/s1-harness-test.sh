@@ -32,16 +32,28 @@ contains(){ case "$3" in *"$2"*) ok "$1";; *) bad "$1" "contains '$2'" "$3";; es
 q() { $PSQL -c "$1" | tr -d '\r'; }
 
 # S11 made several failure classes retryable, so a failed variant leaves its task
-# QUEUED. Without this, the next variant's one-shot runner claims the previous
-# variant's leftover and the new task is never run at all — which shows up as an
-# empty error_class rather than as interference.
-clearqueue() {
+# QUEUED, and the next variant's one-shot runner used to claim that leftover
+# instead of the new task - which showed up as an empty error_class rather than
+# as interference.
+#
+# The old remedy was to cancel EVERY queued, preparing and running heavy task
+# before each of the seven variants. That fixed this suite by destroying whatever
+# else was in flight anywhere on the box, and on a box several sessions share it
+# reached into other people's runs: it is what cancelled s4-drain's finished task
+# and made a green run look red.
+#
+# RUNNER_TASK_ID points each variant's runner at its own task, so the leftovers
+# are simply not eligible and nothing has to be cancelled to make that true. What
+# this suite created it tidies at the end - and nothing else.
+MADE=""
+tidy() {
+  [ -n "$MADE" ] || return 0
   q "UPDATE tasks SET state='cancelled', lease_owner=NULL, lease_until=NULL
-     WHERE lane='heavy' AND state IN ('queued','preparing','running');" >/dev/null
+     WHERE id IN ($MADE) AND state NOT IN ('succeeded','failed_terminal','cancelled');" >/dev/null
 }
+trap tidy EXIT
 
 new_task() {
-  clearqueue
   q "INSERT INTO tasks (project_id, title, objective, state, lane, priority)
      SELECT id, '$1', '$2', 'queued', 'heavy', 'normal' FROM projects WHERE slug = 'dev-sandbox'
      RETURNING id;" | grep -oiE '^[0-9a-f-]{36}$' | head -1
@@ -51,6 +63,7 @@ run_variant() {
   local harness="$1" silence="${2:-}" runlimit="${3:-}"
   $COMPOSE run --rm --no-deps -T \
     -e RUNNER_ONCE=1 \
+    -e RUNNER_TASK_ID="$id" \
     -e RUNNER_IDLE_EXIT_MS=8000 \
     -e JARVIS_HARNESS="$harness" \
     ${silence:+-e JARVIS_SILENCE_LIMIT_MS=$silence} \
@@ -65,6 +78,7 @@ for v in $VARIANTS; do
   echo
   echo "=== variant: $v ==="
   id=$(new_task "s1 $v" "Fix the login bug in app.js and commit it.")
+  MADE="${MADE:+$MADE,}'$id'"
   case "$v" in
     ok)      run_variant "fake" ;;
     noop)    run_variant "fake:noop" ;;

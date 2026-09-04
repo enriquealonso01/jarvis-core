@@ -161,14 +161,16 @@ check "refusals audited too" "3" \
 # --------------------------------------- 8. the effect, not the row about it
 echo
 echo "=== 8. a task created this way is really executed by the heavy lane ==="
-# Park everything already queued so the one-shot runner claims the task under
-# test and not a leftover from an earlier section.
-q "UPDATE tasks SET state='cancelled', lease_until=NULL WHERE state='queued';" >/dev/null
 say "Please wire it end to end" >/dev/null
 tid=$(q "SELECT id FROM tasks WHERE title = 'Wire it end to end' ORDER BY created_at DESC LIMIT 1;")
 check "the task is queued on the heavy lane" "queued|heavy"   "$(q "SELECT state||'|'||lane FROM tasks WHERE id = '$tid';")"
 
-$COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000   -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=2000 runner >/tmp/s2-runner.log 2>&1
+# Pointed at this task. This section used to cancel EVERY queued task on every
+# lane so the one-shot runner would claim the one under test - which took out
+# other sessions' work as well as earlier sections'.
+$COMPOSE run --rm --no-deps -T -e RUNNER_ONCE=1 -e RUNNER_IDLE_EXIT_MS=8000 \
+  -e RUNNER_TASK_ID="$tid" -e JARVIS_HARNESS=fake -e JARVIS_HEARTBEAT_MS=2000 \
+  runner >/tmp/s2-runner.log 2>&1
 
 state=$(q "SELECT state FROM tasks WHERE id = '$tid';")
 branch=$(q "SELECT COALESCE(branch,'') FROM tasks WHERE id = '$tid';")
