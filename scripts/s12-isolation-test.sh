@@ -151,6 +151,21 @@ hf=$(grep -oE '[0-9]+ failed' /tmp/s12http.log | grep -oE '[0-9]+')
 pass=$((pass + ${hp:-0}))
 fail=$((fail + ${hf:-1}))
 
+# Take the two filesystem-probe projects back out.
+#
+# The TypeScript half of this suite tears down its own fixtures; this wrapper
+# creates two more with psql directly and never removed them. 25 of each had
+# accumulated. That is not inert: Stage B's rule 4 correlates a message to the
+# same sender and channel inside ten minutes, so a leftover project's thread
+# becomes an attractor that later messages join - which is exactly how
+# s37-untrusted-test came to fail on three assertions about forwards.
+#
+# Through the reaper rather than a DELETE here, because a project has 29 tables
+# pointing at it and one of those references has to be nulled rather than
+# followed. That logic lives in _teardown.ts and should not be written twice.
+$COMPOSE run --rm --no-deps -T runner   node --import tsx scripts/reap-fixture-projects.ts "s12fs-alpha-%" "s12fs-beta-%"   >/dev/null 2>&1 || echo "warning: could not reap the s12fs fixtures" >&2
+
+
 echo
 echo "==== $pass passed, $fail failed ===="
 [ "$fail" -eq 0 ]
