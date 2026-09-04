@@ -1578,3 +1578,53 @@ attractor (`s37-untrusted-test`, 22/3 → 25/0). Two pass alone. Five remain, al
 small. None of the fourteen turned out to be a feature that does not work — they
 were shared state, an unmerged migration, and two genuine product bugs found
 along the way (cancel not being final; parking not releasing the lane).
+
+## ✓ progress-endpoint-test — 12/1 → 13/0, and it was my tooling again (2026-09-03)
+
+Not a product bug. The suite compares what `/PROGRESS.json` serves against the
+file on disk, and the API serves the copy baked into **its** image:
+
+```
+disk : 2026-09-04T02:26:51Z
+api  : 2026-09-04T00:59:11Z
+```
+
+So it was reading an API built before the Builder last touched the file.
+
+**The reason this took a tick rather than a minute is worth recording.**
+`suite.sh` exists to stop a suite running against stale code, and I have leaned
+on it all loop. Its guarantee was **half a guarantee**: suites run inside the
+`runner` image, so that is what it rebuilt — but a good number of them reach the
+API over HTTP, and the API is a different image. Rebuilding the runner and
+re-running changed nothing, which is precisely what made this look like a
+product failure rather than a stale container.
+
+Fixed in PR #460: `suite.sh` now rebuilds **api and runner**, through
+`dev-rebuild.sh` rather than a bare `build`, because the API has to be
+*restarted* to serve the new image — building it and leaving the old container
+running would be a more convincing version of the same lie.
+
+**Fourth time this loop that staleness has been mistaken for a failure**, and
+the first where the script I built to prevent it was the thing giving the false
+assurance. The others: a suite run against a pre-change runner image (which is
+why `suite.sh` exists), `SWEEP_SKIP_BUILD=1` skipping the stack bring-up, and
+running `docker compose run` directly against an image that predated an
+uncommitted file.
+
+## ✗ s11-recovery-test — 24/2, four assertions, cause not yet found (2026-09-03)
+
+Reproducible alone:
+
+```
+FAIL  classified as harness.crash            expected: harness.crash
+FAIL  and is retryable                       expected: queued
+FAIL  and the three queued tasks are still queued   expected: 3
+FAIL  order preserved: oldest first          expected: L2 first
+```
+
+The first is the interesting one — the expectation and the actual are the *same
+string* in the output, which means the comparison is against something that is
+not there at all (an empty or absent classification reads as a mismatch with its
+own expected value in this harness's `check` format). Not diagnosed. Recorded
+with the exact output so the next attempt starts from evidence rather than from
+my memory of it.
