@@ -1,10 +1,13 @@
 # Jarvis V1 documentation
 
-v1.2 of the master plan is the **current product baseline** (ADR 012). v1.1 is historical. Everything else in this folder specifies mechanics so implementation does not invent architecture.
+Master plan **V2** is the **current product baseline** (it supersedes the frozen
+v1.2 plan; ADR 012 seeded v1). Everything else in this folder specifies
+mechanics so implementation does not invent architecture.
 
 ## Product
 
-- [JARVIS_V1_MASTER_PLAN_v1.2.md](JARVIS_V1_MASTER_PLAN_v1.2.md) — canonical product, security, and preference decisions
+- [JARVIS_MASTER_PLAN_V2.md](JARVIS_MASTER_PLAN_V2.md) — **current** product, security, and preference decisions
+- [JARVIS_V1_MASTER_PLAN_v1.2.md](JARVIS_V1_MASTER_PLAN_v1.2.md) — superseded by V2 (kept frozen; `GAP_ANALYSIS.md` explains why)
 - [JARVIS_V1_MASTER_PLAN_v1.1.md](JARVIS_V1_MASTER_PLAN_v1.1.md) — historical (named TicketFlipping tenant; superseded)
 
 ## Implementation (read before coding)
