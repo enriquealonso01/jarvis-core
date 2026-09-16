@@ -47,6 +47,11 @@ mechanics so implementation does not invent architecture.
 | [012](adr/012-v1-seed-projects-only.md) | Seed only Improvement and Maintenance; no named customer project |
 | [013](adr/013-first-slice-and-bootstrap.md) | Talk slice + Supervisor loop (hosting superseded by 014) |
 | [014](adr/014-netcup-only-full-provider-bootstrap.md) | Netcup only; collect all declared providers at setup |
+| [015](adr/015-heavy-runner-execution-model.md) | Heavy runner: host-side `jarvis-runner.service` as the `jarvis` user, outside Compose |
+| [016](adr/016-per-project-unix-users.md) | Per-project unix isolation via `sudo setpriv`; runner never root |
+| [017](adr/017-quota-as-a-routing-input.md) | Quota (from `auth_profiles.quota_json`) is a routing input; model list cut to what serves |
+| [018](adr/018-project-instructions-are-canonical-in-the-database.md) | `project_instructions_versions` row is canonical; committed `AGENTS.md` is a rendering |
+| [019](adr/019-postgres-search-before-embeddings.md) | Postgres FTS (`tsvector` + GIN, `ts_rank_cd`, tiered) before embeddings |
 
 New architectural change: copy `adr/TEMPLATE.md`, increment the number, get user approval if it touches isolation, billing, or always-confirm.
 
