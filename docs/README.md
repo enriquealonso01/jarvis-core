@@ -28,6 +28,20 @@ mechanics so implementation does not invent architecture.
 - [FIRST_SLICE.md](FIRST_SLICE.md) — first slice **on Netcup**
 - [SUPERVISOR.md](SUPERVISOR.md) — turn loop and tool catalog
 - [NETCUP_BOOTSTRAP.md](NETCUP_BOOTSTRAP.md) — I cannot order the VPS via API; you order, then SCP for Jarvis
+- [RUNNER_DEPLOY.md](RUNNER_DEPLOY.md) — deploy the heavy-lane runner on the host (plan S4)
+
+## Diagnostics and history (read for context, not as instructions)
+
+- [GAP_ANALYSIS.md](GAP_ANALYSIS.md) — why v1 ended up with a chassis and no engine (a past-state diagnosis; much has since been fixed)
+- [DEBUG_NOTES.md](DEBUG_NOTES.md) — bugs already paid for; read the section for whatever you are about to touch, before you touch it
+- [SKILLS_RESEARCH_ROUND1.md](SKILLS_RESEARCH_ROUND1.md) — round-1 skill research (read-only review)
+- [SKILLS_ROUND1_APPROVED.md](SKILLS_ROUND1_APPROVED.md) — round-1 approved skills with check-before-trust safety notes
+
+## Superseded (kept frozen; do not build from these)
+
+- [PLAN_COVERAGE.md](PLAN_COVERAGE.md) — maps the v1.2 plan's 91 sections; superseded by the V2 plan's own Appendix
+- [BUILD_ORDER.md](BUILD_ORDER.md) — Step 0–6 sequencing predates S1–S57; kept for the six decisions it records
+- [INITIAL_MODEL_ROUTING.md](INITIAL_MODEL_ROUTING.md) — the pre-V2 model routes are dead; superseded by the plan §VI.0
 
 ## Architecture decisions
 
