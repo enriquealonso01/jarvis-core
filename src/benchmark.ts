@@ -242,7 +242,15 @@ export async function loadCases(root: string): Promise<BenchmarkCase[]> {
     const dir = path.join(root, "cases", id);
     const raw = await fs.readFile(path.join(dir, "case.json"), "utf8").catch(() => null);
     if (!raw) continue;
-    const c = JSON.parse(raw) as Omit<BenchmarkCase, "dir">;
+    let c: Omit<BenchmarkCase, "dir">;
+    try {
+      c = JSON.parse(raw) as Omit<BenchmarkCase, "dir">;
+    } catch {
+      // One typo'd case.json must not abort the whole corpus load (the s29-*
+      // scripts sweep every case under benchmarks/); warn and move on.
+      console.error(`[benchmark] skipping case ${id}: case.json is not valid JSON`);
+      continue;
+    }
     out.push({ ...c, dir });
   }
   return out;
