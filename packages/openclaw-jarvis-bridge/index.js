@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import fsp from "node:fs/promises";
-import { looksUnpaired } from "./classify.js";
+import { audioFrom, looksForwarded, looksUnpaired } from "./classify.js";
 import { definePluginEntry } from "openclaw/plugin-sdk/core";
 
 // OpenClaw loads this file as plain JavaScript. It must stay valid JS — no type
@@ -53,47 +53,7 @@ export async function ingestToJarvis(payload) {
   return { ok: res.ok, status: res.status, json };
 }
 
-/**
- * Did the channel say somebody else wrote this?
- *
- * WhatsApp marks a forward on the message, and the adapter surfaces it under
- * one of several names depending on version, so all the plausible ones are
- * checked. The bridge only REPORTS what the channel said; Jarvis decides what
- * it means (S37, `splitAuthorship`). Getting this wrong in the permissive
- * direction is the injection the untrusted-content rule exists to prevent.
- */
-export function looksForwarded(msg) {
-  return Boolean(
-    msg?.isForwarded ?? msg?.is_forwarded ?? msg?.forwarded
-    ?? msg?.contextInfo?.isForwarded
-    ?? (typeof msg?.contextInfo?.forwardingScore === "number"
-      && msg.contextInfo.forwardingScore > 0),
-  );
-}
 
-/**
- * Is this a voice note, and where are its bytes?
- *
- * The WhatsApp plugin carries media as some combination of `mediaKind`,
- * `mediaBuffer`, `mediaPath` and `mediaUrl` - all four names are present in its
- * bundle, and which of them reaches this hook cannot be known until a real
- * message arrives, because the channel is not paired yet. So all three carriers
- * are handled and the shape is logged once when media appears: the first voice
- * note Enrique sends will say which is true, in the log, instead of failing
- * silently.
- */
-export function audioFrom(msg) {
-  const kind = msg?.mediaKind ?? msg?.mediaType ?? msg?.type ?? "";
-  const mime = msg?.mediaMime ?? msg?.mimetype ?? msg?.mimeType ?? "";
-  const looksAudio = /audio|voice|ptt/i.test(String(kind)) || /^audio\//i.test(String(mime));
-  if (!looksAudio) return null;
-  return {
-    mime: mime || "audio/ogg",
-    buffer: msg?.mediaBuffer ?? msg?.buffer ?? null,
-    path: msg?.mediaPath ?? msg?.path ?? null,
-    url: msg?.mediaUrl ?? (Array.isArray(msg?.mediaUrls) ? msg.mediaUrls[0] : null),
-  };
-}
 
 async function audioBase64(audio, log) {
   try {
