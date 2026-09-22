@@ -4,7 +4,7 @@
 - Date: 2026-09-01
 - Source of requirements: Enrique's planning transcript (25 messages), plus every decision taken since.
 - Diagnosis this responds to: `docs/GAP_ANALYSIS.md`.
-- ADRs 001–015 remain in force. Where this document and an ADR disagree on **mechanics**, the ADR wins. On **product**, this document wins.
+- ADRs 001–019 remain in force. Where this document and an ADR disagree on **mechanics**, the ADR wins. On **product**, this document wins.
 
 This is written to be executed by **one agent, sequentially**. Part III is thirty steps in order; every one of them carries its own Build, Test, Debug and Done-when. Part IX is the working discipline.
 
