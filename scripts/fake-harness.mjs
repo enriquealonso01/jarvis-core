@@ -26,6 +26,9 @@
  *   context  — wait for mid-run context, act on it        -> S3c, delivered at a checkpoint
  *   errorresult — is_error with an EMPTY result string    -> S4, must not be a blank summary
  *   errortool — a tool_result with is_error                -> S29, the run's failures are recorded
+ *   echoprompt — puts the handed-over prompt in the transcript -> S18b, asserts what the harness was TOLD
+ *   fixtest   — applies a real fix to a real failing test   -> S8, the seeded test goes red -> green
+ *   fail      — prints a real-looking failure and exits 1   -> JARVIS_FAKE_FAILURE picks the taxonomy class
  *   workflow  — the S6 engineering loop, phase by phase   -> JARVIS_FAKE_WORKFLOW picks the outcome
  */
 import { spawnSync } from "node:child_process";
