@@ -278,6 +278,8 @@ async function main() {
     // workflow:prefail-> verdict pre_existing_failure
     // workflow:silent -> does the work but writes NO outcome.json
     // workflow:halt   -> stops partway, for the resume test
+    // workflow:halt_late -> stops after root_cause: hypothesis formed, not acted on (S18b)
+    // workflow:noreprocrash -> could not reproduce, then crashed mid-report
     const mode = (process.env.JARVIS_FAKE_WORKFLOW ?? "full");
     init();
     const jdir = path.join(cwd, ".jarvis");
