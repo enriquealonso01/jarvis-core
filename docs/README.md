@@ -37,6 +37,12 @@ mechanics so implementation does not invent architecture.
 - [SKILLS_RESEARCH_ROUND1.md](SKILLS_RESEARCH_ROUND1.md) — round-1 skill research (read-only review)
 - [SKILLS_ROUND1_APPROVED.md](SKILLS_ROUND1_APPROVED.md) — round-1 approved skills with check-before-trust safety notes
 
+### Acceptance records (evidence, not instructions)
+
+- [acceptance/2026-08-31-acceptance.md](acceptance/2026-08-31-acceptance.md) — acceptance run against `jarvis.enriquecodes.com`: 9 checks, all PASS
+- [acceptance/2026-09-01-acceptance.md](acceptance/2026-09-01-acceptance.md) — acceptance run: 33 checks, all PASS (queue survives restart, watchdog recovery trail)
+- [acceptance/2026-09-01-overnight-loop.md](acceptance/2026-09-01-overnight-loop.md) — overnight loop log: supervisor failover rebuilt, then per-tick changes with what was verified live
+
 ## Superseded (kept frozen; do not build from these)
 
 - [PLAN_COVERAGE.md](PLAN_COVERAGE.md) — maps the v1.2 plan's 91 sections; superseded by the V2 plan's own Appendix
