@@ -745,3 +745,16 @@ unblocked, finish it before starting anything new.
   whole system. It is recorded as S37's first build item, before any pairing.
   If he wants WhatsApp sooner, S37 moves ahead of S26–S36; otherwise it waits.
 - **Raised:** 2026-09-02 17:05Z
+
+## The nightly GH job was silently blocked for three nights by a dead WhatsApp delivery target
+
+- **Step:** operational, found 2026-09-30 when Enrique noticed the empty
+  contribution square for 2026-09-29
+- **Blocked on:** nothing — resolved same day.
+- **What happened:** `gh-nightly-contributions` (cron d5fd550e39d3, 1AM ET)
+  still delivered to `whatsapp`; after the Ultramultra account stopped paying
+  (2026-09-24) preflight refused to run the agent, so the nights of 09-28,
+  09-29 and 09-30 produced no commits and no alert reached anyone.
+- **Resolution:** deliver target moved to Signal (mirroring the morning
+  report), and the prompt now requires one verified push to an own repo per
+  night plus a truthful PROGRESS.json evidence fallback.
