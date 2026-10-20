@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "NIGHTLY 10/19: PR #2338 (crawlee skip_navigation) open, branch current with master 673098c (v1.10.1 cut 10/18, no rebase needed); labeler+toolkit SUCCESS, full test matrix not yet triggered (likely maintainer workflow approval) - watch for review. #8815 now ASSIGNED to maintainer dsfaccini (10/13): pydantic-ai resubmission path closed for good, branch+patch remain warm. OSC sweep 10/19: browser-use #6115 drew 2 competing PRs <24h (#6124,#6116); scrapy #8297 has competing PR #8303, our patch superseded; crawlee pool this week is v2-alignment debt (#2313/#2312/etc) needing maintainer context, skipped. No new candidate tonight - pool dry, watchlisted #2338 stands as the active play."
+      "evidence": "NIGHTLY 10/20: NEW CANDIDATE crawlee-python #2312 (Session.retire terminal, unassigned) implemented on fix/session-retire-terminal-2312 @1672126 on master 610fbcb - retired flag on Session+SessionModel, mark_good cannot revive, pool prunes retired; 41/41 session tests, ruff clean; patch /root/projects/oscp/crawlee-python-2312-session-retire-terminal.patch (NOT submitted - v2-gated: vdusek closed our #2259 dup 9/29 as v2-scoped, and 10/19 asked #2338 to target v2). PR #2338: vdusek CHANGES_REQUESTED 10/19 'should target v2 branch' - retarget or wait for v2 opening. #2008/#2313 also v2-scoped; pydantic-ai #10530/#10538 now closed upstream (not ours). exa8981 inbox 10 GitHub mails/2d, all jarvis-ios Maestro QA failures (his solo repo, hands-off). Prior night 10/19: pool dry, #2338 current with master 673098c, #8815 assigned to maintainer - path closed."
     }
   ],
   "gates": {
