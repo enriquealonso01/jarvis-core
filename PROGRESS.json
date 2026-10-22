@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "NIGHTLY 10/20: NEW CANDIDATE crawlee-python #2312 (Session.retire terminal, unassigned) implemented on fix/session-retire-terminal-2312 @1672126 on master 610fbcb - retired flag on Session+SessionModel, mark_good cannot revive, pool prunes retired; 41/41 session tests, ruff clean; patch /root/projects/oscp/crawlee-python-2312-session-retire-terminal.patch (NOT submitted - v2-gated: vdusek closed our #2259 dup 9/29 as v2-scoped, and 10/19 asked #2338 to target v2). PR #2338: vdusek CHANGES_REQUESTED 10/19 'should target v2 branch' - retarget or wait for v2 opening. #2008/#2313 also v2-scoped; pydantic-ai #10530/#10538 now closed upstream (not ours). exa8981 inbox 10 GitHub mails/2d, all jarvis-ios Maestro QA failures (his solo repo, hands-off). Prior night 10/19: pool dry, #2338 current with master 673098c, #8815 assigned to maintainer - path closed."
+      "evidence": "NIGHTLY 10/22: crawlee-python v2 branch went PUBLIC 10/21 (head 51efb37) - vdusek's #2338 retarget condition MET. Rebased skip_navigation fix onto v2 as fix/skip-navigation-2311-v2 @05543bf (dropped last_proxy_tier/forefront hunks removed upstream in #2336; kept v2's 8 new ConcurrencySystem tests). Verified on v2: test_basic_crawler.py 146 passed/1 skipped (incl. both skip_navigation regressions), test_request+test_router 14 passed, ruff check+format clean. RETARGET PLAN staged (9AM gate): push v2 branch to fork, PATCH PR #2338 base=v2, review-reply comment; details /root/projects/oscp/crawlee-python-2338-v2-RETARGET-PROPOSAL.md + patch -2338-v2.patch. #2312 (Session.retire terminal) still staged, now directly submittable against real v2 - next candidate. pydantic-ai sweep: #10966 (anthropic tool_search dropped on direct API, concrete bug w/ repro+fix sketch) new candidate, but label pydanty:is-working = maintainer mid-flight, skipped; rest maintainer-filed/tracking. exa8981: 0 GitHub notification mails in last 3d (himalaya). Prev: NIGHTLY 10/20: NEW CANDIDATE crawlee-python #2312 (Session.retire terminal, unassigned) implemented on fix/session-retire-terminal-2312 @1672126 on master 610fbcb - retired flag on Session+SessionModel, mark_good cannot revive, pool prunes retired; 41/41 session tests, ruff clean; patch /root/projects/oscp/crawlee-python-2312-session-retire-terminal.patch (NOT submitted - v2-gated: vdusek closed our #2259 dup 9/29 as v2-scoped, and 10/19 asked #2338 to target v2). PR #2338: vdusek CHANGES_REQUESTED 10/19 'should target v2 branch' - retarget or wait for v2 opening. #2008/#2313 also v2-scoped; pydantic-ai #10530/#10538 now closed upstream (not ours). exa8981 inbox 10 GitHub mails/2d, all jarvis-ios Maestro QA failures (his solo repo, hands-off). Prior night 10/19: pool dry, #2338 current with master 673098c, #8815 assigned to maintainer - path closed."
     }
   ],
   "gates": {
