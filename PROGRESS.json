@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "NIGHTLY 10/24: PR #2338 (crawlee skip_navigation, base v2) quiet - only our retarget comment, 0 review replies, AI-review/factory checks done, rest of the matrix still awaiting maintainer workflow approval; no rebase drift (v2 head still 51efb37). pydantic-ai #11125 (our prepared HF tool-call-arguments fix) now ASSIGNED (canblmz1, closed) - do not submit, watch ends. NEW OSC CANDIDATE: psf/requests #7627 (stale pre-3.12 OrderedDict repr in from_key_val_list docstring, unassigned, no competing PR) - 2-line docs fix committed as 6eb8005 on fix/from-key-val-list-docstring-repr-7627 (origin/main 611c616); tests/test_utils.py 216 passed/13 skipped; CI doctests only cover tests/ (testpaths), so the 3.10/3.11 repr difference cannot break CI; patch /root/projects/oscp/requests-7627.patch + proposal -7627-PR-PROPOSAL.md; CAUTION: issue author offered their own PR - check for a maintainer invitation before submitting. Sweep: browser-use #6173 (Element.click press-error masking) drawn by 2 PRs (#6174, #6187) - skipped; browser-use PR #6019 still open but BEHIND upstream - rebaseline queued; crawlee pool still v2-alignment debt (#2313/#2312/#2310...), #2312 staged and now directly submittable against public v2 (next candidate); pydantic-ai fresh pool (11170-11201) is mostly internal contract-manifest/durable-exec work, 11177-11181 fit but pydantic-ai assignment gate blocks submissions. exa8981: 0 GitHub notification mails in last 3d (himalaya). Prev: NIGHTLY 10/23: PR #2338 RETARGET EXECUTED (vdusek's CHANGES_REQUESTED asked exactly this): force-pushed rebased fix/skip-navigation-2311 (05543bf, on v2@51efb37) to the fork, PATCHed PR base master->v2, replied comment; verified base=v2, head=05543bf, mergeable=true, no longer conflicting; CI (PR) awaits maintainer approval (normal fork-PR gate). pydantic-ai #11125 fix was prepared on fix/hf-toolcall-arguments @7dd51858, wire-verified, NOT submitted (unassigned; assignment gate). #6019 behind, anthropic SDK v2.1.0 rebaseline queued."
+      "evidence": "10/25 nightly — #2338 quiet on v2 (no review reply, CI awaiting maintainer approval). pydantic-ai #8815 now ASSIGNED to someone else — resubmission path closed, keep patch warm only. NEW OSC candidate prepared: apify/crawlee-python #2350 (robots.txt UTF-8 BOM makes Protego drop the first rule group; fix = decode utf-8-sig in RobotsTxtFile.load) — red-green tested, 18/18 robots tests pass, ruff clean, patch + PR proposal in /root/projects/oscp. Not submitted (awaits 9AM OK). requests #7627 still open/unassigned, held in reserve."
     }
   ],
   "gates": {
