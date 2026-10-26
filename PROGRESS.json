@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-10-24T05:30:00Z",
+  "updated_at": "2026-10-26T05:01:59Z",
   "current_step": "S54",
   "steps": [
     {
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/25 nightly — #2338 quiet on v2 (no review reply, CI awaiting maintainer approval). pydantic-ai #8815 now ASSIGNED to someone else — resubmission path closed, keep patch warm only. NEW OSC candidate prepared: apify/crawlee-python #2350 (robots.txt UTF-8 BOM makes Protego drop the first rule group; fix = decode utf-8-sig in RobotsTxtFile.load) — red-green tested, 18/18 robots tests pass, ruff clean, patch + PR proposal in /root/projects/oscp. Not submitted (awaits 9AM OK). requests #7627 still open/unassigned, held in reserve."
+      "evidence": "10/26 nightly — #2338 (crawlee v2) still quiet: open, not merged, no review activity since the 10/23 retarget, head 05543bf5 unchanged. #2350 (robots.txt UTF-8 BOM) still open/unassigned — patch rebased onto current origin/master 1603c1c, reformatted with repo ruff, 18/18 robots tests + lint clean, refreshed at /root/projects/oscp/0001-fix-strip-UTF-8-BOM-when-parsing-robots.txt.patch. Still awaiting 9AM OK to submit. requests #7627 still held in reserve. Email scan: 0 GitHub notification mails."
     }
   ],
   "gates": {
