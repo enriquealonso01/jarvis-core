@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-10-26T05:01:59Z",
+  "updated_at": "2026-10-27T06:08:52Z",
   "current_step": "S54",
   "steps": [
     {
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/26 nightly — #2338 (crawlee v2) still quiet: open, not merged, no review activity since the 10/23 retarget, head 05543bf5 unchanged. #2350 (robots.txt UTF-8 BOM) still open/unassigned — patch rebased onto current origin/master 1603c1c, reformatted with repo ruff, 18/18 robots tests + lint clean, refreshed at /root/projects/oscp/0001-fix-strip-UTF-8-BOM-when-parsing-robots.txt.patch. Still awaiting 9AM OK to submit. requests #7627 still held in reserve. Email scan: 0 GitHub notification mails."
+      "evidence": "10/27 nightly: #2338 reworked per vdusek's full 10/26 review (JS-style per-middleware skip guards, non-retryable NavigationSkippedError, copy/pickle-safe proxy, 8 new Mock-based tests; 203+139+209 pass, ruff/ty clean) - commit 26e65cf on fix/skip-navigation-rework, patch crawlee-python-2338-v3.patch ready, NOT pushed (9AM OK)"
     }
   ],
   "gates": {
