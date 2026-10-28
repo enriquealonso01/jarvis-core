@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/27 nightly: #2338 reworked per vdusek's full 10/26 review (JS-style per-middleware skip guards, non-retryable NavigationSkippedError, copy/pickle-safe proxy, 8 new Mock-based tests; 203+139+209 pass, ruff/ty clean) - commit 26e65cf on fix/skip-navigation-rework, patch crawlee-python-2338-v3.patch ready, NOT pushed (9AM OK)"
+      "evidence": "10/28 nightly: #2338 branch rebased onto v2 @0ed0abdc (one trivial test-import conflict resolved), 9 skip tests green, ready to push pending 9AM OK. NEW candidate #2337 (generic STATUS_MESSAGE event port): implemented on feat/status-message-2337 \u2014 Event.CRAWLER_STATUS->STATUS_MESSAGE, EventStatusMessageData with terminal flag+level (camelCase wire), terminal 'Finished!' summary emitted while event managers active, v2 upgrading guide updated; 1638 unit tests pass (1 pre-existing otel failure on clean main), ruff clean. Patch crawlee-python-2337.patch + PR proposal ready, NOT submitted."
     }
   ],
   "gates": {
