@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-10-27T06:08:52Z",
+  "updated_at": "2026-10-29T05:05:59Z",
   "current_step": "S54",
   "steps": [
     {
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/28 nightly: #2338 branch rebased onto v2 @0ed0abdc (one trivial test-import conflict resolved), 9 skip tests green, ready to push pending 9AM OK. NEW candidate #2337 (generic STATUS_MESSAGE event port): implemented on feat/status-message-2337 \u2014 Event.CRAWLER_STATUS->STATUS_MESSAGE, EventStatusMessageData with terminal flag+level (camelCase wire), terminal 'Finished!' summary emitted while event managers active, v2 upgrading guide updated; 1638 unit tests pass (1 pre-existing otel failure on clean main), ruff clean. Patch crawlee-python-2337.patch + PR proposal ready, NOT submitted."
+      "evidence": "10/29 nightly: NEW candidate #2313 (memory storage clients store copies of dataset items and KVS values) implemented on fix/memory-storage-snapshots @upstream/master 5c3ac850 \u2014 dataset _push_item stores a JSON snapshot, KVS set/get store+return independent snapshots, non-JSON values rejected like file/SQL clients; 4 new unit tests, 943 tests green, ruff clean. Patch crawlee-python-2313-memory-storage-copies.patch + PR proposal ready, NOT submitted (needs 9AM OK). Status: #2338 still rebased+green holding for OK; #2337 ready holding for OK; pydantic-ai #8815 now ASSIGNED to dsfaccini \u2014 resubmission path dead, patch retired."
     }
   ],
   "gates": {
