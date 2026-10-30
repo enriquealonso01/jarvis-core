@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/29 nightly: NEW candidate #2313 (memory storage clients store copies of dataset items and KVS values) implemented on fix/memory-storage-snapshots @upstream/master 5c3ac850 \u2014 dataset _push_item stores a JSON snapshot, KVS set/get store+return independent snapshots, non-JSON values rejected like file/SQL clients; 4 new unit tests, 943 tests green, ruff clean. Patch crawlee-python-2313-memory-storage-copies.patch + PR proposal ready, NOT submitted (needs 9AM OK). Status: #2338 still rebased+green holding for OK; #2337 ready holding for OK; pydantic-ai #8815 now ASSIGNED to dsfaccini \u2014 resubmission path dead, patch retired."
+      "evidence": "10/30 nightly: NEW candidate apify/crawlee-python #2363 (rename internal KVS records to __UPPER_SNAKE) implemented on feat/kvs-upper-snake-2363 @upstream/v2 57740f44 — crawler state __CRAWLER_STATE_{id}, per-instance __SESSION_POOL_STATE_{pool_id} (SessionPool now has a class-level id counter), __REQUEST_LIST_STATE_{name}, __RENDERING_TYPE_PREDICTOR_STATE, __REQUEST_QUEUE_STATE_{id}; 2944 unit tests green (1 parsel failure pre-exists on clean v2), ruff clean. Patch crawlee-python-2363.patch + PR proposal ready, NOT submitted (needs 9AM OK). Status: #2313, #2337, #2338 all still implemented+green, holding for OK; pydantic-ai #8815 assigned to dsfaccini, path dead."
     }
   ],
   "gates": {
