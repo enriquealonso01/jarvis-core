@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "10/31-11/1 nightly: crawlee #2363 cherry-picked onto v2 tip 51efb372 (post-#2322), unit suite green excl. pre-existing parsel xhtml-as-xml; ruff clean; patch regenerated; still unsubmitted (9AM OK). Held: #2313/#2337/#2338 (vdusek 10/26 comment unanswered)."
+      "evidence": "11/2 nightly: crawlee #2363 rebased clean onto v2 tip a65cd995 (post-#2371 unique-key casing fix), 3134 unit tests green (only pre-existing parsel xhtml-as-xml excluded), ruff clean, 127-line patch regenerated; still unsubmitted (9AM OK). Held: #2313/#2337/#2338 (vdusek 10/26 comment still unanswered)."
     }
   ],
   "gates": {
