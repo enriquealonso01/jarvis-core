@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "11/2 nightly: crawlee #2363 rebased clean onto v2 tip a65cd995 (post-#2371 unique-key casing fix), 3134 unit tests green (only pre-existing parsel xhtml-as-xml excluded), ruff clean, 127-line patch regenerated; still unsubmitted (9AM OK). Held: #2313/#2337/#2338 (vdusek 10/26 comment still unanswered)."
+      "evidence": "11/3 nightly: crawlee #2363 held (no maintainer reply since vdusek 10/26); crawlee #2008 CLOSED 10/31 — fixed by maintainer #2371, our candidate retired, no action. New OSC candidate staged: scrapy/scrapy #8449 (CONCURRENT_REQUESTS_PER_DOMAIN=0 hangs crawl) — patch on fix/per-domain-zero-concurrency, 14+93 tests green, ruff clean, proposal + patch in oscp/. pydantic-ai #8815 now ASSIGNED to dsfaccini: #9763 stays dead, do not resubmit; branch/patch kept warm only."
     }
   ],
   "gates": {
