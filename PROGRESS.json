@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-11-01T05:13:04Z",
+  "updated_at": "2026-11-04",
   "current_step": "S54",
   "steps": [
     {
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "11/3 nightly: crawlee #2363 held (no maintainer reply since vdusek 10/26); crawlee #2008 CLOSED 10/31 — fixed by maintainer #2371, our candidate retired, no action. New OSC candidate staged: scrapy/scrapy #8449 (CONCURRENT_REQUESTS_PER_DOMAIN=0 hangs crawl) — patch on fix/per-domain-zero-concurrency, 14+93 tests green, ruff clean, proposal + patch in oscp/. pydantic-ai #8815 now ASSIGNED to dsfaccini: #9763 stays dead, do not resubmit; branch/patch kept warm only."
+      "evidence": "11/4 nightly: new OSC candidate staged: openai/openai-python #4023 (parse()/pydantic_function_tool() send invalid 'Page[Item]'-style names for generic pydantic models) — sanitize_tool_name() added in lib/_pydantic.py, wired into pydantic_function_tool + type_to_response_format_param/_text_format_param, Page[Item]->Page_Item, plain names unchanged; 5/5 tests green in uv venv, ruff clean; patch openai-python-4023.patch + PR proposal in oscp/, NOT submitted (9AM OK). scrapy #8449 still open/unassigned, zero PRs — candidate held, patch warm. crawlee #2363: vdusek confirmed internal-team-only (11/2) — retired. Email scan (provensolved inbox): no GitHub notifications; one new PSConsulting lead (Derek Espineli, SHU student, 15-min ask, resume attached) + Sophia Miller SEO pitch 11/3."
     }
   ],
   "gates": {
