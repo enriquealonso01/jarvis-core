@@ -2,7 +2,7 @@
   "plan_file": "docs/JARVIS_MASTER_PLAN_V2.md",
   "plan_sha": "14b32c07af90df7020504e69b2aaf5f7016e0876",
   "total_steps": 57,
-  "updated_at": "2026-11-10",
+  "updated_at": "2026-11-11",
   "current_step": "S54",
   "steps": [
     {
@@ -124,7 +124,7 @@
       "stage": 3,
       "state": "done",
       "pr": 53,
-      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause — sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
+      "evidence": "Live work detail: 19/19 browser assertions against a real S6 run, page never reloaded. Found and fixed the root cause \u2014 sseBroadcast was in-process, so every live update the runner ever sent went into an empty client set. Now bridged over Postgres LISTEN/NOTIFY."
     },
     {
       "id": "S15",
@@ -225,7 +225,7 @@
       "title": "Shrink the model routing",
       "stage": 5,
       "state": "done",
-      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified — 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
+      "evidence": "66 routing assertions + 12 runner assertions, 0 failed. Observed: a coding task whose engine reports its limit is requeued with no issue raised and completes on the next engine; a pinned task is never moved off its profile; the park names which engines are spent and when each returns; the hard ceiling empties the metered supervisor chain AND leaves coding running; the broker refuses a metered credential as budget.ceiling. Seen red twice (7, then 5). PR #129 merged and DEPLOYED: migration 028 applied in prod, registry verified \u2014 2 supervisor routes, reviewer glm-5p3 ahead of anthropic, engineer ladder anthropic/codex/cursor then kimi-k2p7-code (discovered, http_agent, awaits S28), dead free-tier chain gone, vision and embeddings kept. ADR 017."
     },
     {
       "id": "S26",
@@ -432,7 +432,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "11/9 nightly: OSS cooldown held (no cross-repo submissions since 11/6 bot close; window clears ~11/20). scrapy #8467 AND apify/crawlee-python #2338 both CLOSED UNMERGED (8467 stale per maintainer; 2338 'no activity after review' - vdusek). openai-python #4023/#4174 still open/unassigned; #4174 now has 2 competing patch posts in comments (Asutosa fork + hemv-857 full patch); PRs limited to collaborators anyway. pydantic-ai #8815 assigned dsfaccini (dead). NEW warm candidate: scrapy #8425 (from_curl missing Content-Type for -d) - patch adds application/x-www-form-urlencoded in curl_to_request_kwargs when no explicit Content-Type, 36/36 test_utils_curl.py green on master 1bc0473, ruff clean, patch oscp/scrapy-8425.patch + PR proposal. Issue #8447 (metacopy warns on get_retry_request) has competing PR #8472 - skipped."
+      "evidence": "11/11 nightly: candidate sweep (scrapy/crawlee/pydantic-ai/requests queried) \u2014 NO viable new candidate: scrapy #8419 has 1 live competing PR (#8435) + 4 failed attempts, #8441 has open PR #8458, #8449 enhancement-labeled and ours was bot-closed, #8410 reporter PR #8408 still closed; crawlee fresh wave all vdusek-assigned t-tooling chores (2398) or stale (2363/2337); pydantic-ai 13121-13138 all assigned DouweM except #13131 which is explicitly blocked (needs live xAI probe, credits exhausted); requests sweep found 3 ready fixes but ALL claimed in comments (7643 Lushiyao5 branch staged, 7644 yashpatadiya patch ready, 7642 X6M-Work fix posted) \u2014 7645/7634 remain unclaimed but need maintainer design decisions. Cooldown continues (~11/20). Prior warm: scrapy #8427 patch green, AWAITS Enrique's 9AM OK. OPEN (needs Enrique): openai-python #4023 one-click manual PR (still open/unassigned, 0 competing PRs). pydantic-ai #8815 dead (assigned dsfaccini). iOS: PR #33 (offline-first outbox) PR CI GREEN but Maestro QA 4/11 journeys fail + hit-test probe fail (Automated QA ping not visible; Camera missing = composer shows non-empty bar; jarvisFiles.empty missing) \u2014 QA regressions under investigation, NOT merged; iOS Builder owns (BUILD-STATE.md = truth)."
     }
   ],
   "gates": {
@@ -446,7 +446,7 @@
   },
   "working_on": "THE LAST TWO RUNNABLE SUITES NOW NAME THE TASK THEY CAME FOR. s3c-context and s6-workflow started a one-shot runner and took whatever was oldest on the heavy lane. They cancelled nothing, so they were not destructive, but they were flaky for the same reason - and s6 runs NINE cases in sequence, where each retryable failure leaves its task queued for the next case's runner to claim instead. s6-workflow 33/0, s3c-context 22/0, and s6 ran 33/0 AGAIN WITH A DECOY QUEUED THREE HOURS EARLIER, which the starvation cap would have put first - and the decoy was still 'queued' afterwards, untouched. Both halves observable: deterministic, and nothing else harmed. s4-recovery was converted by another session between ticks, with the ratchet list updated to match, which is the mechanism working as intended. A MISTAKE OF MINE, CORRECTED AND RECORDED IN THE CODE: last tick's 'count launches against targets' improvement was written, proven by sabotage, and then DESTROYED by the 'git checkout -- .' at the end of the next sabotage, because I had not committed it first. The commit that claimed to add it touched only PROGRESS.json, so the ratchet went back to asking whether a file MENTIONS RUNNER_TASK_ID - and today the same sabotage went green again. Re-applied and committed BEFORE sabotaging this time; the failure now names coverage, 's6-workflow-test.sh (0/1)'. I first read this as another session overwriting my work and said so in a comment; git showed it was mine, and the comment says that instead. PENDING IS FIVE, and none of the five is a threading job: s14-live-detail, s13-home, s15-journeys and s18-palette are Playwright suites that clear the lane for a VIEW - they want the Work view to show their fixtures and nothing else, so targeting cannot help and the fix is to scope the cancel to their own project. sweep.sh clears the lane once per run and is now the single biggest stomp left. NEXT: scope those four cancels to the project each suite owns, which needs the console checkout the Playwright suites drive - JARVIS_CONSOLE_DIR pointed at the main worktree's ../jarvis-control-center gets part of the way but the console server on 127.0.0.1:8109 is still not reachable from here.",
   "evidence": [
-    "2026-11-10: OSC nightly — pydantic-ai #8815 now ASSIGNED to dsfaccini (path dead, do not resubmit #9763); scrapy #8425 taken (3 claimants); crawlee #2008 closed. NEW warm candidate: scrapy #8427 (from_curl unknown option swallows URL) — unassigned, both prior PRs spam-closed unmerged; patch bd80f75 on fix/from-curl-unknown-option-url, 62+37 tests green, proposal + patch staged in oscp/. Awaiting 9AM approval to submit.",
-    "2026-11-08: OSC nightly — openai-python #4023 STILL awaiting Enrique's manual PR (issue open/unassigned, 0 competing PRs, compare link sent 11/5); scrapy cooldown holding, #8410 candidate warm, #8467 stays closed pending his reopen comment; NEW warm candidate built inside cooldown: openai-python #4174 AsyncStream GC leak (branch fix/async-stream-iterator-close e78a9d9, 847 tests green, repro matches issue target, patch+proposal staged, NOT submitted — openai org SAML + cooldown)."
+    "2026-11-10: OSC nightly \u2014 pydantic-ai #8815 now ASSIGNED to dsfaccini (path dead, do not resubmit #9763); scrapy #8425 taken (3 claimants); crawlee #2008 closed. NEW warm candidate: scrapy #8427 (from_curl unknown option swallows URL) \u2014 unassigned, both prior PRs spam-closed unmerged; patch bd80f75 on fix/from-curl-unknown-option-url, 62+37 tests green, proposal + patch staged in oscp/. Awaiting 9AM approval to submit.",
+    "2026-11-08: OSC nightly \u2014 openai-python #4023 STILL awaiting Enrique's manual PR (issue open/unassigned, 0 competing PRs, compare link sent 11/5); scrapy cooldown holding, #8410 candidate warm, #8467 stays closed pending his reopen comment; NEW warm candidate built inside cooldown: openai-python #4174 AsyncStream GC leak (branch fix/async-stream-iterator-close e78a9d9, 847 tests green, repro matches issue target, patch+proposal staged, NOT submitted \u2014 openai org SAML + cooldown)."
   ]
 }
