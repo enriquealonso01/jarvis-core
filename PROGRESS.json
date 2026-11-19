@@ -438,7 +438,7 @@
       "title": "Deploy its own control plane",
       "stage": 10,
       "state": "built",
-      "evidence": "OSS watcher + ops steady: 11/17 sweep pushed; scrapy #8449 fix rebuilt on master 953a7f4 (unit+crawl repro green, 59 tests, ruff clean) awaiting Enrique OK; #8815 confirmed assigned to dsfaccini — dead path; 11/18 PR #8467 submitted for #8449 (bot-closed by unattended guard, resubmit due ~11/20 pause end); openai-python #4287 patch green (repro + 2 regression tests, 83 passed, ruff clean) staged for OK"
+      "evidence": "OSS watcher + ops steady: 11/19 sweep: pydantic-ai #8815 confirmed implemented by assignee dsfaccini (dead, retire); scrapy #8467 still guard-closed, resubmit window opens ~11/20 pending Enrique OK; openai-python #4287 still open/unassigned, 0 competing PRs, patch green but openai org SAML-gates API PR creation - Enrique must open from web compare URL; NEW staged: trafilatura #1158 (XML output keeps source attrs on WITH_ATTRIBUTES elements, malformed one crashes extract) - fix keeps only own attrs (alt/rend/role/src/target/title/type), regression test red on main/green on fix, 13+4192+478 tests green, patch + proposal staged"
     }
   ],
   "gates": {
